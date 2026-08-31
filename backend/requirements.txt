@@ -7,6 +7,11 @@ psycopg[binary]>=3.1          # Postgres 3代驱动（SQLAlchemy 2 推荐）
 pydantic-settings>=2.3        # 读 .env 转配置对象
 ruff>=0.4                     # 代码格式化/检查
 
+# 阶段1：简历上传与解析
+python-multipart>=0.0.9       # FastAPI 接收 multipart 文件上传的必装件
+pypdf>=4.0                    # 文本型 PDF 逐页提取文字（纯 Python，无系统依赖）
+
 # 测试
 pytest>=8.0
 httpx>=0.27                   # FastAPI 测试客户端的底层依赖
+fpdf2>=2.7                    # 测试里现造 PDF 样本（正常/多页/无文字）

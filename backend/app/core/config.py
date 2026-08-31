@@ -13,5 +13,11 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     database_url: str = "postgresql+psycopg://ai:ai@localhost:5432/ai_interview"
 
+    # 阶段1：简历上传限制与存储（PROJECT-PLAN §1 风险1 对策：只收小体积文本型 PDF）
+    upload_max_size: int = 5 * 1024 * 1024  # 5MB
+    upload_max_pages: int = 5
+    # 相对启动目录（和 .env 一样，统一从 backend/ 启动）；在 web 根目录之外，不对外暴露
+    upload_dir: str = "uploads"
+
 
 settings = Settings()
