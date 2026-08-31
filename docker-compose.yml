@@ -1,0 +1,22 @@
+# 容器编排清单：docker compose 命令自动读取本文件（文件名是官方约定，不可改）
+# 阶段0 只有数据库；后端/前端的容器化在阶段5
+services:
+  db:
+    image: postgres:16-alpine # alpine 版体积更小；16 是项目定稿的 Postgres 大版本
+    container_name: ai-interview-db
+    environment:
+      POSTGRES_USER: ai # 本地开发用的账号/密码，仅本机可见，不用于生产
+      POSTGRES_PASSWORD: ai
+      POSTGRES_DB: ai_interview
+    ports:
+      - "5432:5432" # 宿主机端口:容器端口，后端通过 localhost:5432 连接
+    volumes:
+      - pgdata:/var/lib/postgresql/data # 具名卷：容器重建后数据仍在
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai -d ai_interview"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
