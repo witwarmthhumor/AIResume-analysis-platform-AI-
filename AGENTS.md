@@ -3,15 +3,15 @@
 > **本文件是干嘛的**：项目"户口本"——技术栈、启动命令、代码约定、铁律都记在这里。AI 每次会话开工必读；只在阶段切换或约定变更时更新。
 
 ## 当前状态
-- 当前阶段：阶段0（施工中）
+- 当前阶段：阶段2（AI 简历分析，实现完成待验收；分支 stage-2-ai-analysis）
 - 项目根目录：E:\AIDevelop\AIProject
-- 权威计划：PROJECT-PLAN.md（改需求先改它；阶段0 目录结构已在其 §7 定稿）
+- 权威计划：PROJECT-PLAN.md（改需求先改它；阶段2 验收 checklist 见其 §7）
 - 协作约定：AI-COLLABORATION.md（每次会话先读本文件和 PROGRESS.md）
 
 ## 技术栈
 - 后端：FastAPI + Postgres 16 + SQLAlchemy 2 + Alembic（阶段4 加 Celery/Redis）
 - 前端：Vue 3 + Vite（JavaScript 起步，配置文件用 vite.config.ts）
-- AI：OpenAI 兼容协议（DeepSeek / 通义），Key 只放 backend/.env（阶段2 接入）
+- AI：OpenAI 兼容协议（当前：通义 qwen-plus；换 DeepSeek = 改 backend/.env 三行），Key 只放 backend/.env
 - 后台任务：V1 用 FastAPI BackgroundTasks，阶段4 换 Celery
 - 测试：pytest（阶段0 起，冒烟测试）
 
@@ -50,8 +50,10 @@ cd backend
 - commit message：conventional commits（feat: / fix: / docs: / test: / chore:）
 - 数据库改动必须走 Alembic 迁移，禁止手动改表
 - Python 代码带类型注解，格式化用 ruff
-- 目录：后端代码在 backend/app；业务路由挂 /api 前缀（/health 例外，供基础设施检查）；阶段1 再加 app/api、app/schemas
+- 目录：后端代码在 backend/app；业务路由挂 /api 前缀（/health 例外，供基础设施检查）
 - 环境变量只放 backend/.env；前端本地开发走 Vite 代理调 /api，天然同源，不加 CORS
+- 测试简历集：test-resumes/ 5 份 PDF（生成脚本 scripts/generate_test_resumes.py）；改解析/提示词后必须重跑对比（回归基准）
+- AI 提示词带版本号 PROMPT_VERSION（backend/app/services/prompts.py）：改提示词必须递增，旧版本报告自动失效不复用
 
 ## Git / GitHub 策略（用户 2026-08-31 指示，覆盖原计划的逐阶段推送）
 - 现在：本地 git commit + 每阶段验收后打 tag，**不推送远端**
@@ -65,9 +67,9 @@ cd backend
 5. 执行任何命令前，先用一句大白话解释它做什么、动什么、有没有风险，解释完再执行
 6. 写每个文件前，先说明这个文件是干嘛的、为什么这样命名；约定俗成的固定文件名（如 .gitignore、README.md）要指出"这是约定名，不能改"
 
-## 环境现状（2026-08-31 复核）
+## 环境现状（2026-09-01 复核）
 - git 2.52.0 ✓（身份已配置：十四 / 2578415251@qq.com）
-- Python 3.13.9 ✓
-- Node.js 24.12.0 ✓
-- Docker Desktop 29.7.2 + Compose v5.4.0 ✓（守护进程运行中）
-- 端口 5432 / 8000 / 5173 空闲 ✓
+- Python 3.13.9 ✓ / Node.js 24.12.0 ✓ / Docker Desktop 29.7.2 + Compose v5.4.0 ✓
+- Postgres 容器 ai-interview-db 运行中（具名卷 pgdata）；开发端口 8000（后端）/ 5173（前端）
+- AI：通义 qwen-plus，Key 已填 backend/.env ✓
+- 已知：Docker Desktop 手动启动（不随开机自启）；Vite 只绑 IPv6 [::1]，curl 用 localhost 不用 127.0.0.1
