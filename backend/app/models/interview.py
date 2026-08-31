@@ -23,7 +23,9 @@ class InterviewSession(Base, TimestampMixin):
     # 面试状态机：intro → technical → deep_dive → wrapup
     stage: Mapped[str] = mapped_column(String(20), default="intro")
     turn_count: Mapped[int] = mapped_column(Integer, default=0)  # 设上限防无限聊
-    final_report_json: Mapped[dict | None] = mapped_column(JSONB)  # 结束评价报告（分维度评分）
+    final_report_json: Mapped[dict | None] = mapped_column(
+        JSONB
+    )  # 结束评价报告（分维度评分）
 
 
 class InterviewMessage(Base, TimestampMixin):

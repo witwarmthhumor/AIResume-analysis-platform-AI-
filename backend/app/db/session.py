@@ -29,5 +29,5 @@ def ping_database() -> str:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return "connected"
-    except Exception:
+    except Exception:  # noqa: BLE001  健康检查必须永不抛异常：任何失败都降级为 disconnected
         return "disconnected"

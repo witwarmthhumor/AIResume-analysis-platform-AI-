@@ -1,6 +1,6 @@
 """analyses 表：一次 AI 简历分析 = 一行。原始返回留档，便于调试与迭代对比。"""
 
-from sqlalchemy import BigInteger, Boolean, Integer, String
+from sqlalchemy import BigInteger, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 

@@ -15,8 +15,36 @@
 - 后台任务：V1 用 FastAPI BackgroundTasks，阶段4 换 Celery
 - 测试：pytest（阶段0 起，冒烟测试）
 
-## 启动命令
-（阶段0 施工完成后本节补全）
+## 启动命令（2026-08-31 阶段0 全部实测通过）
+> 统一从 backend/ 目录启动后端和 alembic——`.env` 读取相对当前目录，离开 backend/ 会找不到配置。
+
+```bash
+# 1. 数据库（仅 Postgres 容器，具名卷 pgdata）
+docker compose up -d db          # 项目根目录执行
+
+# 2. 后端（FastAPI，8000 端口；--reload 改代码自动重启）
+cd backend
+.venv\Scripts\python -m uvicorn app.main:app --reload
+
+# 3. 前端（Vite，5173 端口；/api/health 代理到后端 /health）
+cd frontend
+npm run dev
+
+# 数据库迁移（改模型后）
+cd backend
+.venv\Scripts\python -m alembic upgrade head          # 应用迁移
+.venv\Scripts\python -m alembic revision --autogenerate -m "说明"  # 生成迁移
+
+# 冒烟测试
+cd backend
+.venv\Scripts\python -m pytest
+
+# 代码检查
+cd backend
+.venv\Scripts\python -m ruff check . && .venv\Scripts\python -m ruff format .
+```
+
+验证：浏览器打开 http://localhost:5173 ，首页三个徽标应为「运行中 / 已连接 / 0.1.0」；`/health` 是基础设施检查，不带 `/api` 前缀。
 
 ## 代码约定
 - commit message：conventional commits（feat: / fix: / docs: / test: / chore:）

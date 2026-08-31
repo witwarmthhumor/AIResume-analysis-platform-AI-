@@ -10,4 +10,11 @@ from app.models.interview import InterviewMessage, InterviewSession
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
 
-__all__ = ["Base", "Analysis", "InterviewMessage", "InterviewSession", "Resume", "UsageLog"]
+__all__ = [
+    "Analysis",
+    "Base",
+    "InterviewMessage",
+    "InterviewSession",
+    "Resume",
+    "UsageLog",
+]

@@ -5,7 +5,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, BigInteger, String, func
+from sqlalchemy import BigInteger, DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin

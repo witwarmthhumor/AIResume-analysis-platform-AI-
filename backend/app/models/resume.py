@@ -17,7 +17,9 @@ class Resume(Base, TimestampMixin):
     anonymous_id: Mapped[str | None] = mapped_column(String(64), index=True)
 
     filename: Mapped[str] = mapped_column(String(255))  # 原始文件名（已消毒）
-    file_hash: Mapped[str] = mapped_column(String(64), index=True)  # SHA-256，重复上传去重
+    file_hash: Mapped[str] = mapped_column(
+        String(64), index=True
+    )  # SHA-256，重复上传去重
     storage_path: Mapped[str] = mapped_column(String(500))  # 存 web 根目录之外
 
     raw_text: Mapped[str | None]  # 解析出的纯文本
@@ -28,4 +30,6 @@ class Resume(Base, TimestampMixin):
     parse_status: Mapped[str] = mapped_column(String(20), default="pending")
     parse_error: Mapped[str | None] = mapped_column(Text)  # 面向用户的失败话术
 
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 软删除
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )  # 软删除
