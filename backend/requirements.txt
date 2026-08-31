@@ -1,0 +1,12 @@
+# 后端依赖清单（pip 官方约定文件名）。只写下限，安装时解析最新兼容版本
+fastapi>=0.115
+uvicorn[standard]>=0.30
+sqlalchemy>=2.0.30
+alembic>=1.13
+psycopg[binary]>=3.1          # Postgres 3代驱动（SQLAlchemy 2 推荐）
+pydantic-settings>=2.3        # 读 .env 转配置对象
+ruff>=0.4                     # 代码格式化/检查
+
+# 测试
+pytest>=8.0
+httpx>=0.27                   # FastAPI 测试客户端的底层依赖
