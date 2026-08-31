@@ -27,6 +27,17 @@ class AIError(Exception):
         self.raw_output = raw_output  # 有响应但格式不合法时留档用
 
 
+def _call_error_message(exc: Exception) -> str:
+    """把 SDK 异常翻译成用户话术：4xx 是配置/账户问题（重试没用），其余按暂时不可用。"""
+    status = getattr(exc, "status_code", None)
+    if status in (400, 401, 403, 404):
+        return (
+            "AI 服务拒绝了请求（配置或账户问题，如 Key 无效、欠费、模型名错误），"
+            "请联系站点管理员检查 AI 配置"
+        )
+    return "AI 服务暂时不可用，请稍后重试"
+
+
 @dataclass
 class AnalysisResult:
     report: dict  # 通过 AIReport 校验的结构化报告
@@ -77,10 +88,8 @@ def analyze_resume(resume_text: str, settings: Settings) -> AnalysisResult:
                 max_tokens=settings.ai_max_tokens,
                 temperature=0.3,  # 低随机性：结构化输出要稳定
             )
-        except Exception:  # noqa: BLE001  SDK 异常种类随服务商变化，统一按"服务暂不可用"话术
-            raise AIError(
-                "AI 服务暂时不可用，请稍后重试", raw_output=last_raw
-            ) from None
+        except Exception as exc:  # noqa: BLE001  SDK 异常种类随服务商变化，按类型给话术
+            raise AIError(_call_error_message(exc), raw_output=last_raw) from None
 
         content = resp.choices[0].message.content or ""
         last_raw = content
