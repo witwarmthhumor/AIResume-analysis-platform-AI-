@@ -16,6 +16,9 @@ frontend/dist/
 # 上传的简历文件（阶段1 起，隐私数据不入库）
 uploads/
 
+# run-app 本地运行时 PID 与日志
+.run-app/
+
 # 系统杂项
 .DS_Store
 Thumbs.db
