@@ -128,6 +128,15 @@ def test_start_session_with_opening_message() -> None:
     assert "自我介绍" in session["messages"][0]["content"]
 
 
+def test_reenter_reuses_in_progress_session() -> None:
+    resume_id = _upload_ok()
+    first = client.post(f"/api/resumes/{resume_id}/interviews")
+    second = client.post(f"/api/resumes/{resume_id}/interviews")
+    assert first.status_code == 201 and second.status_code == 201
+    assert first.json()["session"]["id"] == second.json()["session"]["id"]
+    assert len(second.json()["session"]["messages"]) == 1
+
+
 def test_message_flow_sse_and_persistence(monkeypatch) -> None:
     session = _start_session()
     sid = session["id"]

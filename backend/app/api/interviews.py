@@ -86,6 +86,21 @@ def start_interview(
     if resume.parse_status != "success" or not resume.raw_text:
         raise HTTPException(400, "该简历未成功解析出文本，无法开始面试")
 
+    existing = db.scalar(
+        select(InterviewSession)
+        .where(
+            InterviewSession.resume_id == resume_id,
+            InterviewSession.anonymous_id == anonymous_id,
+            InterviewSession.status == "in_progress",
+        )
+        .order_by(InterviewSession.created_at.desc(), InterviewSession.id.desc())
+    )
+    if existing is not None:
+        return StartSessionOut(
+            interview_prompt_version=INTERVIEW_PROMPT_VERSION,
+            session=_session_out(db, existing),
+        )
+
     session = InterviewSession(resume_id=resume_id, anonymous_id=anonymous_id)
     db.add(session)
     db.flush()  # 拿到 session.id 给开场白用
