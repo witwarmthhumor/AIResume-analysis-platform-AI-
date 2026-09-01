@@ -16,12 +16,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.auth_deps import get_optional_current_user
 from app.api.deps import enforce_daily_limit, get_anonymous_id
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.interview import InterviewMessage, InterviewSession
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
+from app.models.user import User
 from app.schemas.interview import (
     InterviewReport,
     MessageOut,
@@ -44,9 +46,15 @@ class SendMessageIn(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
 
 
-def _get_session(db: Session, session_id: int) -> InterviewSession:
+def _get_session(
+    db: Session, session_id: int, user: User | None = None
+) -> InterviewSession:
     session = db.get(InterviewSession, session_id)
     if session is None:
+        raise HTTPException(404, "面试会话不存在")
+    if user is not None and session.user_id != user.id:
+        raise HTTPException(404, "面试会话不存在")
+    if user is None and session.user_id is not None:
         raise HTTPException(404, "面试会话不存在")
     return session
 
@@ -78,10 +86,15 @@ def start_interview(
     resume_id: int,
     db: Session = Depends(get_db),  # noqa: B008  FastAPI 依赖注入官方惯用法
     anonymous_id: str = Depends(get_anonymous_id),
+    user: User | None = Depends(get_optional_current_user),  # noqa: B008
 ) -> StartSessionOut:
     """基于已成功解析的简历开一场面试。开场白为固定话术，不耗 AI 调用。"""
     resume = db.get(Resume, resume_id)
     if resume is None or resume.deleted_at is not None:
+        raise HTTPException(404, "简历记录不存在或已删除")
+    if user is not None and resume.user_id != user.id:
+        raise HTTPException(404, "简历记录不存在或已删除")
+    if user is None and resume.user_id is not None:
         raise HTTPException(404, "简历记录不存在或已删除")
     if resume.parse_status != "success" or not resume.raw_text:
         raise HTTPException(400, "该简历未成功解析出文本，无法开始面试")
@@ -90,8 +103,13 @@ def start_interview(
         select(InterviewSession)
         .where(
             InterviewSession.resume_id == resume_id,
-            InterviewSession.anonymous_id == anonymous_id,
             InterviewSession.status == "in_progress",
+            (
+                InterviewSession.user_id == user.id
+                if user is not None
+                else InterviewSession.user_id.is_(None)
+            ),
+            (InterviewSession.anonymous_id == anonymous_id if user is None else True),
         )
         .order_by(InterviewSession.created_at.desc(), InterviewSession.id.desc())
     )
@@ -101,7 +119,11 @@ def start_interview(
             session=_session_out(db, existing),
         )
 
-    session = InterviewSession(resume_id=resume_id, anonymous_id=anonymous_id)
+    session = InterviewSession(
+        resume_id=resume_id,
+        user_id=user.id if user is not None else None,
+        anonymous_id=anonymous_id if user is None else None,
+    )
     db.add(session)
     db.flush()  # 拿到 session.id 给开场白用
     db.add(
@@ -121,9 +143,10 @@ def start_interview(
 def get_interview(
     session_id: int,
     db: Session = Depends(get_db),  # noqa: B008
+    user: User | None = Depends(get_optional_current_user),  # noqa: B008
 ) -> SessionOut:
     """会话详情（含全部消息）：刷新页面后靠它恢复。"""
-    return _session_out(db, _get_session(db, session_id))
+    return _session_out(db, _get_session(db, session_id, user))
 
 
 @router.post("/interviews/{session_id}/messages")
@@ -133,9 +156,10 @@ def send_message(
     request: Request,
     db: Session = Depends(get_db),  # noqa: B008
     anonymous_id: str = Depends(get_anonymous_id),
+    user: User | None = Depends(get_optional_current_user),  # noqa: B008
 ) -> StreamingResponse:
     """用户回答 → AI 回复 SSE 流式返回。每条 AI 回复记 usage_logs 并受每日限流。"""
-    session = _get_session(db, session_id)
+    session = _get_session(db, session_id, user)
     if session.status != "in_progress":
         raise HTTPException(400, "该面试已结束")
     if session.turn_count >= settings.max_interview_turns:
@@ -246,9 +270,10 @@ def finish_interview(
     request: Request,
     db: Session = Depends(get_db),  # noqa: B008
     anonymous_id: str = Depends(get_anonymous_id),
+    user: User | None = Depends(get_optional_current_user),  # noqa: B008
 ) -> SessionOut:
     """结束面试：基于全部对话生成分维度评价报告，status=finished。"""
-    session = _get_session(db, session_id)
+    session = _get_session(db, session_id, user)
     if session.status != "in_progress":
         raise HTTPException(400, "该面试已结束，报告以现有内容为准")
 

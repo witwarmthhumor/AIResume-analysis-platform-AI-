@@ -9,12 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.auth_deps import get_optional_current_user
 from app.api.deps import enforce_daily_limit, get_anonymous_id
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.analysis import Analysis
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
+from app.models.user import User
 from app.schemas.analysis import AnalysisOut, AnalysisResultOut
 from app.services.ai_client import AIError, AnalysisResult, analyze_resume
 from app.services.prompts import PROMPT_VERSION
@@ -55,10 +57,15 @@ def analyze_resume_endpoint(
     request: Request,
     db: Session = Depends(get_db),  # noqa: B008  FastAPI 依赖注入官方惯用法
     anonymous_id: str = Depends(get_anonymous_id),
+    user: User | None = Depends(get_optional_current_user),  # noqa: B008
 ) -> AnalysisResultOut:
     """对已成功解析的简历发起 AI 分析。同一简历同版本提示词只算一次。"""
     resume = db.get(Resume, resume_id)
     if resume is None or resume.deleted_at is not None:
+        raise HTTPException(404, "简历记录不存在或已删除")
+    if user is not None and resume.user_id != user.id:
+        raise HTTPException(404, "简历记录不存在或已删除")
+    if user is None and resume.user_id is not None:
         raise HTTPException(404, "简历记录不存在或已删除")
     if resume.parse_status != "success" or not resume.raw_text:
         raise HTTPException(400, "该简历未成功解析出文本，无法发起 AI 分析")
@@ -72,12 +79,13 @@ def analyze_resume_endpoint(
     try:
         result = analyze_resume(resume.raw_text, settings)
     except AIError as exc:
-        _record(db, resume_id, anonymous_id, request, exc, None)
+        _record(db, resume_id, anonymous_id, user, request, exc, None)
         raise HTTPException(502, exc.message) from exc
 
     analysis = Analysis(
         resume_id=resume_id,
-        anonymous_id=anonymous_id,
+        user_id=user.id if user is not None else None,
+        anonymous_id=anonymous_id if user is None else None,
         model_name=result.model_name,
         prompt_version=PROMPT_VERSION,
         result_json=result.report,
@@ -86,7 +94,7 @@ def analyze_resume_endpoint(
         tokens_completion=result.tokens_completion,
         duration_ms=result.duration_ms,
     )
-    _record(db, resume_id, anonymous_id, request, result, analysis)
+    _record(db, resume_id, anonymous_id, user, request, result, analysis)
     return AnalysisResultOut(cached=False, analysis=_to_out(analysis))
 
 
@@ -94,8 +102,16 @@ def analyze_resume_endpoint(
 def get_analysis(
     resume_id: int,
     db: Session = Depends(get_db),  # noqa: B008
+    user: User | None = Depends(get_optional_current_user),  # noqa: B008
 ) -> AnalysisOut:
     """该简历最新的有效分析报告；没有则 404。"""
+    resume = db.get(Resume, resume_id)
+    if resume is None or resume.deleted_at is not None:
+        raise HTTPException(404, "简历记录不存在或已删除")
+    if user is not None and resume.user_id != user.id:
+        raise HTTPException(404, "简历记录不存在或已删除")
+    if user is None and resume.user_id is not None:
+        raise HTTPException(404, "简历记录不存在或已删除")
     analysis = _latest_valid_analysis(db, resume_id)
     if analysis is None:
         raise HTTPException(404, "该简历还没有分析报告")
@@ -106,6 +122,7 @@ def _record(
     db: Session,
     resume_id: int,
     anonymous_id: str,
+    user: User | None,
     request: Request,
     result: AnalysisResult | AIError,
     analysis: Analysis | None,
@@ -125,7 +142,8 @@ def _record(
     if analysis is None:  # 失败留痕：valid_json=false，调试与迭代对比用
         analysis = Analysis(
             resume_id=resume_id,
-            anonymous_id=anonymous_id,
+            user_id=user.id if user is not None else None,
+            anonymous_id=anonymous_id if user is None else None,
             model_name=model,
             prompt_version=PROMPT_VERSION,
             result_json=result_json,
@@ -135,7 +153,8 @@ def _record(
     db.add(analysis)  # 成功路径的对象也在这里统一入会话
     db.add(
         UsageLog(
-            anonymous_id=anonymous_id,
+            user_id=user.id if user is not None else None,
+            anonymous_id=anonymous_id if user is None else None,
             action_type="analysis",
             model_name=model,
             tokens_total=tokens,
