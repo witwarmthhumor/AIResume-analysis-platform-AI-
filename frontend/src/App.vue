@@ -4,6 +4,8 @@ import UploadCard from './components/UploadCard.vue'
 import ResumeList from './components/ResumeList.vue'
 import AnalysisReport from './components/AnalysisReport.vue'
 import InterviewChat from './components/InterviewChat.vue'
+import LoginPanel from './components/LoginPanel.vue'
+import HistoryView from './components/HistoryView.vue'
 
 // —— 健康检查（缩成页脚状态条）——
 const health = ref(null)
@@ -19,12 +21,33 @@ const healthLabel = {
 const resumes = ref([])
 const currentResume = ref(null)
 const interviewResume = ref(null)
+const currentUser = ref(null)
+const showLogin = ref(false)
+const showHistory = ref(false)
 
 const STATUS = {
   success: { label: '解析成功', cls: 'ok' },
   unsupported: { label: '暂不支持', cls: 'warn' },
   failed: { label: '解析失败', cls: 'bad' },
   pending: { label: '解析中', cls: 'warn' },
+}
+
+async function loadUser() {
+  const res = await fetch('/api/auth/me', { credentials: 'include' })
+  if (res.ok) currentUser.value = await res.json()
+}
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+  currentUser.value = null
+  showHistory.value = false
+  await refreshList()
+}
+
+function onLoggedIn(user) {
+  currentUser.value = user
+  showLogin.value = false
+  refreshList()
 }
 
 async function refreshList() {
@@ -57,6 +80,7 @@ async function onSelect(id) {
 }
 
 onMounted(async () => {
+  loadUser()
   refreshList()
   try {
     const res = await fetch('/api/health') // 走 Vite 代理到后端，同源无跨域
@@ -74,6 +98,14 @@ onMounted(async () => {
       <p class="subtitle">阶段 3 · 文字模拟面试</p>
     </header>
 
+    <div class="toolbar">
+      <span v-if="currentUser">已登录：{{ currentUser.email }}</span>
+      <button v-if="currentUser" class="small-btn" @click="showHistory = !showHistory">{{ showHistory ? '收起历史' : '我的历史' }}</button>
+      <button v-if="currentUser" class="small-btn" @click="logout">退出</button>
+      <button v-else class="small-btn" @click="showLogin = !showLogin">登录 / 注册</button>
+    </div>
+    <LoginPanel v-if="showLogin && !currentUser" @logged-in="onLoggedIn" />
+    <HistoryView v-if="showHistory && currentUser" />
     <UploadCard @uploaded="onUploaded" />
     <ResumeList :resumes="resumes" :current-id="currentResume?.id" @select="onSelect" />
 
@@ -133,6 +165,27 @@ onMounted(async () => {
   font-family: system-ui, 'Microsoft YaHei', sans-serif;
   background: #f5f7fa;
   padding: 32px 16px 40px;
+}
+
+.toolbar {
+  width: 100%;
+  max-width: 680px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.small-btn {
+  border: 0;
+  border-radius: 7px;
+  padding: 6px 10px;
+  background: #ecfdf5;
+  color: #047857;
+  cursor: pointer;
+  font-size: 12px;
 }
 
 header h1 {

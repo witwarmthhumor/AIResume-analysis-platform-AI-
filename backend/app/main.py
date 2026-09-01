@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from app.api.analyses import router as analyses_router
 from app.api.auth import router as auth_router
+from app.api.history import router as history_router
 from app.api.interviews import router as interviews_router
 from app.api.resumes import router as resumes_router
 from app.api.tasks import router as tasks_router
@@ -19,6 +20,7 @@ app.include_router(resumes_router)
 app.include_router(analyses_router)
 app.include_router(interviews_router)
 app.include_router(auth_router)
+app.include_router(history_router)
 app.include_router(tasks_router)
 
 
