@@ -31,5 +31,12 @@ class Settings(BaseSettings):
     max_interview_turns: int = 10  # 单场面试最大轮次，防无限聊（PROJECT-PLAN §2）
     daily_interview_message_limit: int = 100  # 每人每日 AI 回复条数上限
 
+    # 阶段4：JWT 与 Celery/Redis
+    jwt_secret_key: str = "change-me-in-backend-env"
+    jwt_expire_minutes: int = 60 * 24
+    jwt_secure_cookie: bool = False  # 本地 HTTP 开发为 False，生产 HTTPS 再改 True
+    redis_url: str = "redis://localhost:6379/0"
+    celery_result_url: str = "redis://localhost:6379/1"
+
 
 settings = Settings()

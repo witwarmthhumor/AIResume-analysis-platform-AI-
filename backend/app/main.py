@@ -6,6 +6,7 @@
 from fastapi import FastAPI
 
 from app.api.analyses import router as analyses_router
+from app.api.auth import router as auth_router
 from app.api.interviews import router as interviews_router
 from app.api.resumes import router as resumes_router
 from app.core.config import settings
@@ -16,6 +17,7 @@ app = FastAPI(title="AI 简历分析与模拟面试 API", version=settings.app_v
 app.include_router(resumes_router)
 app.include_router(analyses_router)
 app.include_router(interviews_router)
+app.include_router(auth_router)
 
 
 @app.get("/health")
