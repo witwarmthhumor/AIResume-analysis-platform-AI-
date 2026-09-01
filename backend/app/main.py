@@ -4,6 +4,7 @@
 """
 
 from fastapi import FastAPI
+from redis import Redis
 
 from app.api.analyses import router as analyses_router
 from app.api.auth import router as auth_router
@@ -26,10 +27,29 @@ app.include_router(tasks_router)
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    """健康检查：永远返回 200；数据库不通时 status 降级为 degraded。"""
+    """基础健康检查：永远返回 200，便于查看降级状态。"""
     db_status = ping_database()
     return {
         "status": "ok" if db_status == "connected" else "degraded",
         "database": db_status,
         "version": settings.app_version,
     }
+
+
+@app.get("/health/ready")
+def readiness() -> dict[str, str]:
+    """容器就绪探针：数据库和 Redis 都通才返回 200。"""
+    db_status = ping_database()
+    redis_status = "connected"
+    try:
+        Redis.from_url(settings.redis_url, socket_connect_timeout=1).ping()
+    except Exception:  # noqa: BLE001  readiness 只返回状态，不把基础设施异常抛给探针
+        redis_status = "disconnected"
+    if db_status != "connected" or redis_status != "connected":
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=503,
+            detail={"database": db_status, "redis": redis_status},
+        )
+    return {"status": "ready", "database": db_status, "redis": redis_status}

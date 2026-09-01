@@ -1,6 +1,7 @@
 # 密钥与环境变量（永不入库，铁律第1条）
 .env
 backend/.env
+backend/.env.docker
 
 # Python
 __pycache__/

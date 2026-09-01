@@ -3,16 +3,16 @@
 > **本文件是干嘛的**：项目"户口本"——技术栈、启动命令、代码约定、铁律都记在这里。AI 每次会话开工必读；只在阶段切换或约定变更时更新。
 
 ## 当前状态
-- 当前阶段：阶段3（文字模拟面试；分支 stage-3-interview）
+- 当前阶段：阶段5（Docker 化部署与作品集打磨，实现完成待验收；分支 stage-5-deploy-polish）
 - 项目根目录：E:\AIDevelop\AIProject
-- 权威计划：PROJECT-PLAN.md（改需求先改它；阶段3 验收 checklist 见其 §7）
+- 权威计划：PROJECT-PLAN.md（改需求先改它；阶段5 验收 checklist 见其 §7）
 - 协作约定：AI-COLLABORATION.md（每次会话先读本文件和 PROGRESS.md）
 
 ## 技术栈
 - 后端：FastAPI + Postgres 16 + SQLAlchemy 2 + Alembic（阶段4 加 Celery/Redis）
 - 前端：Vue 3 + Vite（JavaScript 起步，配置文件用 vite.config.ts）
 - AI：OpenAI 兼容协议（当前：DeepSeek deepseek-chat；换通义 = 改 backend/.env 三行），Key 只放 backend/.env
-- 后台任务：V1 用 FastAPI BackgroundTasks，阶段4 换 Celery
+- 后台任务：Celery + Redis（阶段4接入，阶段5全套 Docker 编排）
 - 测试：pytest（阶段0 起，冒烟测试）
 
 ## 启动命令（2026-08-31 阶段0 全部实测通过）
