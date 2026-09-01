@@ -19,5 +19,13 @@ class Settings(BaseSettings):
     # 相对启动目录（和 .env 一样，统一从 backend/ 启动）；在 web 根目录之外，不对外暴露
     upload_dir: str = "uploads"
 
+    # 阶段2：大模型（OpenAI 兼容协议；Key 只放 .env，铁律第1条）
+    ai_base_url: str = ""  # 如 https://dashscope.aliyuncs.com/compatible-mode/v1
+    ai_model: str = ""  # 如 qwen-plus / deepseek-chat
+    ai_api_key: str = ""
+    ai_max_tokens: int = 2000  # 单次调用输出上限，控成本
+    ai_timeout_seconds: float = 60.0
+    daily_analysis_limit: int = 20  # 每人每日分析次数上限（按匿名 cookie 统计）
+
 
 settings = Settings()
