@@ -36,7 +36,8 @@ def test_register_login_me_logout() -> None:
 
     with engine.begin() as conn:
         row = conn.execute(
-            text("SELECT password_hash FROM users WHERE email = :email"), {"email": address}
+            text("SELECT password_hash FROM users WHERE email = :email"),
+            {"email": address},
         ).scalar_one()
     assert row != credentials["password"]
 
@@ -46,6 +47,9 @@ def test_duplicate_email_and_bad_login() -> None:
     credentials = {"email": address, "password": "correct-horse-123"}
     assert client.post("/api/auth/register", json=credentials).status_code == 201
     assert client.post("/api/auth/register", json=credentials).status_code == 409
-    assert client.post(
-        "/api/auth/login", json={"email": address, "password": "wrong-pass-123"}
-    ).status_code == 401
+    assert (
+        client.post(
+            "/api/auth/login", json={"email": address, "password": "wrong-pass-123"}
+        ).status_code
+        == 401
+    )

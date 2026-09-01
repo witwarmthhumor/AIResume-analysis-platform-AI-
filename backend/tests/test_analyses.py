@@ -107,7 +107,10 @@ def test_analyze_success_and_usage_logged(monkeypatch) -> None:
     with engine.begin() as conn:
         assert conn.execute(text("SELECT count(*) FROM analyses")).scalar() == 1
         row = conn.execute(
-            text("SELECT tokens_total, action_type FROM usage_logs")
+            text(
+                "SELECT tokens_total, action_type FROM usage_logs "
+                "WHERE action_type = 'analysis'"
+            )
         ).fetchone()
     assert row.action_type == "analysis" and row.tokens_total == 300
 

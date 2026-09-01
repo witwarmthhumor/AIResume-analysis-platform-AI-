@@ -20,7 +20,9 @@ _COOKIE_KWARGS = {"httponly": True, "samesite": "lax", "secure": False}
     "/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED
 )
 def register(
-    credentials: AuthCredentials, response: Response, db: Session = Depends(get_db)  # noqa: B008
+    credentials: AuthCredentials,
+    response: Response,
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> AuthResponse:
     email = str(credentials.email).lower()
     user = User(email=email, password_hash=hash_password(credentials.password))
@@ -39,7 +41,9 @@ def register(
 
 @router.post("/login", response_model=AuthResponse)
 def login(
-    credentials: AuthCredentials, response: Response, db: Session = Depends(get_db)  # noqa: B008
+    credentials: AuthCredentials,
+    response: Response,
+    db: Session = Depends(get_db),  # noqa: B008
 ) -> AuthResponse:
     user = db.scalar(select(User).where(User.email == str(credentials.email).lower()))
     if user is None or not verify_password(credentials.password, user.password_hash):
