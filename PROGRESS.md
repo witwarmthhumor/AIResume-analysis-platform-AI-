@@ -10,7 +10,8 @@
 - 项目规划定稿 / 记忆文件落成 / 阶段0 封版 v0.1 / 阶段1 封版 v0.2 / 阶段2 封版 v0.3 / 阶段3 封版 v0.4
 - 阶段2（AI 简历分析）：后端封装层（JSON 校验重试/4xx 分类话术）+ 分析接口（去重/限流/留痕/记账）+ 前端报告页（六块内容 + token 可见 + 错误提示）；18 个 pytest 全过、ruff 全绿、npm build 通过
 - 阶段3（文字模拟面试）：四阶段状态机、SSE 逐段流式回复、消息落库恢复、最大轮次、结束评价报告、面试消息限流；26 个 pytest 全过、ruff 全绿、npm build 通过；DeepSeek 真机完整走通一轮并验证会话恢复与 usage 记账
-- 阶段4已完成部分：users 表与 Alembic 迁移、Argon2/JWT HttpOnly Cookie 认证、简历/分析/面试用户归属隔离、Redis 7 + Celery health-check 任务及状态接口、登录/注册/退出/历史记录前端；28 个 pytest 全过、ruff 全绿、npm build 通过
+- 阶段4已完成部分：users 表与 Alembic 迁移、Argon2/JWT HttpOnly Cookie 认证、简历/分析/面试用户归属隔离、Redis 7 + Celery health-check/解析/分析任务入口及状态接口、登录/注册/退出/历史记录前端；30 个 pytest 全过、ruff 全绿、npm build 通过
+- Celery 真机验证：Redis healthy，health-check 任务提交后返回 success；当前解析/分析任务入口已就绪，业务持久化迁移仍待下一步接入
 - 真机 E2E：DeepSeek 出完整报告（6.2s）+ 缓存去重 + 换模型验证（通义失败路径/DeepSeek 成功路径）
 - 测试简历集：test-resumes/ 5 份 PDF + 生成脚本 scripts/generate_test_resumes.py
 
