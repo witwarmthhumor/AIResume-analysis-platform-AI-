@@ -27,5 +27,9 @@ class Settings(BaseSettings):
     ai_timeout_seconds: float = 60.0
     daily_analysis_limit: int = 20  # 每人每日分析次数上限（按匿名 cookie 统计）
 
+    # 阶段3：文字模拟面试
+    max_interview_turns: int = 10  # 单场面试最大轮次，防无限聊（PROJECT-PLAN §2）
+    daily_interview_message_limit: int = 100  # 每人每日 AI 回复条数上限
+
 
 settings = Settings()

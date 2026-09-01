@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import UploadCard from './components/UploadCard.vue'
 import ResumeList from './components/ResumeList.vue'
 import AnalysisReport from './components/AnalysisReport.vue'
+import InterviewChat from './components/InterviewChat.vue'
 
 // —— 健康检查（缩成页脚状态条）——
 const health = ref(null)
@@ -17,6 +18,7 @@ const healthLabel = {
 // —— 简历业务：列表 + 当前查看的详情 ——
 const resumes = ref([])
 const currentResume = ref(null)
+const interviewResume = ref(null)
 
 const STATUS = {
   success: { label: '解析成功', cls: 'ok' },
@@ -39,7 +41,12 @@ async function onUploaded(resume) {
   await refreshList()
 }
 
+function startInterview() {
+  if (currentResume.value?.parse_status === 'success') interviewResume.value = currentResume.value
+}
+
 async function onSelect(id) {
+  interviewResume.value = null
   currentResume.value = null
   try {
     const res = await fetch(`/api/resumes/${id}`)
@@ -64,7 +71,7 @@ onMounted(async () => {
   <main class="page">
     <header>
       <h1>AI 简历分析 <span class="plus">+</span> 模拟面试</h1>
-      <p class="subtitle">阶段 2 · AI 简历分析</p>
+      <p class="subtitle">阶段 3 · 文字模拟面试</p>
     </header>
 
     <UploadCard @uploaded="onUploaded" />
@@ -86,7 +93,17 @@ onMounted(async () => {
         {{ currentResume.parse_error }}
       </p>
       <pre v-else class="raw-text">{{ currentResume.raw_text }}</pre>
+      <button v-if="currentResume.parse_status === 'success'" class="interview-button" @click="startInterview">
+        开始模拟面试
+      </button>
     </section>
+
+    <InterviewChat
+      v-if="interviewResume"
+      :key="interviewResume.id"
+      :resume="interviewResume"
+      @close="interviewResume = null"
+    />
 
     <AnalysisReport
       v-if="currentResume?.parse_status === 'success'"

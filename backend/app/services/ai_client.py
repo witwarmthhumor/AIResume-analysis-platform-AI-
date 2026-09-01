@@ -1,11 +1,12 @@
 """大模型封装层：全项目唯一调 AI 的地方（PROJECT-PLAN §3）。
 
-职责：发请求、JSON 输出校验 + 失败自动重试（最多 2 次）、超时与异常处理、
-token/耗时统计。换模型 = 改 .env 三行；换重试/校验策略 = 只改这个文件。
+职责：发请求、JSON 输出校验 + 失败自动重试（最多 2 次）、SSE 流式输出、
+超时与异常处理、token/耗时统计。换模型 = 改 .env 三行；换重试/校验策略 = 只改这个文件。
 """
 
 import json
 import time
+from collections.abc import Generator
 from dataclasses import dataclass
 
 from openai import OpenAI
@@ -38,6 +39,17 @@ def _call_error_message(exc: Exception) -> str:
     return "AI 服务暂时不可用，请稍后重试"
 
 
+def _build_client(settings: Settings) -> OpenAI:
+    """统一出口：未配置直接报错，配置齐了才造客户端。"""
+    if not settings.ai_api_key or not settings.ai_base_url:
+        raise AIError("AI 服务未配置，请在 backend/.env 填写 AI_BASE_URL 与 AI_API_KEY")
+    return OpenAI(
+        base_url=settings.ai_base_url,
+        api_key=settings.ai_api_key,
+        timeout=settings.ai_timeout_seconds,
+    )
+
+
 @dataclass
 class AnalysisResult:
     report: dict  # 通过 AIReport 校验的结构化报告
@@ -61,21 +73,19 @@ def _extract_json(content: str) -> dict:
     return json.loads(text[start : end + 1])
 
 
-def analyze_resume(resume_text: str, settings: Settings) -> AnalysisResult:
-    """同步调用大模型分析简历。重试耗尽或网络异常 → AIError；成功 → 校验过的报告。"""
-    if not settings.ai_api_key or not settings.ai_base_url:
-        raise AIError("AI 服务未配置，请在 backend/.env 填写 AI_BASE_URL 与 AI_API_KEY")
+def chat_json(
+    system_prompt: str, user_prompt: str, settings: Settings, validator
+) -> AnalysisResult:
+    """通用"结构化 JSON 调用"：发请求 → 校验 → 失败重试（最多 2 次）。
 
-    client = OpenAI(
-        base_url=settings.ai_base_url,
-        api_key=settings.ai_api_key,
-        timeout=settings.ai_timeout_seconds,
-    )
+    validator 接收解析出的 dict，返回 pydantic 模型（校验失败抛异常即触发重试）。
+    简历分析（AIReport）与面试结束评价（InterviewReport）共用这条路径。
+    """
+    client = _build_client(settings)
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": build_user_prompt(resume_text)},
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
     ]
-
     started = time.monotonic()
     last_raw: str | None = None
     last_tokens: tuple[int | None, int | None] = (None, None)
@@ -97,12 +107,12 @@ def analyze_resume(resume_text: str, settings: Settings) -> AnalysisResult:
             last_tokens = (resp.usage.prompt_tokens, resp.usage.completion_tokens)
 
         try:
-            report = AIReport.model_validate(_extract_json(content))
+            validated = validator(_extract_json(content))
         except Exception:  # noqa: BLE001, S112  解析/校验失败 → 重试，耗尽后统一报错
             continue
 
         return AnalysisResult(
-            report=report.model_dump(),
+            report=validated.model_dump(),
             valid=True,
             model_name=settings.ai_model,
             tokens_prompt=last_tokens[0],
@@ -113,3 +123,38 @@ def analyze_resume(resume_text: str, settings: Settings) -> AnalysisResult:
     raise AIError(
         "AI 返回的格式不符合要求，已自动重试仍失败，请稍后重试", raw_output=last_raw
     )
+
+
+def analyze_resume(resume_text: str, settings: Settings) -> AnalysisResult:
+    """同步调用大模型分析简历，输出校验过的六块报告。"""
+    return chat_json(
+        SYSTEM_PROMPT, build_user_prompt(resume_text), settings, AIReport.model_validate
+    )
+
+
+def stream_chat(
+    messages: list[dict], settings: Settings, usage_out: dict
+) -> Generator[str, None, None]:
+    """流式对话：逐段产出 AI 文字。usage_out 会地填入 token 统计（流式响应 usage 在最后）。
+
+    messages 为完整对话（含 system）；连接/流中断时抛 AIError，已产出的文字仍有效。
+    """
+    client = _build_client(settings)
+    try:
+        stream = client.chat.completions.create(
+            model=settings.ai_model,
+            messages=messages,
+            max_tokens=settings.ai_max_tokens,
+            temperature=0.6,  # 对话场景允许一点随机性
+            stream=True,
+            stream_options={"include_usage": True},  # DeepSeek/DashScope 兼容
+        )
+        for chunk in stream:
+            if getattr(chunk, "usage", None):
+                usage_out["tokens_prompt"] = chunk.usage.prompt_tokens
+                usage_out["tokens_completion"] = chunk.usage.completion_tokens
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                yield delta.content
+    except Exception as exc:  # noqa: BLE001  流式链路异常统一给话术
+        raise AIError(_call_error_message(exc)) from None
