@@ -1,11 +1,11 @@
 # 进度日志
 
 > **本文件是干嘛的**：项目进度日志——当前进行、已完成、踩过的坑、下一步。AI 每次新会话先读它接续上下文；每次会话结束前更新本文件。
-> 最后更新：2026-09-01（阶段4实现会话）。
+> 最后更新：2026-09-01（阶段5实现会话）。
 
 ## 当前进行
-- 阶段4 已验收封版：分支 stage-4-auth-async 合并回 main，tag v0.5（本地）
-- 阶段0~4 已完成，下一阶段为阶段5：Docker 化部署与作品集打磨
+- 阶段5 实现完成，**待用户验收全套 Docker 部署 → 通过后合并 main 并打 tag v1.0（仅本地，不推送）**
+- 当前分支：stage-5-deploy-polish；阶段4 已封版 v0.5
 
 ## 已完成
 - 项目规划定稿 / 记忆文件落成 / 阶段0 封版 v0.1 / 阶段1 封版 v0.2 / 阶段2 封版 v0.3 / 阶段3 封版 v0.4
@@ -14,6 +14,7 @@
 - 阶段4 已完成并封版：users 表与 Alembic 迁移、Argon2/JWT HttpOnly Cookie 认证、简历/分析/面试用户归属隔离、Redis 7 + Celery 业务任务及状态接口、登录/注册/退出/历史记录前端；30 个 pytest 全过、ruff 全绿、npm build 通过
 - Celery 真机验证：Redis healthy，health-check 任务提交后返回 success；解析任务会更新 resumes，分析任务会写入 analyses，提交接口会校验用户归属
 - 阶段4封版：浏览器验收通过，合并回 main，tag v0.5（本地）
+- 阶段5部署实现：后端/前端生产 Dockerfile、Nginx SPA fallback 与 `/api` 反代、生产 compose（db/redis/backend/worker/frontend）、健康就绪探针、uploadsdata 持久卷、Docker 安全忽略规则与部署文档；五容器栈已在 8080 本地全新构建启动验证
 - 真机 E2E：DeepSeek 出完整报告（6.2s）+ 缓存去重 + 换模型验证（通义失败路径/DeepSeek 成功路径）
 - 测试简历集：test-resumes/ 5 份 PDF + 生成脚本 scripts/generate_test_resumes.py
 
@@ -25,6 +26,6 @@
 - Vite 代理 404 坑（已修）/ 残留进程占端口 / Docker 手动启动 / Vite 只绑 IPv6（沿用历史记录）
 
 ## 下一步
-- 浏览器验收注册/登录/退出、用户历史记录、跨用户隔离和任务状态页面
-- 面试 SSE 保持同步流式，异步解析/分析任务通过 `/api/tasks/{task_id}` 查询状态
-- 阶段4 全部验收通过后合并 main，打本地 tag v0.5
+- 用户浏览器验收生产 Docker 页面（推荐临时端口 8080）：首页、登录/历史、API 反代与刷新 fallback
+- 云服务器部署需用户提供服务器与域名；部署时复制 `backend/.env.docker.example` 为 `.env.docker` 并填写真实密钥
+- 验收通过后合并 stage-5-deploy-polish 回 main，打本地 tag v1.0
