@@ -31,8 +31,8 @@ def get_anonymous_id(
     return new_id
 
 
-def count_today_analysis(db: Session, anonymous_id: str) -> int:
-    """该匿名身份今日（本地时区 0 点起）已发起的分析次数。"""
+def count_today_usage(db: Session, anonymous_id: str, action_type: str) -> int:
+    """该匿名身份今日（本地时区 0 点起）某类动作的次数。"""
     today_start = (
         datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
     )
@@ -42,7 +42,7 @@ def count_today_analysis(db: Session, anonymous_id: str) -> int:
             .select_from(UsageLog)
             .where(
                 UsageLog.anonymous_id == anonymous_id,
-                UsageLog.action_type == "analysis",
+                UsageLog.action_type == action_type,
                 UsageLog.created_at >= today_start,
             )
         )
@@ -50,11 +50,13 @@ def count_today_analysis(db: Session, anonymous_id: str) -> int:
     )
 
 
-def enforce_daily_limit(db: Session, anonymous_id: str, limit: int) -> None:
+def enforce_daily_limit(
+    db: Session, anonymous_id: str, limit: int, action_type: str = "analysis"
+) -> None:
     """超每日上限 → 429，话术含恢复时间（PROJECT-PLAN 验收要求"明确提示"）。"""
-    used = count_today_analysis(db, anonymous_id)
+    used = count_today_usage(db, anonymous_id, action_type)
     if used >= limit:
         raise HTTPException(
             429,
-            f"今日 AI 分析次数已用完（每日上限 {limit} 次），次日 0 点自动恢复",
+            f"今日次数已用完（该功能每日上限 {limit} 次），次日 0 点自动恢复",
         )
