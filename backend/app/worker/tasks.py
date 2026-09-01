@@ -1,5 +1,14 @@
-"""Celery 任务入口：阶段4提供基础任务与业务任务适配点。"""
+"""Celery 业务任务：把耗时解析和 AI 分析放到 worker 执行。"""
 
+from pathlib import Path
+
+from app.core.config import settings
+from app.db.session import SessionLocal
+from app.models.analysis import Analysis
+from app.models.resume import Resume
+from app.services.ai_client import analyze_resume as call_ai
+from app.services.pdf_parser import ParseError, parse_pdf
+from app.services.prompts import PROMPT_VERSION
 from app.worker.celery_app import celery_app
 
 
@@ -11,11 +20,56 @@ def health_check() -> dict[str, str]:
 
 @celery_app.task(name="app.worker.tasks.parse_resume")
 def parse_resume(resume_id: int) -> dict[str, int | str]:
-    """解析任务入口；实际持久化由后续任务编排接入，先返回可查询的任务结果。"""
-    return {"resume_id": resume_id, "status": "parsed"}
+    """读取已有上传文件，解析正文并写回 resumes。"""
+    with SessionLocal() as db:
+        resume = db.get(Resume, resume_id)
+        if resume is None:
+            raise ValueError("简历记录不存在")
+        data = Path(resume.storage_path).read_bytes()
+        try:
+            result = parse_pdf(data, settings.upload_max_pages)
+        except ParseError as exc:
+            if exc.kind == "too_many_pages":
+                resume.parse_status = "failed"
+            else:
+                resume.parse_status = exc.kind
+            resume.parse_error = exc.message
+            db.commit()
+            return {"resume_id": resume_id, "status": resume.parse_status}
+        resume.raw_text = result.text
+        resume.page_count = result.page_count
+        resume.file_size = len(data)
+        resume.parse_status = "success"
+        resume.parse_error = None
+        db.commit()
+        return {
+            "resume_id": resume_id,
+            "status": "success",
+            "page_count": result.page_count,
+        }
 
 
 @celery_app.task(name="app.worker.tasks.analyze_resume")
 def analyze_resume(resume_id: int) -> dict[str, int | str]:
-    """分析任务入口；保留原同步分析接口，便于渐进迁移到 worker。"""
-    return {"resume_id": resume_id, "status": "analyzed"}
+    """读取已解析简历，调用 AI 并写入 analyses。"""
+    with SessionLocal() as db:
+        resume = db.get(Resume, resume_id)
+        if resume is None or resume.parse_status != "success" or not resume.raw_text:
+            raise ValueError("简历尚未成功解析，无法分析")
+        result = call_ai(resume.raw_text, settings)
+        analysis = Analysis(
+            resume_id=resume_id,
+            user_id=resume.user_id,
+            anonymous_id=resume.anonymous_id,
+            model_name=result.model_name,
+            prompt_version=PROMPT_VERSION,
+            result_json=result.report,
+            valid_json=result.valid,
+            tokens_prompt=result.tokens_prompt,
+            tokens_completion=result.tokens_completion,
+            duration_ms=result.duration_ms,
+        )
+        db.add(analysis)
+        db.commit()
+        db.refresh(analysis)
+        return {"resume_id": resume_id, "analysis_id": analysis.id, "status": "success"}
