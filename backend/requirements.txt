@@ -14,6 +14,12 @@ pypdf>=4.0                    # 文本型 PDF 逐页提取文字（纯 Python，
 # 阶段2：AI 分析（OpenAI 兼容协议，DeepSeek/通义换模型只改 .env）
 openai>=1.40
 
+# 阶段4：用户认证与异步任务
+pwdlib[argon2]>=0.3
+PyJWT>=2.8
+email-validator>=2.1
+celery[redis]>=5.4
+
 # 测试
 pytest>=8.0
 httpx>=0.27                   # FastAPI 测试客户端的底层依赖

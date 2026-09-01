@@ -12,9 +12,11 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.auth_deps import get_optional_current_user
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.resume import Resume
+from app.models.user import User
 from app.schemas.resume import ResumeDetail, ResumeOut, UploadResult
 from app.services.pdf_parser import PDF_MAGIC, ParseError, parse_pdf
 
@@ -30,6 +32,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 async def upload_resume(
     file: UploadFile,
     db: Session = Depends(get_db),  # noqa: B008  FastAPI 依赖注入官方惯用法
+    user: User | None = Depends(get_optional_current_user),  # noqa: B008
 ) -> UploadResult:
     """上传简历：校验 → hash 去重 → 解析落库。重复文件返回 duplicate=true。"""
     data = await file.read()
@@ -46,8 +49,15 @@ async def upload_resume(
     file_hash = hashlib.sha256(data).hexdigest()
 
     # 重复上传：hash 命中未删除的历史记录 → 直接复用，不重复解析（PROJECT-PLAN §3）
+    ownership = (
+        Resume.user_id == user.id if user is not None else Resume.user_id.is_(None)
+    )
     existing = db.scalar(
-        select(Resume).where(Resume.file_hash == file_hash, Resume.deleted_at.is_(None))
+        select(Resume).where(
+            Resume.file_hash == file_hash,
+            Resume.deleted_at.is_(None),
+            ownership,
+        )
     )
     if existing is not None:
         return UploadResult(
@@ -74,6 +84,7 @@ async def upload_resume(
     storage_path.write_bytes(data)
 
     resume = Resume(
+        user_id=user.id if user is not None else None,
         filename=filename,
         file_hash=file_hash,
         storage_path=str(storage_path),
@@ -90,21 +101,31 @@ async def upload_resume(
 
 
 @router.get("/resumes", response_model=list[ResumeOut])
-def list_resumes(db: Session = Depends(get_db)) -> list[Resume]:  # noqa: B008
-    """历史列表：时间倒序、排除软删除，供前端刷新后恢复。"""
-    return list(
-        db.scalars(
-            select(Resume)
-            .where(Resume.deleted_at.is_(None))
-            .order_by(Resume.created_at.desc(), Resume.id.desc())
-        )
-    )
+def list_resumes(
+    db: Session = Depends(get_db),  # noqa: B008
+    user: User | None = Depends(get_optional_current_user),  # noqa: B008
+) -> list[Resume]:
+    """历史列表：登录用户只能看到自己的简历，匿名阶段保持原有兼容行为。"""
+    query = select(Resume).where(Resume.deleted_at.is_(None))
+    if user is not None:
+        query = query.where(Resume.user_id == user.id)
+    else:
+        query = query.where(Resume.user_id.is_(None))
+    return list(db.scalars(query.order_by(Resume.created_at.desc(), Resume.id.desc())))
 
 
 @router.get("/resumes/{resume_id}", response_model=ResumeDetail)
-def get_resume(resume_id: int, db: Session = Depends(get_db)) -> Resume:  # noqa: B008
-    """详情：含解析出的纯文本。"""
+def get_resume(
+    resume_id: int,
+    db: Session = Depends(get_db),  # noqa: B008
+    user: User | None = Depends(get_optional_current_user),  # noqa: B008
+) -> Resume:
+    """详情：登录用户只能访问自己的记录，跨用户统一返回 404。"""
     resume = db.get(Resume, resume_id)
     if resume is None or resume.deleted_at is not None:
+        raise HTTPException(404, "简历记录不存在或已删除")
+    if user is not None and resume.user_id != user.id:
+        raise HTTPException(404, "简历记录不存在或已删除")
+    if user is None and resume.user_id is not None:
         raise HTTPException(404, "简历记录不存在或已删除")
     return resume

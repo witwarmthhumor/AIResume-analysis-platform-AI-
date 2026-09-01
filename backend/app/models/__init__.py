@@ -9,6 +9,7 @@ from app.models.base import Base
 from app.models.interview import InterviewMessage, InterviewSession
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
+from app.models.user import User
 
 __all__ = [
     "Analysis",
@@ -17,4 +18,5 @@ __all__ = [
     "InterviewSession",
     "Resume",
     "UsageLog",
+    "User",
 ]
