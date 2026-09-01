@@ -4,14 +4,14 @@
 > 最后更新：2026-09-01（阶段4实现会话）。
 
 ## 当前进行
-- 阶段4 正在实施，当前分支：stage-4-auth-async；认证、业务归属隔离、Redis/Celery基础、历史页面已完成，待剩余异步迁移与浏览器验收
+- 阶段4 正在实施，当前分支：stage-4-auth-async；认证、业务归属隔离、Redis/Celery业务任务、历史页面已完成，待浏览器验收
 
 ## 已完成
 - 项目规划定稿 / 记忆文件落成 / 阶段0 封版 v0.1 / 阶段1 封版 v0.2 / 阶段2 封版 v0.3 / 阶段3 封版 v0.4
 - 阶段2（AI 简历分析）：后端封装层（JSON 校验重试/4xx 分类话术）+ 分析接口（去重/限流/留痕/记账）+ 前端报告页（六块内容 + token 可见 + 错误提示）；18 个 pytest 全过、ruff 全绿、npm build 通过
 - 阶段3（文字模拟面试）：四阶段状态机、SSE 逐段流式回复、消息落库恢复、最大轮次、结束评价报告、面试消息限流；26 个 pytest 全过、ruff 全绿、npm build 通过；DeepSeek 真机完整走通一轮并验证会话恢复与 usage 记账
 - 阶段4已完成部分：users 表与 Alembic 迁移、Argon2/JWT HttpOnly Cookie 认证、简历/分析/面试用户归属隔离、Redis 7 + Celery health-check/解析/分析任务入口及状态接口、登录/注册/退出/历史记录前端；30 个 pytest 全过、ruff 全绿、npm build 通过
-- Celery 真机验证：Redis healthy，health-check 任务提交后返回 success；当前解析/分析任务入口已就绪，业务持久化迁移仍待下一步接入
+- Celery 真机验证：Redis healthy，health-check 任务提交后返回 success；解析任务会更新 resumes，分析任务会写入 analyses，提交接口会校验用户归属
 - 真机 E2E：DeepSeek 出完整报告（6.2s）+ 缓存去重 + 换模型验证（通义失败路径/DeepSeek 成功路径）
 - 测试简历集：test-resumes/ 5 份 PDF + 生成脚本 scripts/generate_test_resumes.py
 
@@ -23,6 +23,6 @@
 - Vite 代理 404 坑（已修）/ 残留进程占端口 / Docker 手动启动 / Vite 只绑 IPv6（沿用历史记录）
 
 ## 下一步
-- 将简历解析与 AI 分析迁移到 Celery，增加任务状态轮询（面试 SSE 保持同步流式）
-- 补跨用户隔离专测、任务接口测试和前端登录/历史浏览器验收
+- 浏览器验收注册/登录/退出、用户历史记录、跨用户隔离和任务状态页面
+- 面试 SSE 保持同步流式，异步解析/分析任务通过 `/api/tasks/{task_id}` 查询状态
 - 阶段4 全部验收通过后合并 main，打本地 tag v0.5
