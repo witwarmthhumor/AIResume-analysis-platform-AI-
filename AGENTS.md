@@ -3,15 +3,15 @@
 > **本文件是干嘛的**：项目"户口本"——技术栈、启动命令、代码约定、铁律都记在这里。AI 每次会话开工必读；只在阶段切换或约定变更时更新。
 
 ## 当前状态
-- 当前阶段：阶段2（AI 简历分析，实现完成待验收；分支 stage-2-ai-analysis）
+- 当前阶段：阶段3（文字模拟面试；分支 stage-3-interview）
 - 项目根目录：E:\AIDevelop\AIProject
-- 权威计划：PROJECT-PLAN.md（改需求先改它；阶段2 验收 checklist 见其 §7）
+- 权威计划：PROJECT-PLAN.md（改需求先改它；阶段3 验收 checklist 见其 §7）
 - 协作约定：AI-COLLABORATION.md（每次会话先读本文件和 PROGRESS.md）
 
 ## 技术栈
 - 后端：FastAPI + Postgres 16 + SQLAlchemy 2 + Alembic（阶段4 加 Celery/Redis）
 - 前端：Vue 3 + Vite（JavaScript 起步，配置文件用 vite.config.ts）
-- AI：OpenAI 兼容协议（当前：通义 qwen-plus；换 DeepSeek = 改 backend/.env 三行），Key 只放 backend/.env
+- AI：OpenAI 兼容协议（当前：DeepSeek deepseek-chat；换通义 = 改 backend/.env 三行），Key 只放 backend/.env
 - 后台任务：V1 用 FastAPI BackgroundTasks，阶段4 换 Celery
 - 测试：pytest（阶段0 起，冒烟测试）
 
