@@ -1,10 +1,11 @@
 """异步任务接口：提交任务并查询 Celery 状态。"""
 
-from celery.result import AsyncResult
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from app.worker.celery_app import celery_app
-from app.worker.tasks import health_check
+from app.api.auth_deps import get_current_user
+from app.models.user import User
+from app.services.task_service import task_status
+from app.worker.tasks import analyze_resume, health_check, parse_resume
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -15,12 +16,22 @@ def submit_health_check() -> dict[str, str]:
     return {"task_id": task.id, "status": "pending"}
 
 
+@router.post("/parse-resume/{resume_id}")
+def submit_parse_resume(
+    resume_id: int, user: User = Depends(get_current_user)  # noqa: B008
+) -> dict[str, str]:
+    task = parse_resume.delay(resume_id)
+    return {"task_id": task.id, "status": "pending"}
+
+
+@router.post("/analyze-resume/{resume_id}")
+def submit_analyze_resume(
+    resume_id: int, user: User = Depends(get_current_user)  # noqa: B008
+) -> dict[str, str]:
+    task = analyze_resume.delay(resume_id)
+    return {"task_id": task.id, "status": "pending"}
+
+
 @router.get("/{task_id}")
 def get_task_status(task_id: str) -> dict:
-    result = AsyncResult(task_id, app=celery_app)
-    payload: dict = {"task_id": task_id, "status": result.status.lower()}
-    if result.successful():
-        payload["result"] = result.result
-    elif result.failed():
-        payload["error"] = "异步任务执行失败"
-    return payload
+    return task_status(task_id)
