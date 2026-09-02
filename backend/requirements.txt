@@ -14,6 +14,9 @@ pypdf>=4.0                    # 文本型 PDF 逐页提取文字（纯 Python，
 # 阶段2：AI 分析（OpenAI 兼容协议，DeepSeek/通义换模型只改 .env）
 openai>=1.40
 
+# 阶段6：Playground 知识库 RAG（v3.0）
+pgvector>=0.3        # SQLAlchemy 的 vector 类型映射；embedding 由 Ollama 提供，无本地模型依赖
+
 # 阶段4：用户认证与异步任务
 pwdlib[argon2]>=0.3
 PyJWT>=2.8

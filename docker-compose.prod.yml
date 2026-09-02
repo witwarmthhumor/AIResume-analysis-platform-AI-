@@ -1,6 +1,7 @@
 services:
   db:
-    image: postgres:16-alpine
+    # v3.0：pgvector 镜像（基于 Postgres 16，自带 vector 扩展）
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-ai}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
@@ -11,6 +12,18 @@ services:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  # v3.0 Playground：本地 embedding 模型，仅内网供 backend 调用，不对外发布端口
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 10s
+      timeout: 5s
       retries: 12
     restart: unless-stopped
 
@@ -58,6 +71,8 @@ services:
         condition: service_healthy
       db:
         condition: service_healthy
+      ollama:
+        condition: service_started
     restart: unless-stopped
 
   frontend:
@@ -69,7 +84,22 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  backend:
+    build: ./backend
+    env_file:
+      - ./backend/.env.docker
+    volumes:
+      - uploadsdata:/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+
 volumes:
   pgdata:
   redisdata:
   uploadsdata:
+  ollama_data:
