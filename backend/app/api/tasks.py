@@ -46,5 +46,8 @@ def submit_analyze_resume(
 
 
 @router.get("/{task_id}")
-def get_task_status(task_id: str) -> dict:
+def get_task_status(
+    task_id: str,
+    user: User = Depends(get_current_user),  # noqa: B008  任务结果需登录才能查
+) -> dict:
     return task_status(task_id)
