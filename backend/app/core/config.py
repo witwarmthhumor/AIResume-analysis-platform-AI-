@@ -41,6 +41,19 @@ class Settings(BaseSettings):
     daily_interview_message_limit: int = 100  # 每人每日 AI 回复条数上限（按匿名 cookie 统计）
     interview_abandon_minutes: int = 30  # 超时无活动自动置 abandoned（P1）
 
+    # 阶段6（v3.0）：Playground 本地 embedding。切云端只改这三行（base_url/api_key/model）
+    embedding_base_url: str = "http://localhost:11434/v1"  # 本地 Ollama；docker 内为 http://ollama:11434/v1
+    embedding_api_key: str = "ollama"  # Ollama 本地不校验，占位；云端填真实 key
+    embedding_model: str = "nomic-embed-text"
+    embedding_dim: int = 768  # 与 nomic-embed-text 对齐；换模型（如 bge-m3 1024 维）需新迁移+重向量化
+
+    # 切块与检索
+    kb_chunk_size: int = 600  # 块目标字数
+    kb_chunk_overlap: int = 60  # 相邻块重叠字数，保上下文连续
+    kb_search_top_k: int = 5  # RAG 召回块数
+    kb_min_similarity: float = 0.3  # 余弦相似度低于此值的召回视为无关，不作引用来源
+    daily_playground_limit: int = 50  # 每人每日 Playground 提问上限
+
     # 阶段4：JWT 与 Celery/Redis
     jwt_secret_key: str = "change-me-in-backend-env"
     jwt_expire_minutes: int = 60 * 24
