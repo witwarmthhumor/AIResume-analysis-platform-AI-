@@ -59,6 +59,11 @@ async function removeDoc(doc) {
   }
 }
 
+function toggleKb() {
+  kbOpen.value = !kbOpen.value
+  if (kbOpen.value) loadDocs() // 每次展开都拉最新列表，避免面板里看到过期数据
+}
+
 function handleEvent(block, last) {
   const event = block.match(/^event: (.+)$/m)?.[1]
   const dataLine = block.match(/^data: (.+)$/m)?.[1]
@@ -124,7 +129,7 @@ onMounted(loadDocs)
         <h2>🧪 Playground 知识库问答</h2>
         <p class="sub">基于面试题库 / 八股文 / 岗位 JD 语料库，RAG 检索回答，带引用来源</p>
       </div>
-      <button class="btn btn-ghost" @click="kbOpen = !kbOpen">
+      <button class="btn btn-ghost" @click="toggleKb">
         {{ kbOpen ? '收起语料库' : '语料库管理' }}
       </button>
     </div>
