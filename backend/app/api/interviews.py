@@ -303,7 +303,11 @@ def send_message(
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache"},
+        headers={
+            "Cache-Control": "no-cache",
+            # 禁止 Nginx 等反向代理缓冲本响应，否则 SSE 逐段推送会退化成块状
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

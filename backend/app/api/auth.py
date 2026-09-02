@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.auth_deps import ACCESS_COOKIE, get_current_user
+from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.session import get_db
 from app.models.user import User
@@ -13,7 +14,14 @@ from app.schemas.auth import AuthCredentials, AuthResponse, UserOut
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-_COOKIE_KWARGS = {"httponly": True, "samesite": "lax", "secure": False}
+# secure/max_age 走配置：本地 HTTP 为 False，生产 HTTPS 在 .env 开 JWT_SECURE_COOKIE；
+# 有效期与 JWT 过期时间保持同一来源，避免"cookie 还在但 token 已过期"
+_COOKIE_KWARGS = {
+    "httponly": True,
+    "samesite": "lax",
+    "secure": settings.jwt_secure_cookie,
+    "max_age": settings.jwt_expire_minutes * 60,
+}
 
 
 @router.post(
@@ -40,7 +48,7 @@ def register(
         raise HTTPException(409, "该邮箱已注册") from None
     db.refresh(user)
     response.set_cookie(
-        ACCESS_COOKIE, create_access_token(user.id), max_age=86400, **_COOKIE_KWARGS
+        ACCESS_COOKIE, create_access_token(user.id), **_COOKIE_KWARGS
     )
     return AuthResponse(user=UserOut.model_validate(user))
 
@@ -55,7 +63,7 @@ def login(
     if user is None or not verify_password(credentials.password, user.password_hash):
         raise HTTPException(401, "邮箱或密码错误")
     response.set_cookie(
-        ACCESS_COOKIE, create_access_token(user.id), max_age=86400, **_COOKIE_KWARGS
+        ACCESS_COOKIE, create_access_token(user.id), **_COOKIE_KWARGS
     )
     return AuthResponse(user=UserOut.model_validate(user))
 

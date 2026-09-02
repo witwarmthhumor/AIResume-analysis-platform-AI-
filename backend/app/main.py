@@ -25,6 +25,12 @@ from app.db.session import ping_database
 setup_logging(settings.log_level, settings.log_file or None)
 logger = get_logger(__name__)
 
+# 弱默认密钥告警（铁律：Key 只放 .env）：.env 漏配 JWT_SECRET_KEY 时 token 可被伪造
+if settings.jwt_secret_key == "change-me-in-backend-env":
+    logger.warning(
+        "JWT_SECRET_KEY 仍是默认占位值，登录凭证可被伪造——请在 backend/.env 设置随机密钥"
+    )
+
 app = FastAPI(title="AI 简历分析与模拟面试 API", version=settings.app_version)
 
 register_all_routers(app)  # RouterRegistry 自动注册 app/api 下全部路由

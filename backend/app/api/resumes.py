@@ -36,6 +36,12 @@ async def upload_resume(
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
 ) -> UploadResult:
     """上传简历：校验 → hash 去重 → 解析落库。重复文件返回 duplicate=true。"""
+    # 大小预检（读文件之前）：Starlette 会把整个请求体收进临时文件，
+    # 不预检的话超大文件仍会被完整接收一遍才被 413 拒掉
+    max_mb = settings.upload_max_size // (1024 * 1024)
+    if file.size is not None and file.size > settings.upload_max_size:
+        raise HTTPException(413, f"文件超过 {max_mb}MB 限制，请压缩后重新上传")
+
     data = await file.read()
     filename = Path(
         file.filename or "resume.pdf"
@@ -44,8 +50,8 @@ async def upload_resume(
     # 三道上传拦截：类型（扩展名 + 文件头双校验）、大小、页数——都不落库
     if not filename.lower().endswith(".pdf") or not data.startswith(PDF_MAGIC):
         raise HTTPException(415, "只支持 PDF 文件，请上传 PDF 格式的简历")
-    if len(data) > settings.upload_max_size:
-        raise HTTPException(413, "文件超过 5MB 限制，请压缩后重新上传")
+    if len(data) > settings.upload_max_size:  # 兜底：无 Content-Length 时 size 可能为 None
+        raise HTTPException(413, f"文件超过 {max_mb}MB 限制，请压缩后重新上传")
 
     file_hash = hashlib.sha256(data).hexdigest()
 
