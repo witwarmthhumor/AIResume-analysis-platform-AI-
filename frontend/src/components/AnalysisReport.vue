@@ -14,11 +14,11 @@ const errorMsg = ref('')
 
 // 报告字段 → 展示元信息。kind 决定渲染成列表/标签/编号
 const SECTION_META = {
-  strengths: { title: '优势', kind: 'list' },
-  weaknesses: { title: '短板', kind: 'list' },
-  keyword_gaps: { title: '关键词缺口', kind: 'chips' },
-  suggestions: { title: '改进建议', kind: 'list' },
-  predicted_questions: { title: '预测面试题', kind: 'numbered' },
+  strengths: { title: '优势', kind: 'list', icon: '💪' },
+  weaknesses: { title: '短板', kind: 'list', icon: '⚠️' },
+  keyword_gaps: { title: '关键词缺口', kind: 'chips', icon: '🔑' },
+  suggestions: { title: '改进建议', kind: 'list', icon: '🛠️' },
+  predicted_questions: { title: '预测面试题', kind: 'numbered', icon: '🎯' },
 }
 
 function fmtDuration(ms) {
@@ -86,7 +86,7 @@ onMounted(loadExisting)
       <p class="hint">
         分析将把简历内容发送给第三方大模型服务，生成岗位匹配、优劣势、关键词缺口、改进建议与预测面试题。
       </p>
-      <button @click="analyze">开始 AI 分析</button>
+      <button class="btn btn-primary" @click="analyze">✨ 生成 AI 分析</button>
     </template>
 
     <div v-else-if="state === 'loading'" class="loading">
@@ -96,7 +96,7 @@ onMounted(loadExisting)
 
     <div v-else-if="state === 'error'" class="err">
       <p class="msg error">{{ errorMsg }}</p>
-      <button @click="analyze">重试</button>
+      <button class="btn btn-ghost" @click="analyze">重试</button>
     </div>
 
     <template v-else>
@@ -106,7 +106,7 @@ onMounted(loadExisting)
       <p class="para">{{ analysis.report.position_match || '暂无' }}</p>
 
       <template v-for="(meta, key) in SECTION_META" :key="key">
-        <h3 class="sec">{{ meta.title }}</h3>
+        <h3 class="sec-title">{{ meta.icon }} {{ meta.title }}</h3>
         <ul v-if="meta.kind === 'list'" class="list">
           <li v-for="(item, i) in analysis.report[key] || []" :key="i">{{ item }}</li>
         </ul>
@@ -121,61 +121,30 @@ onMounted(loadExisting)
         <p v-if="!(analysis.report[key] || []).length" class="none">暂无</p>
       </template>
 
-      <div class="meta">
-        <span>模型 {{ analysis.model_name }}</span>
-        <span>提示词 v{{ analysis.prompt_version }}</span>
-        <span>输入 {{ analysis.tokens_prompt ?? '-' }} tok</span>
-        <span>输出 {{ analysis.tokens_completion ?? '-' }} tok</span>
-        <span>耗时 {{ fmtDuration(analysis.duration_ms) }}</span>
-        <span>{{ new Date(analysis.created_at).toLocaleString() }}</span>
+      <div class="pills">
+        <span class="pill">🤖 {{ analysis.model_name }}</span>
+        <span class="pill">提示词 v{{ analysis.prompt_version }}</span>
+        <span class="pill">输入 {{ analysis.tokens_prompt ?? '-' }} tok</span>
+        <span class="pill">输出 {{ analysis.tokens_completion ?? '-' }} tok</span>
+        <span class="pill">耗时 {{ fmtDuration(analysis.duration_ms) }}</span>
+        <span class="pill">{{ new Date(analysis.created_at).toLocaleString() }}</span>
       </div>
     </template>
   </section>
 </template>
 
 <style scoped>
-.card {
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 6%);
-  padding: 20px 24px;
-}
 .head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
-}
-.head h2 {
-  margin: 0;
-  font-size: 17px;
-}
-.badge {
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.badge.ok {
-  background: #d1fae5;
-  color: #047857;
+  margin-bottom: 4px;
 }
 .hint {
   margin: 0 0 14px;
-  color: #6b7280;
+  color: var(--c-muted);
   font-size: 13px;
-}
-button {
-  border: none;
-  border-radius: 8px;
-  background: #10b981;
-  color: #fff;
-  font-size: 14px;
-  padding: 9px 18px;
-  cursor: pointer;
-}
-button:hover {
-  background: #059669;
+  line-height: 1.7;
 }
 .loading {
   display: flex;
@@ -187,19 +156,14 @@ button:hover {
   width: 18px;
   height: 18px;
   border: 2px solid #d1d5db;
-  border-top-color: #10b981;
+  border-top-color: var(--c-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   flex-shrink: 0;
 }
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 .loading-text {
   margin: 0;
-  color: #6b7280;
+  color: var(--c-muted);
   font-size: 13px;
 }
 .err {
@@ -208,71 +172,41 @@ button:hover {
   gap: 12px;
   flex-wrap: wrap;
 }
-.msg {
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 13px;
-}
-.msg.error {
-  background: #fee2e2;
-  color: #b91c1c;
-}
 .target {
   margin: 4px 0 10px;
-  font-size: 15px;
-  color: #374151;
+  font-size: 14.5px;
+  color: var(--c-text);
 }
 .para {
   margin: 0 0 4px;
-  color: #4b5563;
-  font-size: 14px;
-  line-height: 1.7;
+  color: var(--c-text-2);
+  font-size: 13.5px;
+  line-height: 1.8;
 }
-.sec {
-  margin: 16px 0 6px;
-  font-size: 14px;
-  color: #111827;
-}
-.list {
-  margin: 0;
-  padding-left: 20px;
-  color: #4b5563;
-  font-size: 14px;
-  line-height: 1.7;
-}
+.list,
 .numbered {
   margin: 0;
   padding-left: 20px;
-  color: #4b5563;
-  font-size: 14px;
-  line-height: 1.7;
+  color: var(--c-text-2);
+  font-size: 13.5px;
+  line-height: 1.9;
 }
 .chips {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
-.chip {
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  color: #047857;
-  border-radius: 999px;
-  padding: 2px 10px;
-  font-size: 12px;
-}
 .none {
   margin: 0;
-  color: #9ca3af;
+  color: var(--c-faint);
   font-size: 13px;
 }
-.meta {
+.pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 14px;
-  margin-top: 18px;
+  gap: 6px;
+  margin-top: 16px;
   padding-top: 12px;
-  border-top: 1px dashed #e5e7eb;
-  color: #9ca3af;
-  font-size: 12px;
+  border-top: 1px dashed var(--c-border);
 }
 </style>

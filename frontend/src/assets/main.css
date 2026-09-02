@@ -1,0 +1,250 @@
+/* ============================================================
+   全局设计系统 · 青绿清新风（v1.1 UI polish）
+   设计变量 + 通用类 + 动效。组件内只写差异样式，公共视觉走这里。
+   ============================================================ */
+
+:root {
+  /* 主色（emerald 系） */
+  --c-primary: #10b981;
+  --c-primary-dark: #059669;
+  --c-primary-light: #ecfdf5;
+  --c-primary-border: #a7f3d0;
+
+  /* 文字 */
+  --c-text: #1f2937;
+  --c-text-2: #4b5563;
+  --c-muted: #6b7280;
+  --c-faint: #9ca3af;
+
+  /* 面 */
+  --c-border: #e5e7eb;
+  --c-bg-soft: #f8fafc;
+
+  /* 形状与阴影 */
+  --radius-lg: 14px;
+  --radius-md: 11px;
+  --radius-sm: 8px;
+  --shadow:
+    0 1px 3px rgba(16, 24, 40, 0.06),
+    0 8px 24px rgba(16, 185, 129, 0.06);
+  --shadow-hover:
+    0 4px 12px rgba(16, 24, 40, 0.08),
+    0 12px 32px rgba(16, 185, 129, 0.12);
+
+  --font: system-ui, -apple-system, 'Microsoft YaHei', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: #a7f3d0;
+  color: #064e3b;
+}
+
+/* 柔和滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a7f3d0;
+}
+
+/* ---------- 卡片 ---------- */
+.card {
+  background: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 22px 24px;
+  width: 100%;
+  transition: box-shadow 0.2s ease;
+  animation: fade-in-up 0.35s ease both;
+}
+.card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.card h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card .sub {
+  font-size: 12.5px;
+  color: var(--c-faint);
+  margin: 0 0 14px;
+}
+
+/* ---------- 按钮 ---------- */
+.btn {
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 8px 16px;
+  font-size: 13.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--c-primary), var(--c-primary-dark));
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.3);
+}
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.4);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--c-muted);
+  border: 1px solid var(--c-border);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: #fff;
+  color: var(--c-primary-dark);
+  border-color: var(--c-primary-border);
+}
+
+/* ---------- 徽标 ---------- */
+.badge {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: #f3f4f6;
+  color: var(--c-muted);
+}
+.badge.ok {
+  background: #d1fae5;
+  color: #047857;
+}
+.badge.warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+.badge.bad {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* ---------- 提示条 ---------- */
+.msg {
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.msg.error {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.msg.info,
+.msg.ok {
+  background: #d1fae5;
+  color: #047857;
+}
+.msg.warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* ---------- chips 与胶囊 ---------- */
+.chip {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #047857;
+  border-radius: 999px;
+  padding: 3px 11px;
+  font-size: 12px;
+}
+.pill {
+  background: #f9fafb;
+  border: 1px solid var(--c-border);
+  color: var(--c-muted);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+/* ---------- 分节标题（左侧色条） ---------- */
+.sec-title {
+  font-size: 14px;
+  margin: 16px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sec-title::before {
+  content: '';
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+  background: linear-gradient(var(--c-primary), #34d399);
+}
+
+/* ---------- 空状态 ---------- */
+.empty {
+  color: var(--c-faint);
+  font-size: 13px;
+  margin: 0;
+  text-align: center;
+  padding: 18px 0;
+}
+
+/* ---------- 动效 ---------- */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-dot {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+@keyframes typing-blink {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
