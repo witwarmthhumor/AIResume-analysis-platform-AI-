@@ -6,6 +6,7 @@
 """
 
 import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
@@ -129,3 +130,21 @@ def get_resume(
     if user is None and resume.user_id is not None:
         raise HTTPException(404, "简历记录不存在或已删除")
     return resume
+
+
+@router.delete("/resumes/{resume_id}", status_code=204)
+def delete_resume(
+    resume_id: int,
+    db: Session = Depends(get_db),  # noqa: B008
+    user: User | None = Depends(get_optional_current_user),  # noqa: B008
+) -> None:
+    """软删除（P7 隐私入口）：置 deleted_at，数据保留可审计。仅本人可删。"""
+    resume = db.get(Resume, resume_id)
+    if resume is None or resume.deleted_at is not None:
+        raise HTTPException(404, "简历记录不存在或已删除")
+    if user is not None and resume.user_id != user.id:
+        raise HTTPException(404, "简历记录不存在或已删除")
+    if user is None and resume.user_id is not None:
+        raise HTTPException(404, "简历记录不存在或已删除")
+    resume.deleted_at = datetime.now(timezone.utc)
+    db.commit()

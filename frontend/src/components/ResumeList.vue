@@ -1,16 +1,34 @@
 <script setup>
 // 解析历史列表：数据由父页面传入，点击某条时把 id 交给父页面去加载详情
-defineProps({
+import { ref } from 'vue'
+import { del } from '../api.js'
+
+const props = defineProps({
   resumes: { type: Array, default: () => [] },
   currentId: { type: Number, default: null },
 })
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'deleted'])
+const deletingId = ref(null)
 
 const STATUS = {
   success: { label: '成功', cls: 'ok' },
   unsupported: { label: '扫描件', cls: 'warn' },
   failed: { label: '失败', cls: 'bad' },
   pending: { label: '解析中', cls: 'warn' },
+}
+
+async function remove(id, e) {
+  e.stopPropagation()
+  if (!confirm('确定删除这份简历吗？删除后不可恢复（仅从列表移除，不删文件）。')) return
+  deletingId.value = id
+  try {
+    await del(`/api/resumes/${id}`)
+    emit('deleted', id)
+  } catch {
+    alert('删除失败，请稍后重试')
+  } finally {
+    deletingId.value = null
+  }
 }
 </script>
 
@@ -34,6 +52,9 @@ const STATUS = {
           {{ STATUS[r.parse_status]?.label ?? r.parse_status }}
         </span>
         <span class="time">{{ new Date(r.created_at).toLocaleString() }}</span>
+        <button class="del-btn" :disabled="deletingId === r.id" title="删除" @click="remove(r.id, $event)">
+          {{ deletingId === r.id ? '…' : '🗑' }}
+        </button>
       </li>
     </ul>
   </section>
@@ -99,5 +120,22 @@ const STATUS = {
 }
 .empty-icon {
   font-size: 26px;
+}
+.del-btn {
+  border: 0;
+  background: transparent;
+  font-size: 14px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.ritem:hover .del-btn,
+.del-btn:disabled {
+  opacity: 1;
+}
+.del-btn:hover {
+  background: #fee2e2;
 }
 </style>

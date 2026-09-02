@@ -135,3 +135,19 @@ def test_list_and_detail_and_404() -> None:
     assert "raw_text" in detail.json()
 
     assert client.get("/api/resumes/999999").status_code == 404
+
+
+def test_soft_delete_hides_resume() -> None:
+    data = make_text_pdf(["Soft delete sample content"])
+    rid = upload(data).json()["resume"]["id"]
+    resp = client.delete(f"/api/resumes/{rid}")
+    assert resp.status_code == 204
+    assert client.get(f"/api/resumes/{rid}").status_code == 404
+    assert client.get("/api/resumes").json() == []
+    # 同文件可重新上传（删除后不阻塞 hash 去重）
+    resp2 = client.post(
+        "/api/resumes",
+        files={"file": ("resume.pdf", data, "application/pdf")},
+    )
+    assert resp2.status_code == 201
+    assert resp2.json()["duplicate"] is False

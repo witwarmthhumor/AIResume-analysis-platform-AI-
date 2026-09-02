@@ -73,6 +73,11 @@ async function onUploaded(resume) {
   await refreshList()
 }
 
+async function onDeleted(id) {
+  if (currentResume.value?.id === id) currentResume.value = null
+  await refreshList()
+}
+
 function startInterview() {
   if (currentResume.value?.parse_status === 'success') interviewResume.value = currentResume.value
 }
@@ -133,7 +138,12 @@ onMounted(async () => {
       <AdminPanel v-if="showAdmin && currentUser?.role === 'admin'" />
       <HistoryView v-if="showHistory && currentUser" />
       <UploadCard @uploaded="onUploaded" />
-      <ResumeList :resumes="resumes" :current-id="currentResume?.id" @select="onSelect" />
+      <ResumeList
+        :resumes="resumes"
+        :current-id="currentResume?.id"
+        @select="onSelect"
+        @deleted="onDeleted"
+      />
 
       <section v-if="currentResume" class="card detail">
         <div class="detail-head">
