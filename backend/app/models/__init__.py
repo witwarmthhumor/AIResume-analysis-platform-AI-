@@ -7,6 +7,7 @@ Alembic 的 env.py 只 import 这里一次即可；
 from app.models.analysis import Analysis
 from app.models.base import Base
 from app.models.interview import InterviewMessage, InterviewSession
+from app.models.kb import KBChunk, KBDocument
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
 from app.models.user import User
@@ -16,6 +17,8 @@ __all__ = [
     "Base",
     "InterviewMessage",
     "InterviewSession",
+    "KBChunk",
+    "KBDocument",
     "Resume",
     "UsageLog",
     "User",
