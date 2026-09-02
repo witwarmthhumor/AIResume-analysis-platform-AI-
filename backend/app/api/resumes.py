@@ -47,7 +47,7 @@ async def upload_resume(
         file.filename or "resume.pdf"
     ).name  # 消毒：只留文件名本身，剥掉路径部分
 
-    # 三道上传拦截：类型（扩展名 + 文件头双校验）、大小、页数——都不落库
+    # 上传拦截：类型（扩展名 + 文件头双校验）与页数在此校验，大小已在读前预检/读后兜底——都不落库
     if not filename.lower().endswith(".pdf") or not data.startswith(PDF_MAGIC):
         raise HTTPException(415, "只支持 PDF 文件，请上传 PDF 格式的简历")
     if len(data) > settings.upload_max_size:  # 兜底：无 Content-Length 时 size 可能为 None

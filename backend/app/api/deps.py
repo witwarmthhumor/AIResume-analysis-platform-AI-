@@ -1,8 +1,8 @@
 """公共依赖：匿名身份与每日用量统计（PROJECT-PLAN §4 限流方案）。
 
-V1 无登录：首次访问下发匿名 cookie（uuid），作为 usage_logs 的归属标识；
-阶段4 接登录后同一套表按 user_id 统计，逻辑不变。
-统计与记账逻辑已下沉到 services/usage_service.py（P4）。
+首次访问下发匿名 cookie（uuid）作为用量归属；限流计数目前按该 cookie 聚合
+（登录用户的 user_id 也会写入 usage_logs，但 enforce_daily_limit 不按它查，
+清 cookie 即重置限额——已知取舍）。统计与记账逻辑在 services/usage_service.py（P4）。
 """
 
 import uuid

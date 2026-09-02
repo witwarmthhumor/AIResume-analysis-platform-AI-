@@ -196,7 +196,9 @@ def send_message(
         raise HTTPException(400, "该面试已结束")
     if _abandon_if_stale(db, session):
         raise HTTPException(
-            400, "该面试会话因超过 30 分钟无活动已自动结束，请返回重新开始"
+            400,
+            f"该面试会话因超过 {settings.interview_abandon_minutes} 分钟无活动已自动结束，"
+            "请返回重新开始",
         )
     if session.turn_count >= settings.max_interview_turns:
         raise HTTPException(400, "已达到最大轮次，请结束面试查看评价报告")
@@ -325,7 +327,9 @@ def finish_interview(
         raise HTTPException(400, "该面试已结束，报告以现有内容为准")
     if _abandon_if_stale(db, session):
         raise HTTPException(
-            400, "该面试会话因超过 30 分钟无活动已自动结束，无法生成评价"
+            400,
+            f"该面试会话因超过 {settings.interview_abandon_minutes} 分钟无活动已自动结束，"
+            "无法生成评价",
         )
 
     history = list(

@@ -12,7 +12,7 @@ class Resume(Base, TimestampMixin):
     __tablename__ = "resumes"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    # 归属：V1 无登录用 anonymous_id，阶段4 接 user_id（先可空）
+    # 归属：登录用户记 user_id，匿名用户记 anonymous_id，二者互斥
     user_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
     anonymous_id: Mapped[str | None] = mapped_column(String(64), index=True)
 

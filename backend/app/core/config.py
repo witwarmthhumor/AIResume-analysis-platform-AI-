@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # 阶段3：文字模拟面试
     max_interview_turns: int = 10  # 单场面试最大轮次，防无限聊（PROJECT-PLAN §2）
-    daily_interview_message_limit: int = 100  # 每人每日 AI 回复条数上限
+    daily_interview_message_limit: int = 100  # 每人每日 AI 回复条数上限（按匿名 cookie 统计）
     interview_abandon_minutes: int = 30  # 超时无活动自动置 abandoned（P1）
 
     # 阶段4：JWT 与 Celery/Redis
