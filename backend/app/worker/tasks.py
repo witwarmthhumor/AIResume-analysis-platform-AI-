@@ -5,8 +5,10 @@ from pathlib import Path
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.analysis import Analysis
+from app.models.kb import KBDocument
 from app.models.resume import Resume
 from app.services.ai_client import analyze_resume as call_ai
+from app.services.kb_service import ingest_kb_document
 from app.services.pdf_parser import ParseError, parse_pdf
 from app.services.prompts import PROMPT_VERSION
 from app.worker.celery_app import celery_app
@@ -73,3 +75,23 @@ def analyze_resume(resume_id: int) -> dict[str, int | str]:
         db.commit()
         db.refresh(analysis)
         return {"resume_id": resume_id, "analysis_id": analysis.id, "status": "success"}
+
+
+@celery_app.task(name="app.worker.tasks.ingest_kb")
+def ingest_kb(document_id: int) -> dict[str, int | str]:
+    """对知识库文档切块向量化并置 ready（v3.0：用户上传走异步入库）。
+
+    失败置 failed（parse_error 留话术），可对同一 document 重试——ingest 幂等。
+    """
+    with SessionLocal() as db:
+        document = db.get(KBDocument, document_id)
+        if document is None or document.deleted_at is not None:
+            raise ValueError("知识库文档不存在或已删除")
+        document.status = "processing"
+        db.commit()
+        ok, message = ingest_kb_document(db, document)
+        return {
+            "document_id": document_id,
+            "status": "ready" if ok else "failed",
+            "error": None if ok else message,
+        }

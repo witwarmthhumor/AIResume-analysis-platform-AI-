@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     kb_chunk_size: int = 600  # 块目标字数
     kb_chunk_overlap: int = 60  # 相邻块重叠字数，保上下文连续
     kb_search_top_k: int = 5  # RAG 召回块数
-    kb_min_similarity: float = 0.3  # 余弦相似度低于此值的召回视为无关，不作引用来源
+    kb_min_similarity: float = 0.65  # 余弦相似度低于此值视为无关，不作引用来源（实测相关 0.70+，无关 0.60-）
     daily_playground_limit: int = 50  # 每人每日 Playground 提问上限
 
     # 阶段4：JWT 与 Celery/Redis

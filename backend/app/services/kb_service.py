@@ -5,6 +5,7 @@ search：提问向量做 HNSW 余弦近似检索，召回 top-k 块并带来源�
 owner 隔离：scope=public（预置语料）全站可见；scope=private（用户上传）仅本人可见。
 """
 
+import math
 from datetime import datetime, timezone
 
 from sqlalchemy import and_, delete, or_, select
@@ -97,8 +98,15 @@ def search_chunks(
 
     results = []
     for chunk, title in rows:
-        distance = chunk.embedding.cosine_distance(query_embedding)
-        similarity = 1.0 - distance
+        # order_by 里用的是 SQLAlchemy 表达式（数据库算距离）；取回后 chunk.embedding
+        # 是 Python list，这里手动算余弦相似度做阈值过滤
+        vec = chunk.embedding or []
+        if not vec:
+            continue
+        dot = sum(a * b for a, b in zip(vec, query_embedding))
+        norm_a = math.sqrt(sum(a * a for a in vec))
+        norm_b = math.sqrt(sum(b * b for b in query_embedding))
+        similarity = dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
         if similarity < settings.kb_min_similarity:
             continue  # 明显无关的召回（如冷启动噪声）不当作引用来源
         results.append(
