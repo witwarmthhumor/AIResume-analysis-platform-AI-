@@ -1,5 +1,6 @@
 <script setup>
 import { nextTick, onMounted, ref, watch } from 'vue'
+import { post, streamChat } from '../api.js'
 import InterviewReport from './InterviewReport.vue'
 
 const props = defineProps({ resume: { type: Object, required: true } })
@@ -19,9 +20,7 @@ async function startOrResume() {
   loading.value = true
   error.value = ''
   try {
-    const res = await fetch(`/api/resumes/${props.resume.id}/interviews`, { method: 'POST' })
-    const body = await res.json().catch(() => null)
-    if (!res.ok) throw new Error(body?.detail || '无法开始面试')
+    const body = await post(`/api/resumes/${props.resume.id}/interviews`)
     session.value = body.session
     messages.value = [...body.session.messages]
   } catch (e) {
@@ -57,18 +56,12 @@ async function send() {
   streaming.value = true
   error.value = ''
   try {
-    const res = await fetch(`/api/interviews/${session.value.id}/messages`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }),
-    })
-    if (!res.ok) {
-      const body = await res.json().catch(() => null)
-      throw new Error(body?.detail || '发送失败')
-    }
-    const reader = res.body.getReader()
+    const { reader } = streamChat(`/api/interviews/${session.value.id}/messages`, { content })
+    const stream = await reader
     const decoder = new TextDecoder()
     let buffer = ''
     while (true) {
-      const { done, value } = await reader.read()
+      const { done, value } = await stream.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
       let boundary
@@ -92,10 +85,7 @@ async function finish() {
   finishing.value = true
   error.value = ''
   try {
-    const res = await fetch(`/api/interviews/${session.value.id}/finish`, { method: 'POST' })
-    const body = await res.json().catch(() => null)
-    if (!res.ok) throw new Error(body?.detail || '结束面试失败')
-    session.value = body
+    session.value = await post(`/api/interviews/${session.value.id}/finish`)
   } catch (e) {
     error.value = e.message || '网络异常，请稍后重试'
   } finally {

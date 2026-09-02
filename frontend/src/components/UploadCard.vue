@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from 'vue'
+import { request } from '../api.js'
 
 // 上传卡片：拖拽/点击选文件 → 本地预检（类型/大小）→ POST /api/resumes → 交给父页面
 const emit = defineEmits(['uploaded'])
@@ -38,17 +39,12 @@ async function doUpload(file) {
   try {
     const fd = new FormData()
     fd.append('file', file)
-    const res = await fetch('/api/resumes', { method: 'POST', body: fd })
-    const body = await res.json()
-    if (!res.ok) {
-      error.value = body.detail || '上传失败，请稍后再试'
-      return
-    }
+    const body = await request('POST', '/api/resumes', fd)
     if (body.duplicate) info.value = '这份简历之前上传过，已直接调出历史解析结果'
     if (body.resume.parse_status !== 'success') error.value = body.resume.parse_error
     emit('uploaded', body.resume)
-  } catch {
-    error.value = '网络异常，请确认后端服务已启动'
+  } catch (e) {
+    error.value = e.message || '网络异常，请确认后端服务已启动'
   } finally {
     uploading.value = false
   }

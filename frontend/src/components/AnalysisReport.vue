@@ -2,6 +2,7 @@
 // AI 分析报告卡：挂载时先查历史报告（刷新可恢复），没有则提供「开始分析」按钮。
 // 状态机 idle(未分析) → loading(10~30s 同步等待) → done(有报告) | error(友好提示)。
 import { onMounted, ref } from 'vue'
+import { get, post } from '../api.js'
 
 const props = defineProps({
   resume: { type: Object, required: true },
@@ -27,28 +28,18 @@ function fmtDuration(ms) {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
-function errorText(res) {
-  if (res.status === 429) return res.body?.detail || '今日分析次数已用完，次日 0 点恢复'
-  if (res.status === 502) return res.body?.detail || 'AI 服务暂时不可用，请稍后重试'
-  return res.body?.detail || '分析失败，请稍后重试'
-}
-
 async function loadExisting() {
   try {
-    const res = await fetch(`/api/resumes/${props.resume.id}/analysis`)
-    if (res.ok) {
-      analysis.value = await res.json()
-      cached.value = false // 历史报告不算本次重复调用
-      state.value = 'done'
-    } else if (res.status === 404) {
+    analysis.value = await get(`/api/resumes/${props.resume.id}/analysis`)
+    cached.value = false // 历史报告不算本次重复调用
+    state.value = 'done'
+  } catch (e) {
+    if (e.code === 'not_found') {
       state.value = 'idle'
     } else {
-      errorMsg.value = errorText(res)
+      errorMsg.value = e.message || '后端未启动或网络异常，请确认服务已启动'
       state.value = 'error'
     }
-  } catch {
-    errorMsg.value = '后端未启动或网络异常，请确认服务已启动'
-    state.value = 'error'
   }
 }
 
@@ -56,18 +47,12 @@ async function analyze() {
   state.value = 'loading'
   errorMsg.value = ''
   try {
-    const res = await fetch(`/api/resumes/${props.resume.id}/analyze`, { method: 'POST' })
-    const body = await res.json().catch(() => null)
-    if (!res.ok) {
-      errorMsg.value = body?.detail || errorText({ status: res.status, body })
-      state.value = 'error'
-      return
-    }
+    const body = await post(`/api/resumes/${props.resume.id}/analyze`)
     cached.value = body.cached === true
     analysis.value = body.analysis
     state.value = 'done'
-  } catch {
-    errorMsg.value = '后端未启动或网络异常，请确认服务已启动'
+  } catch (e) {
+    errorMsg.value = e.message || '后端未启动或网络异常，请确认服务已启动'
     state.value = 'error'
   }
 }

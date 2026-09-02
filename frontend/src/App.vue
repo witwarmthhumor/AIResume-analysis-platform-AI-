@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, ref } from 'vue'
+import { get, post } from './api.js'
 import UploadCard from './components/UploadCard.vue'
 import ResumeList from './components/ResumeList.vue'
 import AnalysisReport from './components/AnalysisReport.vue'
@@ -33,15 +34,21 @@ const STATUS = {
 }
 
 async function loadUser() {
-  const res = await fetch('/api/auth/me', { credentials: 'include' })
-  if (res.ok) currentUser.value = await res.json()
+  try {
+    currentUser.value = await get('/api/auth/me')
+  } catch {
+    /* 未登录属于正常态 */
+  }
 }
 
 async function logout() {
-  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
-  currentUser.value = null
-  showHistory.value = false
-  await refreshList()
+  try {
+    await post('/api/auth/logout')
+  } finally {
+    currentUser.value = null
+    showHistory.value = false
+    await refreshList()
+  }
 }
 
 function onLoggedIn(user) {
@@ -52,8 +59,7 @@ function onLoggedIn(user) {
 
 async function refreshList() {
   try {
-    const res = await fetch('/api/resumes')
-    if (res.ok) resumes.value = await res.json()
+    resumes.value = await get('/api/resumes')
   } catch {
     /* 后端没起时列表留空，页脚健康条会给出提示 */
   }
@@ -72,8 +78,7 @@ async function onSelect(id) {
   interviewResume.value = null
   currentResume.value = null
   try {
-    const res = await fetch(`/api/resumes/${id}`)
-    if (res.ok) currentResume.value = await res.json()
+    currentResume.value = await get(`/api/resumes/${id}`)
   } catch {
     /* 网络异常时详情区留空，重试即可 */
   }
@@ -83,8 +88,7 @@ onMounted(async () => {
   loadUser()
   refreshList()
   try {
-    const res = await fetch('/api/health') // 走 Vite 代理到后端，同源无跨域
-    health.value = await res.json()
+    health.value = await get('/api/health') // 走 Vite 代理到后端，同源无跨域
   } catch {
     health.value = { status: 'unreachable', database: 'disconnected', version: '-' }
   }

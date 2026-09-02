@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from 'vue'
+import { post } from '../api.js'
 
 const emit = defineEmits(['logged-in', 'logged-out'])
 const mode = ref('login')
@@ -12,12 +13,9 @@ async function submit() {
   error.value = ''
   loading.value = true
   try {
-    const res = await fetch(`/api/auth/${mode.value}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ email: email.value, password: password.value }),
+    const body = await post(`/api/auth/${mode.value}`, {
+      email: email.value, password: password.value,
     })
-    const body = await res.json().catch(() => null)
-    if (!res.ok) throw new Error(body?.detail || '操作失败')
     emit('logged-in', body.user)
   } catch (e) { error.value = e.message || '网络异常' } finally { loading.value = false }
 }

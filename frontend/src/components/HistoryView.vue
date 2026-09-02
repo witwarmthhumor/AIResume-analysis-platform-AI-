@@ -1,15 +1,13 @@
 <script setup>
 import { onMounted, ref } from 'vue'
+import { get } from '../api.js'
 
 const history = ref(null)
 const error = ref('')
 
 async function load() {
   try {
-    const res = await fetch('/api/history', { credentials: 'include' })
-    const body = await res.json().catch(() => null)
-    if (!res.ok) throw new Error(body?.detail || '请先登录')
-    history.value = body
+    history.value = await get('/api/history')
   } catch (e) {
     error.value = e.message || '加载失败'
   }
