@@ -3,9 +3,9 @@
 > **本文件是干嘛的**：项目"户口本"——技术栈、启动命令、代码约定、铁律都记在这里。AI 每次会话开工必读；只在阶段切换或约定变更时更新。
 
 ## 当前状态
-- 当前阶段：阶段5（Docker 化部署与作品集打磨，实现完成待验收；分支 stage-5-deploy-polish）
+- 当前版本：v2.0 最终版（功能开发完结，进入按需维护；分支 main）
 - 项目根目录：E:\AIDevelop\AIProject
-- 权威计划：PROJECT-PLAN.md（改需求先改它；阶段5 验收 checklist 见其 §7）
+- 权威计划：PROJECT-PLAN.md（改需求先改它）
 - 协作约定：AI-COLLABORATION.md（每次会话先读本文件和 PROGRESS.md）
 
 ## 技术栈
