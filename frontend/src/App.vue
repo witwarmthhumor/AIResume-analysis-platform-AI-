@@ -5,6 +5,7 @@ import UploadCard from './components/UploadCard.vue'
 import ResumeList from './components/ResumeList.vue'
 import AnalysisReport from './components/AnalysisReport.vue'
 import InterviewChat from './components/InterviewChat.vue'
+import Playground from './components/Playground.vue'
 import LoginPanel from './components/LoginPanel.vue'
 import HistoryView from './components/HistoryView.vue'
 import AdminPanel from './components/AdminPanel.vue'
@@ -27,6 +28,7 @@ const currentUser = ref(null)
 const showLogin = ref(false)
 const showHistory = ref(false)
 const showAdmin = ref(false)
+const showPlayground = ref(false)
 
 const STATUS = {
   success: { label: '解析成功', cls: 'ok' },
@@ -50,6 +52,7 @@ async function logout() {
     currentUser.value = null
     showHistory.value = false
     showAdmin.value = false
+    showPlayground.value = false
     await refreshList()
   }
 }
@@ -112,6 +115,12 @@ onMounted(async () => {
           <span>AI 简历分析 <span class="plus">+</span> 模拟面试</span>
         </div>
         <div class="nav-btns">
+          <button
+            class="btn btn-ghost"
+            @click="showPlayground = !showPlayground; showHistory = false; showAdmin = false"
+          >
+            🧪 Playground
+          </button>
           <template v-if="currentUser">
             <span class="whoami">{{ currentUser.email }}</span>
             <button v-if="currentUser.role === 'admin'" class="btn btn-ghost" @click="showAdmin = !showAdmin; showHistory = false">
@@ -137,6 +146,7 @@ onMounted(async () => {
       <LoginPanel v-if="showLogin && !currentUser" @logged-in="onLoggedIn" />
       <AdminPanel v-if="showAdmin && currentUser?.role === 'admin'" />
       <HistoryView v-if="showHistory && currentUser" />
+      <Playground v-if="showPlayground" />
       <UploadCard @uploaded="onUploaded" />
       <ResumeList
         :resumes="resumes"
