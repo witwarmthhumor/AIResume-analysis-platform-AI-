@@ -3,16 +3,18 @@
 > **本文件是干嘛的**：项目"户口本"——技术栈、启动命令、代码约定、铁律都记在这里。AI 每次会话开工必读；只在阶段切换或约定变更时更新。
 
 ## 当前状态
-- 当前版本：v2.0 最终版（功能开发完结，进入按需维护；分支 main）
+- 当前版本：v3.0（Playground 知识库问答；分支 main）
 - 项目根目录：E:\AIDevelop\AIProject
 - 权威计划：PROJECT-PLAN.md（改需求先改它）
 - 协作约定：AI-COLLABORATION.md（每次会话先读本文件和 PROGRESS.md）
 
 ## 技术栈
-- 后端：FastAPI + Postgres 16 + SQLAlchemy 2 + Alembic（阶段4 加 Celery/Redis）
+- 后端：FastAPI + Postgres 16（pgvector）+ SQLAlchemy 2 + Alembic + Celery/Redis
 - 前端：Vue 3 + Vite（JavaScript 起步，配置文件用 vite.config.ts）
 - AI：OpenAI 兼容协议（当前：DeepSeek deepseek-chat；换通义 = 改 backend/.env 三行），Key 只放 backend/.env
-- 后台任务：Celery + Redis（阶段4接入，阶段5全套 Docker 编排）
+- Embedding：Ollama 本地（nomic-embed-text 768 维，OpenAI 兼容 API）；切云端改 settings 三行
+- 向量检索：pgvector HNSW 余弦索引
+- 后台任务：Celery + Redis
 - 测试：pytest（阶段0 起，冒烟测试）
 
 ## 启动命令（2026-08-31 阶段0 全部实测通过）
@@ -35,6 +37,15 @@ cd backend
 .venv\Scripts\python -m alembic upgrade head          # 应用迁移
 .venv\Scripts\python -m alembic revision --autogenerate -m "说明"  # 生成迁移
 
+# v3.0 Playground：预置语料入库 + RAG 评测（backend/ 目录下执行）
+./.venv/Scripts/python -m scripts.seed_kb_preset             # 入库 data/preset_kb 语料
+./.venv/Scripts/python -m scripts.seed_kb_preset --reset    # 清空预置语料重新入库
+./.venv/Scripts/python -m scripts.eval_rag --report         # 跑黄金问答集评测（写 data/kb_eval/report.md）
+
+# Ollama embedding（本地向量化，首次需拉模型，已入 ollama_data 卷）
+docker compose up -d ollama          # 起 Ollama 服务（端口 11434）
+docker exec ai-interview-ollama ollama pull nomic-embed-text   # 若模型缺失则拉取
+
 # 冒烟测试
 cd backend
 .venv\Scripts\python -m pytest
@@ -54,6 +65,8 @@ cd backend
 - 环境变量只放 backend/.env；前端本地开发走 Vite 代理调 /api，天然同源，不加 CORS
 - 测试简历集：test-resumes/ 5 份 PDF（生成脚本 scripts/generate_test_resumes.py）；改解析/提示词后必须重跑对比（回归基准）
 - AI 提示词带版本号 PROMPT_VERSION（backend/app/services/prompts.py）：改提示词必须递增，旧版本报告自动失效不复用
+- v3.0 约定：切块/embedding 改动后必须跑 scripts/eval_rag.py 对比基线（data/kb_eval/report.md）；embedding 模型维度变更需新迁移 + 重新入库（Vector(768) 写死在迁移里）
+- v3.0 目录：预置语料 data/preset_kb/（新增语料放这里跑 seed 脚本）；黄金问答集 data/kb_eval/qa.json（改检索逻辑先加题再验证）
 
 ## Git / GitHub 策略（用户 2026-08-31 指示，覆盖原计划的逐阶段推送）
 - 现在：本地 git commit + 每阶段验收后打 tag，**不推送远端**
