@@ -10,12 +10,6 @@ from fastapi.exceptions import RequestValidationError
 from redis import Redis
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.analyses import router as analyses_router
-from app.api.auth import router as auth_router
-from app.api.history import router as history_router
-from app.api.interviews import router as interviews_router
-from app.api.resumes import router as resumes_router
-from app.api.tasks import router as tasks_router
 from app.core.config import settings
 from app.core.errors import (
     AppError,
@@ -25,6 +19,7 @@ from app.core.errors import (
     validation_handler,
 )
 from app.core.logging import get_logger, setup_logging
+from app.core.router_registry import register_all_routers
 from app.db.session import ping_database
 
 setup_logging(settings.log_level, settings.log_file or None)
@@ -32,12 +27,7 @@ logger = get_logger(__name__)
 
 app = FastAPI(title="AI 简历分析与模拟面试 API", version=settings.app_version)
 
-app.include_router(resumes_router)
-app.include_router(analyses_router)
-app.include_router(interviews_router)
-app.include_router(auth_router)
-app.include_router(history_router)
-app.include_router(tasks_router)
+register_all_routers(app)  # RouterRegistry 自动注册 app/api 下全部路由
 
 # —— 统一错误体系（P2）：所有错误输出 {"code","message","details"} ——
 app.add_exception_handler(AppError, app_error_handler)

@@ -15,10 +15,10 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.analysis import Analysis
 from app.models.resume import Resume
-from app.models.usage_log import UsageLog
 from app.models.user import User
 from app.schemas.analysis import AnalysisOut, AnalysisResultOut
-from app.services.ai_client import AIError, AnalysisResult, analyze_resume
+from app.services.ai_client import AIError, analyze_resume
+from app.services.analysis_service import record_analysis
 from app.services.prompts import PROMPT_VERSION
 
 router = APIRouter(prefix="/api", tags=["analyses"])
@@ -79,7 +79,9 @@ def analyze_resume_endpoint(
     try:
         result = analyze_resume(resume.raw_text, settings)
     except AIError as exc:
-        _record(db, resume_id, anonymous_id, user, request, exc, None)
+        record_analysis(
+            db, resume_id, anonymous_id, user.id if user else None, request, exc
+        )
         raise HTTPException(502, exc.message) from exc
 
     analysis = Analysis(
@@ -94,7 +96,15 @@ def analyze_resume_endpoint(
         tokens_completion=result.tokens_completion,
         duration_ms=result.duration_ms,
     )
-    _record(db, resume_id, anonymous_id, user, request, result, analysis)
+    record_analysis(
+        db,
+        resume_id,
+        anonymous_id,
+        user.id if user else None,
+        request,
+        result,
+        analysis,
+    )
     return AnalysisResultOut(cached=False, analysis=_to_out(analysis))
 
 
@@ -116,50 +126,3 @@ def get_analysis(
     if analysis is None:
         raise HTTPException(404, "该简历还没有分析报告")
     return _to_out(analysis)
-
-
-def _record(
-    db: Session,
-    resume_id: int,
-    anonymous_id: str,
-    user: User | None,
-    request: Request,
-    result: AnalysisResult | AIError,
-    analysis: Analysis | None,
-) -> None:
-    """analyses 落库（失败留痕）+ usage_logs 记账（限流与 token 可见）。"""
-    if isinstance(result, AIError):
-        result_json = (
-            {"raw_output": result.raw_output}
-            if result.raw_output
-            else {"error": result.message}
-        )
-        valid, model, tokens = False, settings.ai_model, None
-    else:
-        result_json, valid, model = result.report, result.valid, result.model_name
-        tokens = (result.tokens_prompt or 0) + (result.tokens_completion or 0)
-
-    if analysis is None:  # 失败留痕：valid_json=false，调试与迭代对比用
-        analysis = Analysis(
-            resume_id=resume_id,
-            user_id=user.id if user is not None else None,
-            anonymous_id=anonymous_id if user is None else None,
-            model_name=model,
-            prompt_version=PROMPT_VERSION,
-            result_json=result_json,
-            valid_json=valid,
-        )
-
-    db.add(analysis)  # 成功路径的对象也在这里统一入会话
-    db.add(
-        UsageLog(
-            user_id=user.id if user is not None else None,
-            anonymous_id=anonymous_id if user is None else None,
-            action_type="analysis",
-            model_name=model,
-            tokens_total=tokens,
-            ip_address=request.client.host if request.client else None,
-        )
-    )
-    db.commit()
-    db.refresh(analysis)

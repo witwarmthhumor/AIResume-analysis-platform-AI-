@@ -2,16 +2,15 @@
 
 V1 无登录：首次访问下发匿名 cookie（uuid），作为 usage_logs 的归属标识；
 阶段4 接登录后同一套表按 user_id 统计，逻辑不变。
+统计与记账逻辑已下沉到 services/usage_service.py（P4）。
 """
 
 import uuid
-from datetime import datetime
 
 from fastapi import Cookie, HTTPException, Response
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.usage_log import UsageLog
+from app.services.usage_service import count_today_usage
 
 ANONYMOUS_COOKIE = "anonymous_id"
 _COOKIE_MAX_AGE = 365 * 24 * 3600  # 一年，浏览器重装/清 cookie 后视为新用户
@@ -29,25 +28,6 @@ def get_anonymous_id(
         ANONYMOUS_COOKIE, new_id, max_age=_COOKIE_MAX_AGE, httponly=True, samesite="lax"
     )
     return new_id
-
-
-def count_today_usage(db: Session, anonymous_id: str, action_type: str) -> int:
-    """该匿名身份今日（本地时区 0 点起）某类动作的次数。"""
-    today_start = (
-        datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
-    )
-    return int(
-        db.scalar(
-            select(func.count())
-            .select_from(UsageLog)
-            .where(
-                UsageLog.anonymous_id == anonymous_id,
-                UsageLog.action_type == action_type,
-                UsageLog.created_at >= today_start,
-            )
-        )
-        or 0
-    )
 
 
 def enforce_daily_limit(
