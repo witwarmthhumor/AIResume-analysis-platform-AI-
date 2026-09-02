@@ -26,5 +26,5 @@ class TimestampMixin:
     """所有表共用：记录创建时间（时区感知，数据库写入）。"""
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )  # 索引：列表/聚合都按时间倒序查询

@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_file: str = ""
 
+    # 数据库连接池（P1）：SQLAlchemy 连接池参数
+    db_pool_size: int = 10
+    db_max_overflow: int = 10
+    db_pool_recycle_seconds: int = 1800  # 定期回收，避免连接被服务端断开后仍被复用
+
     # 阶段1：简历上传限制与存储（PROJECT-PLAN §1 风险1 对策：只收小体积文本型 PDF）
     upload_max_size: int = 5 * 1024 * 1024  # 5MB
     upload_max_pages: int = 5
@@ -34,6 +39,7 @@ class Settings(BaseSettings):
     # 阶段3：文字模拟面试
     max_interview_turns: int = 10  # 单场面试最大轮次，防无限聊（PROJECT-PLAN §2）
     daily_interview_message_limit: int = 100  # 每人每日 AI 回复条数上限
+    interview_abandon_minutes: int = 30  # 超时无活动自动置 abandoned（P1）
 
     # 阶段4：JWT 与 Celery/Redis
     jwt_secret_key: str = "change-me-in-backend-env"

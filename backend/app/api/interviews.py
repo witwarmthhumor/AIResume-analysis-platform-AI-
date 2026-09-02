@@ -9,6 +9,7 @@
 
 import json
 import time
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -57,6 +58,25 @@ def _get_session(
     if user is None and session.user_id is not None:
         raise HTTPException(404, "面试会话不存在")
     return session
+
+
+def _abandon_if_stale(db: Session, session: InterviewSession) -> bool:
+    """会话超时无活动则置 abandoned（P1）。返回是否已置为 abandoned。"""
+    if session.status != "in_progress":
+        return False
+    last_message = db.scalar(
+        select(InterviewMessage.created_at)
+        .where(InterviewMessage.session_id == session.id)
+        .order_by(InterviewMessage.id.desc())
+        .limit(1)
+    )
+    last_active = last_message or session.created_at
+    idle_minutes = (datetime.now(timezone.utc) - last_active).total_seconds() / 60
+    if idle_minutes >= settings.interview_abandon_minutes:
+        session.status = "abandoned"
+        db.commit()
+        return True
+    return False
 
 
 def _session_out(db: Session, session: InterviewSession) -> SessionOut:
@@ -114,10 +134,13 @@ def start_interview(
         .order_by(InterviewSession.created_at.desc(), InterviewSession.id.desc())
     )
     if existing is not None:
-        return StartSessionOut(
-            interview_prompt_version=INTERVIEW_PROMPT_VERSION,
-            session=_session_out(db, existing),
-        )
+        # 如果已有进行中会话但超时→废弃它，走新建流程（P1 abandoned）
+        if not _abandon_if_stale(db, existing):
+            return StartSessionOut(
+                interview_prompt_version=INTERVIEW_PROMPT_VERSION,
+                session=_session_out(db, existing),
+            )
+        existing = None
 
     session = InterviewSession(
         resume_id=resume_id,
@@ -162,6 +185,10 @@ def send_message(
     session = _get_session(db, session_id, user)
     if session.status != "in_progress":
         raise HTTPException(400, "该面试已结束")
+    if _abandon_if_stale(db, session):
+        raise HTTPException(
+            400, "该面试会话因超过 30 分钟无活动已自动结束，请返回重新开始"
+        )
     if session.turn_count >= settings.max_interview_turns:
         raise HTTPException(400, "已达到最大轮次，请结束面试查看评价报告")
 
@@ -175,14 +202,17 @@ def send_message(
     )
     db.commit()
 
-    # 组装对话：system（简历+阶段）+ 全部历史
+    # 对话历史截断（P1）：保留最近 6 条，控制 token 用量
+    _RECENT_KEEP = 6
     history = list(
         db.scalars(
             select(InterviewMessage)
             .where(InterviewMessage.session_id == session_id)
-            .order_by(InterviewMessage.id)
+            .order_by(InterviewMessage.id.desc())
+            .limit(_RECENT_KEEP)
         )
     )
+    history = list(reversed(history))
     resume = db.get(Resume, session.resume_id)
     next_turn = session.turn_count + 1
     stage = stage_for_turn(next_turn, settings.max_interview_turns)
@@ -276,6 +306,10 @@ def finish_interview(
     session = _get_session(db, session_id, user)
     if session.status != "in_progress":
         raise HTTPException(400, "该面试已结束，报告以现有内容为准")
+    if _abandon_if_stale(db, session):
+        raise HTTPException(
+            400, "该面试会话因超过 30 分钟无活动已自动结束，无法生成评价"
+        )
 
     history = list(
         db.scalars(
