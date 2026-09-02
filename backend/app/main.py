@@ -3,7 +3,9 @@
 业务路由从阶段1起挂 /api 前缀（app/api）；/health 是基础设施检查，不带前缀。
 """
 
-from fastapi import FastAPI
+import time
+
+from fastapi import FastAPI, Request
 from redis import Redis
 
 from app.api.analyses import router as analyses_router
@@ -13,7 +15,11 @@ from app.api.interviews import router as interviews_router
 from app.api.resumes import router as resumes_router
 from app.api.tasks import router as tasks_router
 from app.core.config import settings
+from app.core.logging import get_logger, setup_logging
 from app.db.session import ping_database
+
+setup_logging(settings.log_level, settings.log_file or None)
+logger = get_logger(__name__)
 
 app = FastAPI(title="AI 简历分析与模拟面试 API", version=settings.app_version)
 
@@ -23,6 +29,26 @@ app.include_router(interviews_router)
 app.include_router(auth_router)
 app.include_router(history_router)
 app.include_router(tasks_router)
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """请求日志：记录方法/路径/耗时/状态码，异常时记 ERROR（不记请求体与密钥）。"""
+    started = time.monotonic()
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception("request failed: %s %s", request.method, request.url.path)
+        raise
+    duration_ms = int((time.monotonic() - started) * 1000)
+    logger.info(
+        "%s %s -> %s (%dms)",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+    )
+    return response
 
 
 @app.get("/health")

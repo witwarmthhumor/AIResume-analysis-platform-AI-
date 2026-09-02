@@ -12,11 +12,14 @@ from dataclasses import dataclass
 from openai import OpenAI
 
 from app.core.config import Settings
+from app.core.logging import get_logger
 from app.schemas.analysis import AIReport
 from app.services.prompts import SYSTEM_PROMPT, build_user_prompt
 
 # 最多尝试 3 次 = 首次 + 2 次重试（PROJECT-PLAN 定的"失败自动重试最多 2 次"）
 _MAX_ATTEMPTS = 3
+
+logger = get_logger(__name__)
 
 
 class AIError(Exception):
@@ -90,7 +93,7 @@ def chat_json(
     last_raw: str | None = None
     last_tokens: tuple[int | None, int | None] = (None, None)
 
-    for _ in range(_MAX_ATTEMPTS):
+    for attempt in range(_MAX_ATTEMPTS):
         try:
             resp = client.chat.completions.create(
                 model=settings.ai_model,
@@ -99,6 +102,14 @@ def chat_json(
                 temperature=0.3,  # 低随机性：结构化输出要稳定
             )
         except Exception as exc:  # noqa: BLE001  SDK 异常种类随服务商变化，按类型给话术
+            logger.error(
+                "AI 调用失败 model=%s attempt=%d/%d exc=%s: %s",
+                settings.ai_model,
+                attempt + 1,
+                _MAX_ATTEMPTS,
+                type(exc).__name__,
+                exc,
+            )
             raise AIError(_call_error_message(exc), raw_output=last_raw) from None
 
         content = resp.choices[0].message.content or ""
@@ -108,7 +119,14 @@ def chat_json(
 
         try:
             validated = validator(_extract_json(content))
-        except Exception:  # noqa: BLE001, S112  解析/校验失败 → 重试，耗尽后统一报错
+        except Exception as exc:  # noqa: BLE001  解析/校验失败 → 重试，耗尽后统一报错
+            logger.warning(
+                "AI 输出未通过 JSON 校验 model=%s attempt=%d/%d exc=%s",
+                settings.ai_model,
+                attempt + 1,
+                _MAX_ATTEMPTS,
+                type(exc).__name__,
+            )
             continue
 
         return AnalysisResult(
@@ -120,6 +138,7 @@ def chat_json(
             duration_ms=int((time.monotonic() - started) * 1000),
         )
 
+    logger.error("AI 重试耗尽 model=%s attempts=%d", settings.ai_model, _MAX_ATTEMPTS)
     raise AIError(
         "AI 返回的格式不符合要求，已自动重试仍失败，请稍后重试", raw_output=last_raw
     )
@@ -157,4 +176,10 @@ def stream_chat(
             if delta and delta.content:
                 yield delta.content
     except Exception as exc:  # noqa: BLE001  流式链路异常统一给话术
+        logger.error(
+            "AI 流式调用中断 model=%s exc=%s: %s",
+            settings.ai_model,
+            type(exc).__name__,
+            exc,
+        )
         raise AIError(_call_error_message(exc)) from None
