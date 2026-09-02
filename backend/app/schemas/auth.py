@@ -15,6 +15,7 @@ class UserOut(BaseModel):
 
     id: int
     email: EmailStr
+    role: str  # user / admin
     created_at: datetime
 
 

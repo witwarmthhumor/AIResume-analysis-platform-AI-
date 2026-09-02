@@ -7,6 +7,7 @@ import AnalysisReport from './components/AnalysisReport.vue'
 import InterviewChat from './components/InterviewChat.vue'
 import LoginPanel from './components/LoginPanel.vue'
 import HistoryView from './components/HistoryView.vue'
+import AdminPanel from './components/AdminPanel.vue'
 
 // —— 健康检查（页脚胶囊状态条）——
 const health = ref(null)
@@ -25,6 +26,7 @@ const interviewResume = ref(null)
 const currentUser = ref(null)
 const showLogin = ref(false)
 const showHistory = ref(false)
+const showAdmin = ref(false)
 
 const STATUS = {
   success: { label: '解析成功', cls: 'ok' },
@@ -47,6 +49,7 @@ async function logout() {
   } finally {
     currentUser.value = null
     showHistory.value = false
+    showAdmin.value = false
     await refreshList()
   }
 }
@@ -106,7 +109,10 @@ onMounted(async () => {
         <div class="nav-btns">
           <template v-if="currentUser">
             <span class="whoami">{{ currentUser.email }}</span>
-            <button class="btn btn-ghost" @click="showHistory = !showHistory">
+            <button v-if="currentUser.role === 'admin'" class="btn btn-ghost" @click="showAdmin = !showAdmin; showHistory = false">
+              {{ showAdmin ? '收起面板' : '管理面板' }}
+            </button>
+            <button class="btn btn-ghost" @click="showHistory = !showHistory; showAdmin = false">
               {{ showHistory ? '收起历史' : '我的历史' }}
             </button>
             <button class="btn btn-ghost" @click="logout">退出</button>
@@ -124,6 +130,7 @@ onMounted(async () => {
       </p>
 
       <LoginPanel v-if="showLogin && !currentUser" @logged-in="onLoggedIn" />
+      <AdminPanel v-if="showAdmin && currentUser?.role === 'admin'" />
       <HistoryView v-if="showHistory && currentUser" />
       <UploadCard @uploaded="onUploaded" />
       <ResumeList :resumes="resumes" :current-id="currentResume?.id" @select="onSelect" />

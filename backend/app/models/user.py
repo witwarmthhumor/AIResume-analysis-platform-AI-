@@ -15,3 +15,6 @@ class User(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"
     )
+    role: Mapped[str] = mapped_column(
+        String(20), default="user", server_default="user"
+    )  # user / admin

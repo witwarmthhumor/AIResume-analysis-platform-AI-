@@ -1,7 +1,7 @@
 """用户认证接口：注册、登录、登出、当前用户。"""
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -25,7 +25,13 @@ def register(
     db: Session = Depends(get_db),  # noqa: B008
 ) -> AuthResponse:
     email = str(credentials.email).lower()
-    user = User(email=email, password_hash=hash_password(credentials.password))
+    # 首个注册用户自动成为 admin（P6 只读管理面板入口）
+    is_first_user = db.scalar(select(func.count()).select_from(User)) == 0
+    user = User(
+        email=email,
+        password_hash=hash_password(credentials.password),
+        role="admin" if is_first_user else "user",
+    )
     db.add(user)
     try:
         db.commit()
