@@ -13,14 +13,23 @@ const streaming = ref(false)
 const finishing = ref(false)
 const error = ref('')
 const chatBox = ref(null)
+const positionType = ref('')  // '' / intern / fresh / senior
 
 const STAGES = { intro: '自我介绍', technical: '技术问答', deep_dive: '深入追问', wrapup: '收尾' }
+const POSITIONS = [
+  { value: '', label: '通用（建议）' },
+  { value: 'intern', label: '实习生' },
+  { value: 'fresh', label: '初级/应届' },
+  { value: 'senior', label: '高级/资深' },
+]
 
 async function startOrResume() {
   loading.value = true
   error.value = ''
   try {
-    const body = await post(`/api/resumes/${props.resume.id}/interviews`)
+    const body = await post(`/api/resumes/${props.resume.id}/interviews`, {
+      position_type: positionType.value || null,
+    })
     session.value = body.session
     messages.value = [...body.session.messages]
   } catch (e) {
@@ -114,9 +123,26 @@ onMounted(startOrResume)
       <button class="btn btn-ghost" @click="emit('close')">返回简历</button>
     </div>
     <p v-if="error" class="msg error">{{ error }}</p>
-    <p v-if="loading" class="loading">正在恢复面试会话…</p>
+    <div v-if="loading" class="setup">
+      <p class="loading">正在恢复面试会话…</p>
+    </div>
     <template v-else-if="session?.status === 'finished'">
       <InterviewReport :report="session.final_report" />
+    </template>
+    <template v-else-if="session && session.turn_count === 0 && !messages.length">
+      <!-- P5 智能出题：开始前选择岗位类型 -->
+      <p class="setup-hint">选择面试难度方向（模拟题将按类型调整）</p>
+      <div class="pos-grid">
+        <button
+          v-for="opt in POSITIONS"
+          :key="opt.value"
+          class="pos-btn"
+          :class="{ on: positionType === opt.value }"
+          @click="positionType = opt.value; startOrResume()"
+        >
+          {{ opt.label }}
+        </button>
+      </div>
     </template>
     <template v-else-if="session">
       <div ref="chatBox" class="chat-box">
@@ -192,6 +218,42 @@ onMounted(startOrResume)
 .loading {
   color: var(--c-muted);
   font-size: 13px;
+  margin: 0;
+}
+.setup-hint {
+  color: var(--c-muted);
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+.pos-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.pos-btn {
+  border: 1.5px solid var(--c-border);
+  border-radius: var(--radius-md);
+  background: #fff;
+  color: var(--c-muted);
+  padding: 12px 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.pos-btn:hover {
+  border-color: var(--c-primary-border);
+  color: var(--c-primary-dark);
+}
+.pos-btn.on {
+  border-color: var(--c-primary);
+  background: var(--c-primary-light);
+  color: var(--c-primary-dark);
+  font-weight: 600;
+}
+@media (max-width: 520px) {
+  .pos-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 /* —— 聊天气泡区 —— */

@@ -4,7 +4,7 @@
 阶段由代码按轮次计算并注入提示词，AI 只负责在该阶段内自然提问与追问。
 """
 
-INTERVIEW_PROMPT_VERSION = "1"
+INTERVIEW_PROMPT_VERSION = "2"
 
 OPENING_MESSAGE = (
     "你好，我是今天的技术面试官。我已仔细看过你的简历，"
@@ -26,15 +26,25 @@ def stage_for_turn(turn: int, max_turns: int) -> str:
 
 
 def build_interviewer_system_prompt(
-    resume_text: str, stage: str, turn: int, max_turns: int
+    resume_text: str,
+    stage: str,
+    turn: int,
+    max_turns: int,
+    position_type: str | None = None,
 ) -> str:
-    """面试官系统提示词：注入简历、当前阶段与进度。"""
+    """面试官系统提示词：注入简历、当前阶段与进度、岗位类型难度。"""
     stage_hint = {
         "intro": "开场阶段：围绕自我介绍及其细节提问，不要深入技术实现。",
         "technical": "技术阶段：针对简历中的项目/技能提技术问题，考察真实理解。",
         "deep_dive": "深挖阶段：对最有价值的项目做追问，考察深度、取舍与真实性。",
         "wrapup": "收尾阶段：可给一个开放性收尾问题或对候选人的建议，语气收束。",
     }[stage]
+
+    type_hint = {
+        "intern": "面试对象为实习生候选人：重点考察基础能力、学习潜力、对技术的热情，问题偏基础，难度适中。",
+        "fresh": "面试对象为应届/社招初级候选人：重点考察项目理解、基本技能和实践能力，问题难度中等。",
+        "senior": "面试对象为高级/资深候选人：重点考察架构设计能力、技术深度、系统取舍与团队协作经验，问题有深度和挑战性。",
+    }.get(position_type, "面试对象为通用候选人：按标准技术面试流程提问，难度适中。")
 
     return f"""你是一位经验丰富的技术面试官，正在对候选人进行多轮模拟面试。以下是候选人的简历全文：
 
@@ -48,7 +58,8 @@ def build_interviewer_system_prompt(
 3. 回复控制在 2~5 句话，语气专业但友好，像真实面试。
 4. 针对简历内容提问，不要问简历之外的泛泛智力题。
 5. 当前是第 {turn} 轮（共 {max_turns} 轮），面试处于「{stage}」阶段：{stage_hint}
-6. 不要使用 markdown 标记，直接输出纯文本。"""
+6. {type_hint}
+7. 不要使用 markdown 标记，直接输出纯文本。"""
 
 
 def build_final_report_system_prompt(resume_text: str, transcript: str) -> str:

@@ -27,6 +27,9 @@ class InterviewSession(Base, TimestampMixin):
         JSONB
     )  # 结束评价报告（分维度评分）
 
+    # P5 智能出题：intern / fresh / senior，可空=通用
+    position_type: Mapped[str | None] = mapped_column(String(20))
+
 
 class InterviewMessage(Base, TimestampMixin):
     __tablename__ = "interview_messages"

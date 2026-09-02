@@ -47,6 +47,12 @@ class SendMessageIn(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
 
 
+class StartInterviewIn(BaseModel):
+    position_type: str | None = Field(
+        default=None, description="intern/fresh/senior，空=通用（P5 智能出题）"
+    )
+
+
 def _get_session(
     db: Session, session_id: int, user: User | None = None
 ) -> InterviewSession:
@@ -94,6 +100,7 @@ def _session_out(db: Session, session: InterviewSession) -> SessionOut:
         stage=session.stage,
         turn_count=session.turn_count,
         max_turns=settings.max_interview_turns,
+        position_type=session.position_type,
         messages=[MessageOut.model_validate(m) for m in messages],
         final_report=session.final_report_json,
     )
@@ -104,6 +111,7 @@ def _session_out(db: Session, session: InterviewSession) -> SessionOut:
 )
 def start_interview(
     resume_id: int,
+    body: StartInterviewIn | None = None,
     db: Session = Depends(get_db),  # noqa: B008  FastAPI 依赖注入官方惯用法
     anonymous_id: str = Depends(get_anonymous_id),
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
@@ -146,6 +154,7 @@ def start_interview(
         resume_id=resume_id,
         user_id=user.id if user is not None else None,
         anonymous_id=anonymous_id if user is None else None,
+        position_type=(body.position_type if body else None),
     )
     db.add(session)
     db.flush()  # 拿到 session.id 给开场白用
@@ -220,7 +229,11 @@ def send_message(
         {
             "role": "system",
             "content": build_interviewer_system_prompt(
-                resume.raw_text, stage, next_turn, settings.max_interview_turns
+                resume.raw_text,
+                stage,
+                next_turn,
+                settings.max_interview_turns,
+                session.position_type,
             ),
         }
     ] + [

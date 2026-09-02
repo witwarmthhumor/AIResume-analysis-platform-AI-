@@ -252,3 +252,31 @@ def test_daily_message_limit(monkeypatch) -> None:
         f"/api/interviews/{session['id']}/messages", json={"content": "回答"}
     )
     assert resp.status_code == 429
+
+
+def test_start_interview_with_position_type() -> None:
+    resume_id = _upload_ok()
+    resp = client.post(
+        f"/api/resumes/{resume_id}/interviews", json={"position_type": "intern"}
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["session"]["position_type"] == "intern"
+    # 老会话复用不带 position_type 也应正常返回原值
+    resp2 = client.post(f"/api/resumes/{resume_id}/interviews", json={})
+    assert resp2.status_code == 201
+    assert resp2.json()["session"]["id"] == body["session"]["id"]
+    assert resp2.json()["session"]["position_type"] == "intern"
+
+
+def test_interview_prompt_contains_position_type(monkeypatch) -> None:
+    from app.services.interview_prompts import build_interviewer_system_prompt
+
+    for pt, keyword in [
+        ("intern", "实习生"),
+        ("fresh", "应届"),
+        ("senior", "高级"),
+        (None, "通用"),
+    ]:
+        text = build_interviewer_system_prompt("简历", "technical", 2, 10, pt)
+        assert keyword in text

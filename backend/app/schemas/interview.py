@@ -35,6 +35,7 @@ class SessionOut(BaseModel):
     stage: str  # intro / technical / deep_dive / wrapup
     turn_count: int
     max_turns: int
+    position_type: str | None  # intern/fresh/senior，空=通用
     messages: list[MessageOut]
     final_report: dict | None  # finished 时为 InterviewReport 通过校验后的 dict
 
