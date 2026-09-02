@@ -12,12 +12,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy import delete, select  # noqa: E402
+from sqlalchemy import delete, select
 
-from app.core.config import settings  # noqa: E402
-from app.db.session import SessionLocal  # noqa: E402
-from app.models.kb import KBDocument  # noqa: E402
-from app.services.kb_service import create_document, ingest_kb_document  # noqa: E402
+from app.core.config import settings
+from app.db.session import SessionLocal
+from app.models.kb import KBDocument
+from app.services.kb_service import create_document, ingest_kb_document
 
 # 预置语料统一放项目根 data/preset_kb（与前端构建产物同层，仓库级数据）
 PRESET_DIR = Path(__file__).resolve().parents[1].parent / "data" / "preset_kb"
