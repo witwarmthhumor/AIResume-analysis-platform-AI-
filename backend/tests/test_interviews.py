@@ -203,7 +203,7 @@ def test_max_turns_blocks_new_messages(monkeypatch) -> None:
         f"/api/interviews/{session['id']}/messages", json={"content": "再答"}
     )
     assert resp2.status_code == 400
-    assert "最大轮次" in resp2.json()["detail"]
+    assert "最大轮次" in resp2.json()["message"]
 
 
 def test_finish_generates_report_and_closes(monkeypatch) -> None:

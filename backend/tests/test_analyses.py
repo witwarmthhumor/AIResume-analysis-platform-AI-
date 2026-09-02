@@ -151,7 +151,7 @@ def test_analyze_502_and_tombstone_on_ai_error(monkeypatch) -> None:
     monkeypatch.setattr("app.api.analyses.analyze_resume", fake)
     resp = client.post(f"/api/resumes/{resume_id}/analyze")
     assert resp.status_code == 502
-    assert "重试" in resp.json()["detail"]
+    assert "重试" in resp.json()["message"]
     with engine.begin() as conn:  # 失败也留痕（valid_json=false）+ 记账
         assert conn.execute(text("SELECT valid_json FROM analyses")).scalar() is False
         assert conn.execute(text("SELECT count(*) FROM usage_logs")).scalar() == 1
@@ -165,7 +165,7 @@ def test_daily_limit_429(monkeypatch) -> None:
     _seed_usage(anon, 2)
     resp = client.post(f"/api/resumes/{resume_id}/analyze")
     assert resp.status_code == 429
-    assert "次日 0 点" in resp.json()["detail"]
+    assert "次日 0 点" in resp.json()["message"]
 
 
 def test_get_latest_analysis(monkeypatch) -> None:

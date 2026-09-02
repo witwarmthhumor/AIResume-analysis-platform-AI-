@@ -6,7 +6,9 @@
 import time
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from redis import Redis
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.analyses import router as analyses_router
 from app.api.auth import router as auth_router
@@ -15,6 +17,13 @@ from app.api.interviews import router as interviews_router
 from app.api.resumes import router as resumes_router
 from app.api.tasks import router as tasks_router
 from app.core.config import settings
+from app.core.errors import (
+    AppError,
+    app_error_handler,
+    http_exception_handler,
+    unhandled_handler,
+    validation_handler,
+)
 from app.core.logging import get_logger, setup_logging
 from app.db.session import ping_database
 
@@ -29,6 +38,12 @@ app.include_router(interviews_router)
 app.include_router(auth_router)
 app.include_router(history_router)
 app.include_router(tasks_router)
+
+# —— 统一错误体系（P2）：所有错误输出 {"code","message","details"} ——
+app.add_exception_handler(AppError, app_error_handler)
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_handler)
+app.add_exception_handler(Exception, unhandled_handler)
 
 
 @app.middleware("http")

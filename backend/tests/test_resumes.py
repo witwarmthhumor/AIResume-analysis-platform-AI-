@@ -83,13 +83,13 @@ def test_oversize_rejected_413() -> None:
     big = b"%PDF-1.4" + b"0" * (5 * 1024 * 1024 + 1)  # 文件头合法、内容超 5MB
     resp = upload(big)
     assert resp.status_code == 413
-    assert "5MB" in resp.json()["detail"]
+    assert "5MB" in resp.json()["message"]
 
 
 def test_too_many_pages_rejected_400() -> None:
     resp = upload(make_text_pdf(["page content with enough text here"] * 6))
     assert resp.status_code == 400
-    assert "页" in resp.json()["detail"]
+    assert "页" in resp.json()["message"]
     assert client.get("/api/resumes").json() == []
 
 
