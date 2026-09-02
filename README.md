@@ -6,16 +6,18 @@
 
 - 文本型 PDF 简历上传、解析、5MB/5页限制与 hash 去重
 - AI 简历分析：岗位匹配、优势、短板、关键词缺口、改进建议、预测面试题
-- 多轮文字模拟面试：SSE 流式回复、消息恢复、结束评价
+- 多轮文字模拟面试：SSE 流式回复、消息恢复、结束评价，支持智能出题（实习/校招/社招）
 - 用户注册/登录、JWT、用户数据隔离、历史记录
+- 🧪 **Playground 知识库问答**（v3.0）：基于预置语料库（面试题/八股文/岗位 JD）+ 用户上传文档，向量检索 + RAG 流式回答，带引用来源
 - Redis + Celery 异步任务基础
 
 ## 技术栈
 
-- 后端：Python + FastAPI + PostgreSQL + SQLAlchemy / Alembic
+- 后端：Python + FastAPI + PostgreSQL（pgvector）+ SQLAlchemy / Alembic
 - 前端：Vue 3 + Vite，生产环境由 Nginx 提供静态文件并反代 `/api`
 - 异步：Redis 7 + Celery
 - AI：国产大模型 OpenAI 兼容协议（当前 DeepSeek，可切换通义）
+- Embedding（v3.0）：Ollama 本地 nomic-embed-text（768 维，OpenAI 兼容 API），pgvector HNSW 向量检索；可切云端 embedding
 
 ## 生产 Docker 一键启动
 
@@ -106,19 +108,22 @@ npm run build
 - `PROGRESS.md`：进度日志
 
 
-## 技术亮点（真实代码支撑 · v2.0）
+## 技术亮点（真实代码支撑 · v3.0）
 
 ### 架构与工程
 - **Router → Service → Model 三层**：API 路由不堆业务逻辑，限流/记账/分析落库全下沉到 `services/`（`usage_service.py`、`analysis_service.py`），`RouterRegistry` 自动注册路由，`main.py` 仅保留两行注册调用
 - **统一错误体系**：自定义异常类（`ValidationError` / `AuthenticationError` / `NotFoundError` / `RateLimitError`） + 全局 `exception_handler`，所有 4xx/5xx 输出 `{"code":"...","message":"...","details":null}`，成功响应保持原结构
 - **Alembic 版本化迁移**：6 次迁移全线可用，禁止手改表；`created_at` 全表索引，`user_id` / `session_id` / `anonymous_id` 等关键查询字段均索引
-- **Docker 五容器生产编排**：Nginx + FastAPI + Celery Worker + PostgreSQL + Redis，健康探针 + 依赖编排 + 具名卷持久化，`docker compose -f docker-compose.prod.yml up -d --build` 一键启动
+- **Docker 六容器生产编排**：Nginx + FastAPI + Celery Worker + PostgreSQL（pgvector）+ Redis + Ollama，健康探针 + 依赖编排 + 具名卷持久化，`docker compose -f docker-compose.prod.yml up -d --build` 一键启动
 
 ### AI 与异步
-- **AIService 统一封装**（`api_client.py`）：OpenAI 兼容协议，换模型 = 改 `.env` 三行；Pydantic 强校验 + 失败自动重试（最多 2 次），失败 ERROR 日志含模型/异常原文/重试次数
+- **AIService 统一封装**（`ai_client.py`）：OpenAI 兼容协议，换模型 = 改 `.env` 三行；Pydantic 强校验 + 失败自动重试（最多 2 次），失败 ERROR 日志含模型/异常原文/重试次数
 - **SSE 流式面试**：面试官回复逐字推送，三点跳动打字动画 + 头像气泡 UI
 - **Celery + Redis 异步**：解析/AI 分析迁移到 Celery 任务，任务状态可查询；面试 SSE 保持同步流式
 - **智能出题**：`position_type`（intern/fresh/senior/通用）按方向调整提示词难度与提问方向，PROMPT_VERSION 递增
+- **RAG 知识库问答**（v3.0）：`embedding_service.py` 统一封装本地 Ollama（OpenAI 兼容，切云端只改三行配置）；`kb_chunker.py` 段落合并切块（~600字/块 + 60字重叠，无内容丢失）；`kb_service.py` 幂等入库 + HNSW 余弦检索；Playground SSE 流式回答带引用来源（来源可折叠展开）
+- **异步入库**（v3.0）：`ingest_kb` Celery 任务切块+向量化，用户上传文档提交任务后状态 pending→processing→ready
+- **RAG 评测基线**（v3.0）：`scripts/eval_rag.py` 49 题黄金问答集，改切块/模型后重跑对比（hit@1 73.5% / hit@5 93.9%）
 
 ### 安全与隐私
 - **JWT HttpOnly Cookie + Argon2 密码哈希**：密码不落明文，JWT 不可读
@@ -134,5 +139,5 @@ npm run build
 - **只读管理面板**：首个注册用户自动 admin，统计卡片 + 用户列表 + 近 7 日用量
 
 ### 测试
-- **33 个 pytest 全量覆盖**：上传校验、分析、面试（SSE/状态机）、认证、任务、隔离、软删除；全部 mock AI 不烧额度
+- **50 个 pytest 全量覆盖**：上传校验、分析、面试（SSE/状态机）、认证、任务、隔离、软删除、知识库（切块器/检索/owner 隔离/Playground SSE）；全部 mock AI/embedding 不烧额度
 - ruff 全绿、npm build 通过
