@@ -17,14 +17,18 @@ const STATUS = {
 <template>
   <section class="card">
     <h2>解析历史</h2>
-    <p v-if="!resumes.length" class="empty">还没有上传记录</p>
-    <ul v-else>
+    <p v-if="!resumes.length" class="empty">
+      <span class="empty-icon">🗂️</span><br />
+      还没有上传记录
+    </p>
+    <ul v-else class="rlist">
       <li
         v-for="r in resumes"
         :key="r.id"
-        :class="{ active: r.id === currentId }"
+        :class="['ritem', { active: r.id === currentId }]"
         @click="emit('select', r.id)"
       >
+        <span class="dot" :class="STATUS[r.parse_status]?.cls"></span>
         <span class="name">{{ r.filename }}</span>
         <span class="badge" :class="STATUS[r.parse_status]?.cls">
           {{ STATUS[r.parse_status]?.label ?? r.parse_status }}
@@ -36,69 +40,64 @@ const STATUS = {
 </template>
 
 <style scoped>
-.card {
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 6%);
-  padding: 20px;
-}
-h2 {
-  margin: 0 0 10px;
-  font-size: 17px;
-}
-.empty {
-  color: #9ca3af;
-  font-size: 13px;
-  margin: 0;
-}
-ul {
+.rlist {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
-li {
+.ritem {
   display: flex;
   align-items: center;
-  gap: 10px;
-  border-radius: 8px;
-  padding: 8px 10px;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
   cursor: pointer;
+  transition: all 0.18s ease;
 }
-li:hover,
-li.active {
-  background: #f0fdf4;
+.ritem:hover {
+  background: #f6fdf9;
+  border-color: #d1fae5;
+  transform: translateX(3px);
+}
+.ritem.active {
+  background: var(--c-primary-light);
+  border-color: var(--c-primary-border);
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot.ok {
+  background: var(--c-primary);
+  box-shadow: 0 0 0 3px rgb(16 185 129 / 15%);
+}
+.dot.warn {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgb(245 158 11 / 15%);
+}
+.dot.bad {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgb(239 68 68 / 15%);
 }
 .name {
   flex: 1;
+  font-size: 13.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
-}
-.badge {
-  border-radius: 999px;
-  padding: 2px 10px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.ok {
-  background: #d1fae5;
-  color: #047857;
-}
-.warn {
-  background: #fef3c7;
-  color: #92400e;
-}
-.bad {
-  background: #fee2e2;
-  color: #b91c1c;
 }
 .time {
-  color: #9ca3af;
+  color: var(--c-faint);
   font-size: 12px;
   white-space: nowrap;
+}
+.empty-icon {
+  font-size: 26px;
 }
 </style>

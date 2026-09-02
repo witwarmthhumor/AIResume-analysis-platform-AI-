@@ -1,17 +1,20 @@
 <script setup>
 import { ref } from 'vue'
 
-// 上传卡片：本地预检（类型/大小）→ POST /api/resumes → 把结果交给父页面展示
+// 上传卡片：拖拽/点击选文件 → 本地预检（类型/大小）→ POST /api/resumes → 交给父页面
 const emit = defineEmits(['uploaded'])
 
 const fileInput = ref(null)
 const uploading = ref(false)
+const dragging = ref(false)
 const error = ref('')
 const info = ref('')
 const MAX_SIZE = 5 * 1024 * 1024 // 与后端一致的 5MB 上限，本地先拦一道省一次请求
 
-function pick() {
-  fileInput.value.click()
+function onDrop(e) {
+  dragging.value = false
+  const file = e.dataTransfer?.files?.[0]
+  if (file) doUpload(file)
 }
 
 function onFileChosen(e) {
@@ -55,59 +58,69 @@ async function doUpload(file) {
 <template>
   <section class="card">
     <h2>上传简历</h2>
-    <p class="hint">仅支持文本型 PDF · 不超过 5MB / 5 页 · 扫描件暂不支持</p>
     <input ref="fileInput" type="file" accept=".pdf" hidden @change="onFileChosen" />
-    <button :disabled="uploading" @click="pick">
-      {{ uploading ? '上传解析中…' : '选择 PDF 文件' }}
-    </button>
+    <div
+      class="drop"
+      :class="{ over: dragging }"
+      role="button"
+      tabindex="0"
+      @click="fileInput.click()"
+      @keydown.enter="fileInput.click()"
+      @dragover.prevent="dragging = true"
+      @dragleave.prevent="dragging = false"
+      @drop.prevent="onDrop"
+    >
+      <div class="icon">📄</div>
+      <p class="t1">
+        点击选择 或 <em>拖拽 PDF 简历</em> 到此处
+        <span v-if="uploading"> · 上传解析中…</span>
+      </p>
+      <p class="t2">仅支持文本型 PDF · 不超过 5MB / 5 页 · 扫描件暂不支持</p>
+    </div>
     <p v-if="error" class="msg error">{{ error }}</p>
     <p v-if="info" class="msg info">{{ info }}</p>
   </section>
 </template>
 
 <style scoped>
-.card {
-  background: #fff;
+.drop {
+  border: 2px dashed var(--c-primary-border);
   border-radius: 12px;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 6%);
-  padding: 20px;
-}
-h2 {
-  margin: 0 0 6px;
-  font-size: 17px;
-}
-.hint {
-  margin: 0 0 14px;
-  color: #6b7280;
-  font-size: 13px;
-}
-button {
-  border: none;
-  border-radius: 8px;
-  background: #10b981;
-  color: #fff;
-  font-size: 14px;
-  padding: 9px 18px;
+  padding: 26px 20px;
+  text-align: center;
+  background: linear-gradient(180deg, #f0fdf9, #fff);
   cursor: pointer;
+  transition: all 0.2s ease;
 }
-button:hover:not(:disabled) {
-  background: #059669;
+.drop:hover,
+.drop.over {
+  border-color: var(--c-primary);
+  background: linear-gradient(180deg, #ecfdf5, #fff);
+  transform: translateY(-1px);
 }
-button:disabled {
-  opacity: 0.6;
-  cursor: wait;
+.icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 10px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
 }
-.msg {
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 13px;
+.t1 {
+  font-size: 14.5px;
+  font-weight: 600;
+  margin: 0;
 }
-.error {
-  background: #fee2e2;
-  color: #b91c1c;
+.t1 em {
+  color: var(--c-primary-dark);
+  font-style: normal;
 }
-.info {
-  background: #d1fae5;
-  color: #047857;
+.t2 {
+  font-size: 12.5px;
+  color: var(--c-faint);
+  margin: 6px 0 0;
 }
 </style>

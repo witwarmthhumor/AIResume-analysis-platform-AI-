@@ -103,6 +103,10 @@ async function finish() {
   }
 }
 
+function isStreamingNow(message) {
+  return streaming.value && message === messages.value[messages.value.length - 1]
+}
+
 watch(messages, async () => { await nextTick(); if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight }, { deep: true })
 onMounted(startOrResume)
 </script>
@@ -110,8 +114,14 @@ onMounted(startOrResume)
 <template>
   <section class="card interview">
     <div class="head">
-      <div><h2>文字模拟面试</h2><p v-if="session" class="progress">{{ STAGES[session.stage] || session.stage }} · 已完成 {{ session.turn_count }}/{{ session.max_turns }} 轮</p></div>
-      <button class="ghost" @click="emit('close')">返回简历</button>
+      <div>
+        <h2>文字模拟面试</h2>
+        <p v-if="session" class="progress">
+          <span class="stage-pill">{{ STAGES[session.stage] || session.stage }}</span>
+          <span class="turn">已完成 {{ session.turn_count }}/{{ session.max_turns }} 轮</span>
+        </p>
+      </div>
+      <button class="btn btn-ghost" @click="emit('close')">返回简历</button>
     </div>
     <p v-if="error" class="msg error">{{ error }}</p>
     <p v-if="loading" class="loading">正在恢复面试会话…</p>
@@ -120,23 +130,204 @@ onMounted(startOrResume)
     </template>
     <template v-else-if="session">
       <div ref="chatBox" class="chat-box">
-        <div v-for="message in messages" :key="message.id" class="message" :class="message.role">
-          <span class="role">{{ message.role === 'candidate' ? '我' : '面试官' }}</span><p>{{ message.content }}<span v-if="streaming && message === messages[messages.length - 1]" class="cursor">▋</span></p>
+        <div
+          v-for="message in messages"
+          :key="message.id"
+          class="msg-line"
+          :class="message.role"
+        >
+          <span class="avatar" :class="message.role">
+            {{ message.role === 'candidate' ? '我' : '🤖' }}
+          </span>
+          <div class="bubble" :class="message.role">
+            <template v-if="isStreamingNow(message) && !message.content">
+              <span class="typing"><i></i><i></i><i></i></span>
+            </template>
+            <template v-else>
+              {{ message.content }}<span v-if="isStreamingNow(message)" class="cursor">▋</span>
+            </template>
+          </div>
         </div>
       </div>
-      <div class="input-row"><textarea v-model="input" :disabled="streaming" rows="2" placeholder="输入你的回答…" @keydown.enter.exact.prevent="send"></textarea><button :disabled="streaming || !input.trim()" @click="send">{{ streaming ? '回答中…' : '发送' }}</button></div>
-      <button class="finish" :disabled="finishing || streaming || session.turn_count < 1" @click="finish">{{ finishing ? '生成评价中…' : '结束面试并查看评价' }}</button>
+      <div class="input-row">
+        <textarea
+          v-model="input"
+          :disabled="streaming"
+          rows="2"
+          placeholder="输入你的回答…"
+          @keydown.enter.exact.prevent="send"
+        ></textarea>
+        <button class="btn btn-primary send" :disabled="streaming || !input.trim()" @click="send">
+          {{ streaming ? '回答中…' : '发送' }}
+        </button>
+      </div>
+      <button
+        class="btn finish"
+        :disabled="finishing || streaming || session.turn_count < 1"
+        @click="finish"
+      >
+        {{ finishing ? '生成评价中…' : '🏁 结束面试并查看评价' }}
+      </button>
     </template>
   </section>
 </template>
 
 <style scoped>
-.card { background: #fff; border-radius: 12px; box-shadow: 0 1px 4px rgb(0 0 0 / 6%); padding: 20px 24px; }
-.head { display: flex; justify-content: space-between; align-items: flex-start; }
-h2 { margin: 0; font-size: 18px; }.progress { margin: 4px 0 12px; color: #6b7280; font-size: 13px; }
-button { border: none; border-radius: 8px; background: #10b981; color: #fff; padding: 9px 16px; cursor: pointer; } button:disabled { opacity: .55; cursor: wait; }
-.ghost { background: #f3f4f6; color: #4b5563; font-size: 12px; }.msg { border-radius: 8px; padding: 8px 12px; font-size: 13px; }.error { background: #fee2e2; color: #b91c1c; }.loading { color: #6b7280; font-size: 13px; }
-.chat-box { height: 360px; overflow-y: auto; background: #f8fafc; border-radius: 8px; padding: 14px; }.message { display: flex; gap: 8px; margin: 0 0 14px; align-items: flex-start; }.message p { margin: 0; padding: 9px 12px; border-radius: 10px; max-width: 78%; white-space: pre-wrap; line-height: 1.6; font-size: 14px; }.message.interviewer p { background: #fff; border: 1px solid #e5e7eb; }.message.candidate { flex-direction: row-reverse; }.message.candidate p { background: #d1fae5; color: #065f46; }.role { color: #9ca3af; font-size: 11px; padding-top: 8px; white-space: nowrap; }.cursor { color: #10b981; animation: blink 1s infinite; } @keyframes blink { 50% { opacity: 0; } }
-.input-row { display: flex; gap: 8px; margin-top: 12px; }.input-row textarea { flex: 1; resize: vertical; border: 1px solid #d1d5db; border-radius: 8px; padding: 9px; font: inherit; font-size: 14px; }.finish { display: block; margin: 12px auto 0; background: #6b7280; font-size: 12px; }
-@media (max-width: 520px) { .input-row { flex-direction: column; } .input-row button { align-self: flex-end; } }
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.head h2 {
+  font-size: 16px;
+}
+.progress {
+  margin: 4px 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stage-pill {
+  background: var(--c-primary-light);
+  color: var(--c-primary-dark);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.turn {
+  color: var(--c-faint);
+  font-size: 12.5px;
+}
+.loading {
+  color: var(--c-muted);
+  font-size: 13px;
+}
+
+/* —— 聊天气泡区 —— */
+.chat-box {
+  height: 380px;
+  overflow-y: auto;
+  background: var(--c-bg-soft);
+  border-radius: 12px;
+  padding: 16px;
+}
+.msg-line {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  align-items: flex-start;
+}
+.msg-line.candidate {
+  flex-direction: row-reverse;
+}
+.avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+}
+.avatar.interviewer {
+  background: linear-gradient(135deg, var(--c-primary), var(--c-primary-dark));
+  box-shadow: 0 2px 8px rgb(16 185 129 / 30%);
+}
+.avatar.candidate {
+  background: #e0f2fe;
+  border: 1px solid #bae6fd;
+  color: #0369a1;
+}
+.bubble {
+  max-width: 78%;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 14px;
+}
+.bubble.interviewer {
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-top-left-radius: 4px;
+  color: var(--c-text-2);
+}
+.bubble.candidate {
+  background: linear-gradient(135deg, var(--c-primary), var(--c-primary-dark));
+  color: #fff;
+  border-top-right-radius: 4px;
+  box-shadow: 0 2px 10px rgb(16 185 129 / 25%);
+}
+.typing {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px 2px;
+}
+.typing i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c-primary);
+  animation: typing-blink 1.2s infinite;
+}
+.typing i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.typing i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+.cursor {
+  color: var(--c-primary);
+  animation: typing-blink 1s infinite;
+}
+
+/* —— 输入区 —— */
+.input-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.input-row textarea {
+  flex: 1;
+  resize: vertical;
+  border: 1.5px solid var(--c-border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 13.5px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.input-row textarea:focus {
+  border-color: #6ee7b7;
+  box-shadow: 0 0 0 3px rgb(16 185 129 / 12%);
+}
+.send {
+  align-self: flex-end;
+  padding: 10px 22px;
+}
+.finish {
+  display: block;
+  margin: 12px auto 0;
+  background: var(--c-text);
+  color: #fff;
+  font-size: 12.5px;
+}
+.finish:hover:not(:disabled) {
+  background: #374151;
+}
+
+@media (max-width: 520px) {
+  .input-row {
+    flex-direction: column;
+  }
+  .send {
+    align-self: stretch;
+  }
+}
 </style>

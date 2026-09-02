@@ -7,7 +7,7 @@ import InterviewChat from './components/InterviewChat.vue'
 import LoginPanel from './components/LoginPanel.vue'
 import HistoryView from './components/HistoryView.vue'
 
-// —— 健康检查（缩成页脚状态条）——
+// —— 健康检查（页脚胶囊状态条）——
 const health = ref(null)
 const healthLabel = {
   ok: '运行中',
@@ -92,211 +92,247 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main class="page">
-    <header>
-      <h1>AI 简历分析 <span class="plus">+</span> 模拟面试</h1>
-      <p class="subtitle">阶段 3 · 文字模拟面试</p>
-    </header>
-
-    <div class="toolbar">
-      <span v-if="currentUser">已登录：{{ currentUser.email }}</span>
-      <button v-if="currentUser" class="small-btn" @click="showHistory = !showHistory">{{ showHistory ? '收起历史' : '我的历史' }}</button>
-      <button v-if="currentUser" class="small-btn" @click="logout">退出</button>
-      <button v-else class="small-btn" @click="showLogin = !showLogin">登录 / 注册</button>
-    </div>
-    <LoginPanel v-if="showLogin && !currentUser" @logged-in="onLoggedIn" />
-    <HistoryView v-if="showHistory && currentUser" />
-    <UploadCard @uploaded="onUploaded" />
-    <ResumeList :resumes="resumes" :current-id="currentResume?.id" @select="onSelect" />
-
-    <section v-if="currentResume" class="card detail">
-      <div class="detail-head">
-        <h2 class="detail-name">{{ currentResume.filename }}</h2>
-        <span class="badge" :class="STATUS[currentResume.parse_status]?.cls">
-          {{ STATUS[currentResume.parse_status]?.label ?? currentResume.parse_status }}
-        </span>
+  <div class="shell">
+    <nav class="nav">
+      <div class="nav-inner">
+        <div class="brand">
+          <span class="logo">◉</span>
+          <span>AI 简历分析 <span class="plus">+</span> 模拟面试</span>
+        </div>
+        <div class="nav-btns">
+          <template v-if="currentUser">
+            <span class="whoami">{{ currentUser.email }}</span>
+            <button class="btn btn-ghost" @click="showHistory = !showHistory">
+              {{ showHistory ? '收起历史' : '我的历史' }}
+            </button>
+            <button class="btn btn-ghost" @click="logout">退出</button>
+          </template>
+          <button v-else class="btn btn-ghost" @click="showLogin = !showLogin">
+            登录 / 注册
+          </button>
+        </div>
       </div>
-      <p class="meta">
-        {{ currentResume.page_count ?? '-' }} 页 ·
-        {{ currentResume.file_size ? Math.round(currentResume.file_size / 1024) : '-' }} KB ·
-        {{ new Date(currentResume.created_at).toLocaleString() }}
+    </nav>
+
+    <main class="page">
+      <p class="tagline">
+        <b>上传简历</b> · AI 深度分析 · <b>模拟实战面试</b> —— 求职路上的私人面试官
       </p>
-      <p v-if="currentResume.parse_status !== 'success'" class="msg warn">
-        {{ currentResume.parse_error }}
-      </p>
-      <pre v-else class="raw-text">{{ currentResume.raw_text }}</pre>
-      <button v-if="currentResume.parse_status === 'success'" class="interview-button" @click="startInterview">
-        开始模拟面试
-      </button>
-    </section>
 
-    <InterviewChat
-      v-if="interviewResume"
-      :key="interviewResume.id"
-      :resume="interviewResume"
-      @close="interviewResume = null"
-    />
+      <LoginPanel v-if="showLogin && !currentUser" @logged-in="onLoggedIn" />
+      <HistoryView v-if="showHistory && currentUser" />
+      <UploadCard @uploaded="onUploaded" />
+      <ResumeList :resumes="resumes" :current-id="currentResume?.id" @select="onSelect" />
 
-    <AnalysisReport
-      v-if="currentResume?.parse_status === 'success'"
-      :key="currentResume.id"
-      :resume="currentResume"
-    />
+      <section v-if="currentResume" class="card detail">
+        <div class="detail-head">
+          <h2 class="detail-name">{{ currentResume.filename }}</h2>
+          <span class="badge" :class="STATUS[currentResume.parse_status]?.cls">
+            {{ STATUS[currentResume.parse_status]?.label ?? currentResume.parse_status }}
+          </span>
+        </div>
+        <p class="meta">
+          {{ currentResume.page_count ?? '-' }} 页 ·
+          {{ currentResume.file_size ? Math.round(currentResume.file_size / 1024) : '-' }} KB ·
+          {{ new Date(currentResume.created_at).toLocaleString() }}
+        </p>
+        <p v-if="currentResume.parse_status !== 'success'" class="msg warn">
+          {{ currentResume.parse_error }}
+        </p>
+        <pre v-else class="raw-text">{{ currentResume.raw_text }}</pre>
+        <div v-if="currentResume.parse_status === 'success'" class="detail-actions">
+          <button class="btn btn-primary" @click="startInterview">🤖 开始模拟面试</button>
+        </div>
+      </section>
 
-    <footer class="health">
-      <span :class="health?.status === 'ok' ? 'ok-text' : 'bad-text'">
-        后端 {{ healthLabel[health?.status] || '检测中…' }}
-      </span>
-      <span :class="health?.database === 'connected' ? 'ok-text' : 'bad-text'">
-        数据库 {{ healthLabel[health?.database] || '检测中…' }}
-      </span>
-      <span class="ver">v{{ health?.version || '…' }}</span>
-    </footer>
-  </main>
+      <InterviewChat
+        v-if="interviewResume"
+        :key="interviewResume.id"
+        :resume="interviewResume"
+        @close="interviewResume = null"
+      />
+
+      <AnalysisReport
+        v-if="currentResume?.parse_status === 'success'"
+        :key="currentResume.id"
+        :resume="currentResume"
+      />
+
+      <footer class="health">
+        <span class="hpill">
+          <span class="pulse" :class="{ off: health?.status !== 'ok' }"></span>
+          后端 {{ healthLabel[health?.status] || '检测中…' }}
+        </span>
+        <span class="hpill">
+          <span class="pulse" :class="{ off: health?.database !== 'connected' }"></span>
+          数据库 {{ healthLabel[health?.database] || '检测中…' }}
+        </span>
+        <span class="hpill ver">v{{ health?.version || '…' }}</span>
+      </footer>
+    </main>
+  </div>
 </template>
 
 <style scoped>
-.page {
+.shell {
   min-height: 100vh;
+  font-family: var(--font, system-ui, 'Microsoft YaHei', sans-serif);
+  color: var(--c-text);
+  background:
+    radial-gradient(1200px 400px at 80% -10%, rgb(16 185 129 / 10%), transparent 60%),
+    radial-gradient(900px 300px at 10% 0%, rgb(59 130 246 / 5%), transparent 55%),
+    #f6f9f7;
+}
+
+/* —— 吸顶毛玻璃导航 —— */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(12px);
+  background: rgb(255 255 255 / 72%);
+  border-bottom: 1px solid rgb(229 231 235 / 80%);
+}
+.nav-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 11px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--c-primary), var(--c-primary-dark));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 14px;
+  box-shadow: 0 2px 8px rgb(16 185 129 / 35%);
+}
+.plus {
+  color: var(--c-primary);
+}
+.nav-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.whoami {
+  color: var(--c-muted);
+  font-size: 12px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-btns .btn {
+  padding: 6px 12px;
+  font-size: 12.5px;
+}
+
+/* —— 主内容列 —— */
+.page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 22px 20px 44px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  font-family: system-ui, 'Microsoft YaHei', sans-serif;
-  background: #f5f7fa;
-  padding: 32px 16px 40px;
+  gap: 18px;
 }
-
-.toolbar {
-  width: 100%;
-  max-width: 680px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  color: #6b7280;
-  font-size: 12px;
-}
-
-.small-btn {
-  border: 0;
-  border-radius: 7px;
-  padding: 6px 10px;
-  background: #ecfdf5;
-  color: #047857;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-header h1 {
-  font-size: 26px;
-  color: #1f2937;
-  margin: 0;
-}
-
-.plus {
-  color: #10b981;
-}
-
-.subtitle {
-  color: #6b7280;
-  margin: 6px 0 8px;
+.tagline {
   text-align: center;
+  font-size: 13px;
+  color: var(--c-muted);
+  letter-spacing: 0.5px;
+  margin: 2px 0 0;
+}
+.tagline b {
+  color: var(--c-primary-dark);
+  font-weight: 600;
 }
 
-.card {
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 8%);
-  padding: 20px 24px;
-  width: 100%;
-  max-width: 680px;
-  box-sizing: border-box;
-}
-
+/* —— 简历详情卡 —— */
 .detail-head {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-
 .detail-name {
   margin: 0;
-  font-size: 17px;
+  font-size: 16px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.badge {
-  padding: 2px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  white-space: nowrap;
-  background: #e5e7eb;
-  color: #4b5563;
-}
-
-.badge.ok {
-  background: #d1fae5;
-  color: #047857;
-}
-
-.badge.warn {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.badge.bad {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
 .meta {
   margin: 8px 0 12px;
-  color: #6b7280;
-  font-size: 13px;
+  color: var(--c-muted);
+  font-size: 12.5px;
 }
-
-.msg {
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 13px;
-}
-
-.msg.warn {
-  background: #fef3c7;
-  color: #92400e;
-}
-
 .raw-text {
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  background: var(--c-bg-soft);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
   padding: 14px;
-  font-size: 13px;
-  line-height: 1.7;
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: #475569;
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 420px;
   overflow: auto;
   margin: 0;
 }
+.detail-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
 
+/* —— 页脚胶囊状态条 —— */
 .health {
   display: flex;
-  gap: 18px;
   justify-content: center;
+  gap: 10px;
+  padding-top: 4px;
+}
+.hpill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  padding: 6px 14px;
   font-size: 12px;
-  color: #6b7280;
-  padding-top: 8px;
+  color: var(--c-muted);
+  box-shadow: var(--shadow);
 }
-
-.ok-text {
-  color: #047857;
+.pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c-primary);
+  animation: pulse-dot 1.6s infinite;
 }
-
-.bad-text {
-  color: #b91c1c;
+.pulse.off {
+  background: #ef4444;
+  animation: none;
+}
+.ver {
+  font-family: ui-monospace, Consolas, monospace;
 }
 </style>
