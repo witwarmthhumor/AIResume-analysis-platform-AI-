@@ -131,3 +131,17 @@ def test_get_owned_document_returns_none_if_not_visible(db_session) -> None:
     doc = _make_doc(db, "owned_test", source_type="uploaded", scope="private", user_id=1)
     assert get_owned_document(db, doc.id, user_id=1, anonymous_id=None) is not None
     assert get_owned_document(db, doc.id, user_id=2, anonymous_id=None) is None
+
+def test_ingest_dim_mismatch_marks_failed(db_session, monkeypatch) -> None:
+    """embedding 维度与表不符 → 置 failed 而非卡在 processing（P1 修复回归）。"""
+    monkeypatch.setattr(
+        "app.services.kb_service.embed_texts",
+        lambda texts: [[0.5] * 1024] * len(texts),  # 模拟误配 1024 维模型（表为 768 维）
+    )
+    db = db_session
+    doc = _make_doc(db, "dim_mismatch_test")
+    ok, message = ingest_kb_document(db, doc)
+    assert ok is False
+    assert doc.status == "failed"
+    assert "维度" in message
+    assert message == doc.parse_error

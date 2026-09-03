@@ -25,8 +25,14 @@ from app.db.session import ping_database
 setup_logging(settings.log_level, settings.log_file or None)
 logger = get_logger(__name__)
 
-# 弱默认密钥告警（铁律：Key 只放 .env）：.env 漏配 JWT_SECRET_KEY 时 token 可被伪造
+# 弱默认密钥（铁律：Key 只放 .env）：.env 漏配 JWT_SECRET_KEY 时 token 可被伪造。
+# dev 只告警（方便本地起服务）；prod 直接拒绝启动——宁可起不来也不能带弱密钥上线
 if settings.jwt_secret_key == "change-me-in-backend-env":
+    if settings.app_env == "prod":
+        raise RuntimeError(
+            "APP_ENV=prod 但 JWT_SECRET_KEY 仍是默认占位值——"
+            "请在 backend/.env 设置随机密钥后再启动"
+        )
     logger.warning(
         "JWT_SECRET_KEY 仍是默认占位值，登录凭证可被伪造——请在 backend/.env 设置随机密钥"
     )

@@ -154,7 +154,7 @@ def analyze_resume(resume_text: str, settings: Settings) -> AnalysisResult:
 def stream_chat(
     messages: list[dict], settings: Settings, usage_out: dict
 ) -> Generator[str, None, None]:
-    """流式对话：逐段产出 AI 文字。usage_out 会地填入 token 统计（流式响应 usage 在最后）。
+    """流式对话：逐段产出 AI 文字。usage_out 会就地填入 token 统计（流式响应 usage 在最后）。
 
     messages 为完整对话（含 system）；连接/流中断时抛 AIError，已产出的文字仍有效。
     """

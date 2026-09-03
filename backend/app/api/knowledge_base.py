@@ -5,14 +5,13 @@
 """
 
 import hashlib
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.auth_deps import get_optional_current_user
-from app.api.deps import get_anonymous_id
+from app.api.deps import enforce_daily_limit, get_anonymous_id
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.kb import KBChunk, KBDocument
@@ -24,12 +23,20 @@ from app.services.kb_service import (
     soft_delete_document,
 )
 from app.services.pdf_parser import PDF_MAGIC, ParseError, parse_pdf
+from app.services.usage_service import write_usage
 from app.worker.tasks import ingest_kb
 
 router = APIRouter(prefix="/api/kb", tags=["knowledge_base"])
 
 _TEXT_EXTENSIONS = {"txt", "md", "markdown"}
 _MAX_SIZE = 5 * 1024 * 1024  # 与简历上传一致，5MB
+
+
+def _owner_clause(user: User | None, anonymous_id: str | None):
+    """归属条件：登录按 user_id，匿名按 anonymous_id（匿名间互不可见）。"""
+    if user is not None:
+        return KBDocument.user_id == user.id
+    return KBDocument.anonymous_id == anonymous_id
 
 
 def _doc_out(doc: KBDocument, chunk_count: int | None = None) -> dict:
@@ -72,7 +79,20 @@ def upload_kb_document(
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
     anonymous_id: str = Depends(get_anonymous_id),
 ) -> dict:
-    """上传知识库文档（txt/md/pdf），异步入库后可用于 Playground 问答。"""
+    """上传知识库文档（txt/md/pdf），异步入库后可用于 Playground 问答。
+
+    上传会触发切块+批量向量化（消耗 Ollama 资源），与提问同等级别限额：
+    每日次数上限 + 名下文档数上限。
+    """
+    user_id = user.id if user else None
+    enforce_daily_limit(
+        db,
+        anonymous_id,
+        settings.daily_kb_upload_limit,
+        "kb_upload",
+        user_id=user_id,
+    )
+
     filename = file.filename or "document.txt"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
@@ -105,12 +125,33 @@ def upload_kb_document(
 
     file_hash = hashlib.sha256(data).hexdigest()
 
-    # 去重：同一归属下同内容文档已存在（且未删除）则复用
+    # 名下文档数上限（未删除的上传文档），防刷存储与向量化资源
+    owned_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(KBDocument)
+            .where(
+                KBDocument.deleted_at.is_(None),
+                KBDocument.source_type == "uploaded",
+                _owner_clause(user, anonymous_id),
+            )
+        )
+        or 0
+    )
+    if owned_count >= settings.kb_max_documents_per_owner:
+        raise HTTPException(
+            429,
+            f"知识库文档数已达上限（{settings.kb_max_documents_per_owner} 篇），请先删除不需要的文档",
+        )
+
+    # 去重：同一归属下同内容文档已存在（且未删除）则复用。
+    # 匿名用户必须带 anonymous_id 条件——只按 user_id IS NULL 匹配会把
+    # 其他匿名用户的同内容文档误判为自己的（表现为"上传成功但消失了"）
     existing = db.scalar(
         select(KBDocument).where(
             KBDocument.file_hash == file_hash,
             KBDocument.deleted_at.is_(None),
-            KBDocument.user_id == (user.id if user else None),
+            _owner_clause(user, anonymous_id),
         )
     )
     if existing is not None:
@@ -121,11 +162,22 @@ def upload_kb_document(
         title=filename,
         doc_type=doc_type,
         raw_text=raw_text,
-        user_id=user.id if user else None,
+        user_id=user_id,
         anonymous_id=anonymous_id if user is None else None,
         file_hash=file_hash,
         source_type="uploaded",
     )
+    # 记账：kb_upload 用量（限流依据），与文档创建同一事务
+    write_usage(
+        db,
+        anonymous_id if user is None else None,
+        user_id,
+        "kb_upload",
+        None,
+        None,
+        None,
+    )
+    db.commit()
     task = ingest_kb.delay(doc.id)  # 异步入库：切块 + 向量化
     return {**_doc_out(doc), "task_id": task.id}
 
@@ -143,6 +195,4 @@ def delete_kb_document(
         raise HTTPException(404, "知识库文档不存在或已删除")
     if doc.source_type == "preset":
         raise HTTPException(400, "预置语料不可删除")
-    if user is not None and doc.user_id != user.id:
-        raise HTTPException(404, "知识库文档不存在或已删除")
     soft_delete_document(db, doc)

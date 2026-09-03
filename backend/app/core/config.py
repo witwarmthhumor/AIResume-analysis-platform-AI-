@@ -54,6 +54,18 @@ class Settings(BaseSettings):
     kb_min_similarity: float = 0.65  # 余弦相似度低于此值视为无关，不作引用来源（实测相关 0.70+，无关 0.60-）
     daily_playground_limit: int = 50  # 每人每日 Playground 提问上限
 
+    # 知识库上传配额：上传会触发切块+批量向量化（消耗 Ollama 资源），需与提问同等级别的限额
+    daily_kb_upload_limit: int = 10  # 每人每日上传文档次数上限（按归属者统计）
+    kb_max_documents_per_owner: int = 20  # 每个归属者名下（未删除）文档数上限
+
+    # 运行环境：prod 时 JWT 弱默认密钥直接拒绝启动（dev 只告警，方便本地起服务）
+    app_env: str = "dev"
+
+    # 登录防爆破：按 IP+邮箱计失败次数，超限锁定。内存实现（进程重启即解锁），
+    # 多 worker 部署需换 Redis 集中计数——当前单 worker 部署够用
+    login_max_failures: int = 10
+    login_lockout_minutes: int = 15
+
     # 阶段4：JWT 与 Celery/Redis
     jwt_secret_key: str = "change-me-in-backend-env"
     jwt_expire_minutes: int = 60 * 24

@@ -53,3 +53,21 @@ def test_duplicate_email_and_bad_login() -> None:
         ).status_code
         == 401
     )
+
+
+def test_login_lockout_after_max_failures() -> None:
+    """连续失败达到上限后 429 锁定；锁定期间密码正确也拒绝（防爆破语义）。"""
+    from app.api import auth as auth_module
+
+    address = email()
+    credentials = {"email": address, "password": "correct-horse-123"}
+    assert client.post("/api/auth/register", json=credentials).status_code == 201
+
+    wrong = {"email": address, "password": "wrong-pass-123"}
+    for _ in range(auth_module.settings.login_max_failures):
+        assert client.post("/api/auth/login", json=wrong).status_code == 401
+    assert client.post("/api/auth/login", json=wrong).status_code == 429
+    assert client.post("/api/auth/login", json=credentials).status_code == 429
+
+    auth_module._login_failures.clear()  # 清理内存计数，避免影响其他用例
+    assert client.post("/api/auth/login", json=credentials).status_code == 200

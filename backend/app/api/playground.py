@@ -14,14 +14,17 @@ from sqlalchemy.orm import Session
 from app.api.auth_deps import get_optional_current_user
 from app.api.deps import enforce_daily_limit, get_anonymous_id
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.db.session import get_db
-from app.models.usage_log import UsageLog
 from app.models.user import User
 from app.services.ai_client import AIError, stream_chat
 from app.services.embedding_service import EmbeddingError, embed_texts
 from app.services.kb_service import search_chunks
+from app.services.usage_service import write_usage
 
 router = APIRouter(prefix="/api", tags=["playground"])
+
+logger = get_logger(__name__)
 
 _RAG_SYSTEM_PROMPT = (
     "你是一位技术面试助教，基于以下知识库内容回答用户的问题。"
@@ -49,6 +52,23 @@ def ask(
         db, anonymous_id, settings.daily_playground_limit, "playground"
     )
 
+    def _log_usage(tokens_total: int) -> None:
+        """记账：本次问答作为 playground 用量的依据（限流 + token 统计）。
+
+        失败/空回复/断开路径也计账（0 token）——否则失败重试可无限白嫖
+        embedding 与 AI 资源。成功路径带真实 token 数。
+        """
+        write_usage(
+            db,
+            anonymous_id,
+            user.id if user else None,
+            "playground",
+            settings.ai_model,
+            tokens_total,
+            request.client.host if request.client else None,
+        )
+        db.commit()
+
     # 1) 向量化问题
     try:
         query_embeddings = embed_texts([body.content])
@@ -56,15 +76,26 @@ def ask(
         raise HTTPException(502, exc.message) from exc
 
     query_vec = query_embeddings[0]
+    # 维度护栏：embedding 模型被切换后问题向量与库内旧向量维度不一致，
+    # 数据库余弦计算会直接抛异常——提前拦下给可读话术
+    if len(query_vec) != settings.embedding_dim:
+        raise HTTPException(
+            502,
+            "向量维度与知识库不一致（embedding 模型可能已切换），请重新入库语料后再提问",
+        )
 
-    # 2) 检索知识库
-    citations = search_chunks(
-        db,
-        query_vec,
-        user.id if user else None,
-        anonymous_id,
-        top_k=settings.kb_search_top_k,
-    )
+    # 2) 检索知识库（检索异常兜底：不把数据库原始错误抛给前端）
+    try:
+        citations = search_chunks(
+            db,
+            query_vec,
+            user.id if user else None,
+            anonymous_id,
+            top_k=settings.kb_search_top_k,
+        )
+    except Exception:
+        logger.exception("kb 检索失败")
+        raise HTTPException(502, "知识库检索暂不可用，请稍后再试") from None
 
     # 3) 拼 RAG 上下文
     context_parts = []
@@ -75,7 +106,9 @@ def ask(
     context = "\n\n".join(context_parts)
 
     if not context:
-        # 没有命中的引用来源，直接返回未找到
+        # 没有命中的引用来源，直接返回未找到（embedding 已消耗，同样要计账）
+        _log_usage(0)
+
         def empty_sse():
             yield _sse(
                 "error",
@@ -96,47 +129,51 @@ def ask(
     # 4) SSE 流式回答
     def event_stream():
         started = time.monotonic()
+        accounted = False  # 失败/断开路径也要计账，否则失败重试可无限白嫖资源
         yield _sse("meta", {"stage": "rag"})
 
         usage: dict = {}
         chunks: list[str] = []
         try:
-            for delta in stream_chat(messages, settings, usage):
-                chunks.append(delta)
-                yield _sse("delta", {"content": delta})
-        except AIError as exc:
-            yield _sse("error", {"content": exc.message})
-            return
+            try:
+                for delta in stream_chat(messages, settings, usage):
+                    chunks.append(delta)
+                    yield _sse("delta", {"content": delta})
+            except AIError as exc:
+                _log_usage(0)
+                accounted = True
+                yield _sse("error", {"content": exc.message})
+                return
 
-        full_text = "".join(chunks).strip()
-        if not full_text:
-            yield _sse("error", {"content": "AI 返回了空回复，请重试"})
-            return
+            full_text = "".join(chunks).strip()
+            if not full_text:
+                _log_usage(0)
+                accounted = True
+                yield _sse("error", {"content": "AI 返回了空回复，请重试"})
+                return
 
-        duration_ms = int((time.monotonic() - started) * 1000)
-        # 记账：本次问答作为 playground 用量的依据（限流 + token 统计）
-        db.add(
-            UsageLog(
-                user_id=user.id if user else None,
-                anonymous_id=anonymous_id,
-                action_type="playground",
-                model_name=settings.ai_model,
-                tokens_total=(usage.get("tokens_prompt") or 0)
-                + (usage.get("tokens_completion") or 0),
-                ip_address=request.client.host if request.client else None,
+            duration_ms = int((time.monotonic() - started) * 1000)
+            _log_usage(
+                (usage.get("tokens_prompt") or 0) + (usage.get("tokens_completion") or 0)
             )
-        )
-        db.commit()
-        yield _sse(
-            "done",
-            {
-                "content": full_text,
-                "tokens_prompt": usage.get("tokens_prompt"),
-                "tokens_completion": usage.get("tokens_completion"),
-                "duration_ms": duration_ms,
-                "citations": citations,
-            },
-        )
+            accounted = True
+            yield _sse(
+                "done",
+                {
+                    "content": full_text,
+                    "tokens_prompt": usage.get("tokens_prompt"),
+                    "tokens_completion": usage.get("tokens_completion"),
+                    "duration_ms": duration_ms,
+                    "citations": citations,
+                },
+            )
+        finally:
+            if not accounted:
+                # 客户端中途断开（GeneratorExit）等未走完的路径：补一条 0-token 账
+                try:
+                    _log_usage(0)
+                except Exception:  # 断开清理失败不影响响应已终止的事实
+                    logger.warning("playground 断开路径记账失败", exc_info=True)
 
     return StreamingResponse(
         event_stream(),

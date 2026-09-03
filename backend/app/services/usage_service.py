@@ -27,6 +27,38 @@ def count_today_usage(db: Session, anonymous_id: str, action_type: str) -> int:
     )
 
 
+def count_today_usage_by_owner(
+    db: Session,
+    action_type: str,
+    user_id: int | None = None,
+    anonymous_id: str | None = None,
+) -> int:
+    """按归属者统计当日次数：登录用户按 user_id（跨设备/清 cookie 也有效），
+    匿名用户按 anonymous_id。两者都为 None 时计 0（不应发生，防御性返回）。"""
+    if user_id is None and anonymous_id is None:
+        return 0
+    today_start = (
+        datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    )
+    owner_cond = (
+        UsageLog.user_id == user_id
+        if user_id is not None
+        else UsageLog.anonymous_id == anonymous_id
+    )
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(UsageLog)
+            .where(
+                owner_cond,
+                UsageLog.action_type == action_type,
+                UsageLog.created_at >= today_start,
+            )
+        )
+        or 0
+    )
+
+
 def write_usage(
     db: Session,
     anonymous_id: str | None,

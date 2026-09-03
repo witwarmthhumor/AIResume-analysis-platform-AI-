@@ -52,25 +52,25 @@ def admin_users(
     user: User = Depends(_admin_only),  # noqa: B008
 ) -> list[dict]:
     users = db.scalars(select(User).order_by(User.created_at.desc())).all()
-    result = []
-    for u in users:
-        resume_count = (
-            db.scalar(
-                select(func.count()).select_from(Resume).where(Resume.user_id == u.id)
-            )
-            or 0
-        )
-        result.append(
-            {
-                "id": u.id,
-                "email": u.email,
-                "role": u.role,
-                "is_active": u.is_active,
-                "created_at": u.created_at,
-                "resume_count": resume_count,
-            }
-        )
-    return result
+    # 一条 GROUP BY 拿全部用户的简历数，避免每个用户单独 count 的 N+1 查询
+    resume_counts = dict(
+        db.execute(
+            select(Resume.user_id, func.count())
+            .where(Resume.user_id.is_not(None))
+            .group_by(Resume.user_id)
+        ).all()
+    )
+    return [
+        {
+            "id": u.id,
+            "email": u.email,
+            "role": u.role,
+            "is_active": u.is_active,
+            "created_at": u.created_at,
+            "resume_count": resume_counts.get(u.id, 0),
+        }
+        for u in users
+    ]
 
 
 @router.get("/usage")

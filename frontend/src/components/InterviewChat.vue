@@ -79,7 +79,7 @@ async function send() {
         buffer = buffer.slice(boundary + 2)
         handleEvent(block)
         await nextTick()
-        chatBox.value.scrollTop = chatBox.value.scrollHeight
+        if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight
       }
     }
   } catch (e) {

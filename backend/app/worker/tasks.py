@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.db.session import SessionLocal
 from app.models.analysis import Analysis
 from app.models.kb import KBDocument
@@ -12,6 +13,8 @@ from app.services.kb_service import ingest_kb_document
 from app.services.pdf_parser import ParseError, parse_pdf
 from app.services.prompts import PROMPT_VERSION
 from app.worker.celery_app import celery_app
+
+logger = get_logger(__name__)
 
 
 @celery_app.task(name="app.worker.tasks.health_check")
@@ -89,7 +92,20 @@ def ingest_kb(document_id: int) -> dict[str, int | str]:
             raise ValueError("知识库文档不存在或已删除")
         document.status = "processing"
         db.commit()
-        ok, message = ingest_kb_document(db, document)
+        try:
+            ok, message = ingest_kb_document(db, document)
+        except Exception:
+            # 兜底：任何未预期异常都不能把文档留在 processing（用户会一直看到"入库中"）
+            db.rollback()
+            logger.exception("ingest_kb 意外失败 document_id=%s", document_id)
+            document.status = "failed"
+            document.parse_error = "入库过程发生意外错误，请稍后重试"
+            db.commit()
+            return {
+                "document_id": document_id,
+                "status": "failed",
+                "error": document.parse_error,
+            }
         return {
             "document_id": document_id,
             "status": "ready" if ok else "failed",

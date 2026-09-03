@@ -12,9 +12,12 @@ from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.models.kb import KBChunk, KBDocument
 from app.services.embedding_service import EmbeddingError, embed_texts
 from app.services.kb_chunker import chunk_text
+
+logger = get_logger(__name__)
 
 
 def _visible_clause(user_id: int | None, anonymous_id: str | None):
@@ -56,23 +59,49 @@ def ingest_kb_document(
         db.commit()
         return False, exc.message
 
-    # 幂等：该文档已有旧块先清（任务重跑不产生重复向量）
-    db.execute(delete(KBChunk).where(KBChunk.document_id == document.id))
-    for i, (chunk, vec) in enumerate(zip(chunks, embeddings)):
-        db.add(
-            KBChunk(
-                document_id=document.id,
-                seq=i,
-                content=chunk["text"],
-                token_count=chunk["token_count"],
-                embedding=vec,
-            )
+    # 维度护栏：kb_chunks.embedding 列固定 settings.embedding_dim 维（当前 768），
+    # 换 embedding 模型（如 bge-m3 1024 维）而未迁移表结构时，commit 会抛数据库异常。
+    # 在这里提前拦截，把文档置 failed 并给出可操作的提示，而不是让 worker 任务崩掉。
+    dim = settings.embedding_dim
+    mismatch = next((len(vec) for vec in embeddings if len(vec) != dim), None)
+    if mismatch is not None:
+        message = (
+            f"向量维度不符：模型返回 {mismatch} 维，数据表为 {dim} 维。"
+            "更换 embedding 模型需先做表结构迁移并对已有语料重新入库"
         )
-    document.status = "ready"
-    document.embedding_model = settings.embedding_model
-    document.embedding_dim = settings.embedding_dim
-    document.parse_error = None
-    db.commit()
+        logger.error("ingest 维度不符 document_id=%s got=%s want=%s", document.id, mismatch, dim)
+        document.status = "failed"
+        document.parse_error = message
+        db.commit()
+        return False, message
+
+    # 幂等：该文档已有旧块先清（任务重跑不产生重复向量）
+    try:
+        db.execute(delete(KBChunk).where(KBChunk.document_id == document.id))
+        for i, (chunk, vec) in enumerate(zip(chunks, embeddings)):
+            db.add(
+                KBChunk(
+                    document_id=document.id,
+                    seq=i,
+                    content=chunk["text"],
+                    token_count=chunk["token_count"],
+                    embedding=vec,
+                )
+            )
+        document.status = "ready"
+        document.embedding_model = settings.embedding_model
+        document.embedding_dim = settings.embedding_dim
+        document.parse_error = None
+        db.commit()
+    except Exception:
+        # 写库阶段的意外异常（典型：维度不符触发数据库层校验）不能让文档停在
+        # processing——用户会永远看到"入库中"。统一置 failed，可对同一文档重试。
+        db.rollback()
+        logger.exception("ingest 写库失败 document_id=%s", document.id)
+        document.status = "failed"
+        document.parse_error = "入库写入失败，请检查向量模型配置后重试"
+        db.commit()
+        return False, document.parse_error
     return True, None
 
 
