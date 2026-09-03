@@ -42,7 +42,7 @@ const navItems = computed(() => {
     { key: 'history', label: '我的历史', icon: '📋', requireAuth: true },
   ]
   if (currentUser.value?.role === 'admin') {
-    items.push({ key: 'admin', label: '管理面板', icon: '⚙️', requireAuth: true, requireAdmin: true })
+    items.push({ key: 'admin', label: '数据看板', icon: '📊', requireAuth: true, requireAdmin: true })
     items.push({ key: 'kb-admin', label: '语料库管理', icon: '📚', requireAuth: true, requireAdmin: true })
   }
   return items
@@ -155,7 +155,7 @@ onMounted(loadUser)
       </aside>
 
       <main class="content">
-        <div class="page">
+        <div class="page" :class="{ wide: activeView === 'admin' }">
           <!-- 四视图统一保活切换 -->
           <KeepAlive>
             <component :is="currentViewComponent" ref="viewRef" />
@@ -477,6 +477,9 @@ onMounted(loadUser)
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+.page.wide {
+  max-width: 1100px;
 }
 
 /* —— 窄屏兜底：≤900px 侧边栏自动收缩为图标条 —— */
