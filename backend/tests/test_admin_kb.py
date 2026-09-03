@@ -32,9 +32,14 @@ def _email() -> str:
 def _make_admin(client: TestClient) -> str:
     """注册用户并提权为 admin，返回邮箱。"""
     addr = _email()
-    client.post("/api/auth/register", json={"email": addr, "password": "correct-horse-123"})
+    client.post(
+        "/api/auth/register", json={"email": addr, "password": "correct-horse-123"}
+    )
     with engine.begin() as conn:
-        conn.execute(text("UPDATE users SET role = 'admin' WHERE email = :email"), {"email": addr})
+        conn.execute(
+            text("UPDATE users SET role = 'admin' WHERE email = :email"),
+            {"email": addr},
+        )
     return addr
 
 
@@ -60,15 +65,20 @@ def test_anonymous_cannot_access_admin_kb() -> None:
     client = TestClient(app)
     assert client.get("/api/admin/kb/documents").status_code == 401
     assert client.delete("/api/admin/kb/documents/1").status_code == 401
-    assert client.post(
-        "/api/admin/kb/documents",
-        files={"file": ("note.txt", b"content", "text/plain")},
-    ).status_code == 401
+    assert (
+        client.post(
+            "/api/admin/kb/documents",
+            files={"file": ("note.txt", b"content", "text/plain")},
+        ).status_code
+        == 401
+    )
 
 
 def test_regular_user_cannot_access_admin_kb() -> None:
     client = TestClient(app)
-    client.post("/api/auth/register", json={"email": _email(), "password": "correct-horse-123"})
+    client.post(
+        "/api/auth/register", json={"email": _email(), "password": "correct-horse-123"}
+    )
     assert client.get("/api/admin/kb/documents").status_code == 403
     assert client.delete("/api/admin/kb/documents/1").status_code == 403
 
@@ -83,17 +93,19 @@ def test_admin_lists_all_documents_with_owner() -> None:
     # admin 上传一篇预置
     resp = admin.post(
         "/api/admin/kb/documents",
-        files={"file": ("preset.txt", "预置文档内容".encode("utf-8") * 5, "text/plain")},
+        files={"file": ("preset.txt", "预置文档内容".encode() * 5, "text/plain")},
     )
     assert resp.status_code == 201
     preset_id = resp.json()["id"]
 
     # 普通用户上传一篇 private
     user = TestClient(app)
-    user.post("/api/auth/register", json={"email": _email(), "password": "correct-horse-123"})
+    user.post(
+        "/api/auth/register", json={"email": _email(), "password": "correct-horse-123"}
+    )
     user_resp = user.post(
         "/api/kb/documents",
-        files={"file": ("private.txt", "私人文档内容".encode("utf-8") * 5, "text/plain")},
+        files={"file": ("private.txt", "私人文档内容".encode() * 5, "text/plain")},
     )
     assert user_resp.status_code == 201
 
@@ -101,7 +113,9 @@ def test_admin_lists_all_documents_with_owner() -> None:
     listing = admin.get("/api/admin/kb/documents").json()
     ids = [d["id"] for d in listing]
     assert preset_id in ids
-    assert any(d["source_type"] == "preset" and d["owner_email"] == "系统预置" for d in listing)
+    assert any(
+        d["source_type"] == "preset" and d["owner_email"] == "系统预置" for d in listing
+    )
     assert any(d["source_type"] == "uploaded" for d in listing)
 
 
@@ -115,7 +129,7 @@ def test_admin_can_delete_preset_document() -> None:
 
     resp = admin.post(
         "/api/admin/kb/documents",
-        files={"file": ("to-delete.txt", "待删除预置内容".encode("utf-8") * 5, "text/plain")},
+        files={"file": ("to-delete.txt", "待删除预置内容".encode() * 5, "text/plain")},
     )
     doc_id = resp.json()["id"]
 
@@ -146,7 +160,13 @@ def test_admin_upload_becomes_preset_public() -> None:
 
     resp = admin.post(
         "/api/admin/kb/documents",
-        files={"file": ("admin-preset.txt", "管理员上传的预置内容".encode("utf-8") * 5, "text/plain")},
+        files={
+            "file": (
+                "admin-preset.txt",
+                "管理员上传的预置内容".encode() * 5,
+                "text/plain",
+            )
+        },
     )
     assert resp.status_code == 201
     data = resp.json()
@@ -166,10 +186,14 @@ def test_admin_upload_dedup_globally() -> None:
     """同内容预置文档全局去重，不重复创建。"""
     admin = TestClient(app)
     _make_admin(admin)
-    content = "全局去重测试内容".encode("utf-8") * 5
+    content = "全局去重测试内容".encode() * 5
 
-    first = admin.post("/api/admin/kb/documents", files={"file": ("a.txt", content, "text/plain")})
-    second = admin.post("/api/admin/kb/documents", files={"file": ("b.txt", content, "text/plain")})
+    first = admin.post(
+        "/api/admin/kb/documents", files={"file": ("a.txt", content, "text/plain")}
+    )
+    second = admin.post(
+        "/api/admin/kb/documents", files={"file": ("b.txt", content, "text/plain")}
+    )
     assert first.status_code == 201
     assert second.status_code == 201
     assert second.json()["id"] == first.json()["id"]

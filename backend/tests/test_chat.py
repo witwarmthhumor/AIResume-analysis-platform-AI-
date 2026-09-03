@@ -1,6 +1,5 @@
 """v3.1 在线对话接口测试：会话 CRUD、归属隔离、软删除、ask 持久化消息。"""
 
-import json
 import uuid
 
 import pytest
@@ -115,7 +114,9 @@ def test_logged_in_user_sessions_isolated_from_anonymous() -> None:
     # 注册登录一个用户
     user_client = TestClient(app)
     addr = _email()
-    user_client.post("/api/auth/register", json={"email": addr, "password": "correct-horse-123"})
+    user_client.post(
+        "/api/auth/register", json={"email": addr, "password": "correct-horse-123"}
+    )
     session = user_client.post("/api/chat/sessions", json={"title": "私密对话"}).json()
     sid = session["id"]
 
@@ -140,8 +141,12 @@ def test_two_logged_in_users_isolated() -> None:
     client_b = TestClient(app)
     addr_a = _email()
     addr_b = _email()
-    client_a.post("/api/auth/register", json={"email": addr_a, "password": "correct-horse-123"})
-    client_b.post("/api/auth/register", json={"email": addr_b, "password": "correct-horse-123"})
+    client_a.post(
+        "/api/auth/register", json={"email": addr_a, "password": "correct-horse-123"}
+    )
+    client_b.post(
+        "/api/auth/register", json={"email": addr_b, "password": "correct-horse-123"}
+    )
 
     session_a = client_a.post("/api/chat/sessions", json={"title": "A的对话"}).json()
     listing_b = client_b.get("/api/chat/sessions").json()
@@ -166,14 +171,18 @@ def test_ask_with_session_id_persists_messages(monkeypatch) -> None:
     )
 
     # 预置一条公共文档
-    from app.services.kb_service import create_document, ingest_kb_document
     from app.db.session import SessionLocal
+    from app.services.kb_service import create_document, ingest_kb_document
 
     with SessionLocal() as db:
         doc = create_document(
-            db, title="测试文档", doc_type="text",
+            db,
+            title="测试文档",
+            doc_type="text",
             raw_text="HashMap 是数组加链表加红黑树。" * 5,
-            user_id=None, anonymous_id=None, source_type="preset",
+            user_id=None,
+            anonymous_id=None,
+            source_type="preset",
         )
         ok, _ = ingest_kb_document(db, doc)
         assert ok
@@ -225,14 +234,18 @@ def test_ask_without_session_id_does_not_persist(monkeypatch) -> None:
         lambda texts: [_FAKE_VEC] * len(texts),
     )
 
-    from app.services.kb_service import create_document, ingest_kb_document
     from app.db.session import SessionLocal
+    from app.services.kb_service import create_document, ingest_kb_document
 
     with SessionLocal() as db:
         doc = create_document(
-            db, title="测试文档", doc_type="text",
+            db,
+            title="测试文档",
+            doc_type="text",
             raw_text="HashMap 是数组加链表加红黑树。" * 5,
-            user_id=None, anonymous_id=None, source_type="preset",
+            user_id=None,
+            anonymous_id=None,
+            source_type="preset",
         )
         ingest_kb_document(db, doc)
 
