@@ -1,11 +1,24 @@
 # 进度日志
 
 > **本文件是干嘛的**：项目进度日志——当前进行、已完成、踩过的坑、下一步。AI 每次新会话先读它接续上下文；每次会话结束前更新本文件。
-> 最后更新：2026-09-03（v3.0 Playground 知识库问答封版 + 前端布局重构）。
+> 最后更新：2026-09-03（v3.1 在线对话多会话+语料库管理迁移 已完成；v3.2 数据看板 UI 重设计、v3.3 使用日志重设计 均规划中待动工）。
 
 ## 当前进行
 - v3.0 Playground 知识库问答已封版，tag v3.0（本地）
 - 前端布局重构完成（顶栏+可折叠侧边栏+四视图 KeepAlive）
+- **v3.1 已完成（5 提交，77 pytest 全绿，npm build 通过）**：
+  - 在线对话多会话：chat_sessions + chat_messages 两表持久化，会话 CRUD API，playground/ask 加 session_id 持久化消息，首条消息前 20 字自动命名标题，无对话自动新建
+  - ChatView.vue：左侧对话列表侧栏（新建/切换/删除/可折叠）+ 右侧聊天主区域（SSE 流式+引用来源），替代原 Playground.vue
+  - 语料库管理迁移到管理端独立视图：admin_kb API（列所有文档/删任意文档含预置/上传预置 public）+ KbAdminView.vue（admin 专属导航项）
+  - 完整计划与 12 项决策点：`docs/实施计划-在线对话与语料库管理.txt`
+- **v3.2 规划中（待动工，等用户指令）**：
+  - 数据看板 UI 全面重设计：管理面板→数据看板改名、五统计卡片重设计（五卡一行等宽+五色+悬浮动效）、用户列表卡片化+前端分页（每页10条）、近7日用量卡片化+前端分页（每页5条）+Token趋势柱状图、两卡片一上一下一比一、页面宽度1100px
+  - 纯前端，后端零改动，2 个提交
+  - 完整计划：`docs/实施计划-v3.2-数据看板重设计.txt`
+- **v3.3 规划中（待动工，等用户指令）**：
+  - 我的历史→使用日志重设计：改名、内容改为 usage_logs 调用明细（动作/模型/Token/IP/时间）、筛选条件卡片（日期范围+今日/7天/30天+动作类型+模型+IP+重置搜索）、新增 DateRangePicker.vue 日期时间选择器组件（点击日历图标弹出浮层：月份切换+日期网格+开始/结束时间+确定取消）、使用日志表格+动作彩色徽章+空态大虚线框+后端分页、后端新增 GET /api/usage/logs 接口（分页+筛选）
+  - 后端新增 1 接口 + 前端重写 HistoryView.vue + 新增 DateRangePicker.vue，3 个提交
+  - 完整计划：`docs/实施计划-v3.3-使用日志重设计.txt`
 - 项目功能开发完结，进入按需维护
 
 ## 已完成
@@ -34,6 +47,16 @@
   - 登录改居中模态（fixed 遮罩 + ✕ 关闭 + 遮罩点击关闭），LoginPanel 去掉 align-self
   - 权限交互：未登录点"我的历史"弹登录模态而非切换视图；退出后回主页、导航项收敛
   - 删除健康状态区（页脚胶囊状态条）；≤900px 侧边栏自动收缩为图标条
+- **v3.1 在线对话多会话 + 语料库管理迁移**（5 提交，77 pytest 全绿，npm build 通过）：
+  - 后端 chat 全栈：ChatSession + ChatMessage 模型（逻辑关联无物理外键，软删除 session 保留消息），alembic 迁移（chat 两表+索引+补全 kb 表 created_at 索引）
+  - chat API：GET/POST /api/chat/sessions（列表按 updated_at desc / 新建默认"新对话"）、DELETE 软删除（归属校验 404 不泄露存在性）、GET /api/chat/sessions/{id}/messages（按时间正序）
+  - playground/ask 改造：加可选 session_id，有则校验归属+流式开始前存用户消息（首条且标题为"新对话"时更新为内容前 20 字）+流结束存 assistant 消息（含 citations+tokens）+更新 session.updated_at；消息保存失败只记日志不影响已返回内容；无 session_id 保持原行为向后兼容
+  - admin_kb API：GET 列所有文档（含预置+所有用户上传，带 owner_email+块数）、DELETE 删任意文档（绕过 preset 不可删与 owner 校验，软删除可审计）、POST 上传为预置 public（不限流不限名下文档数，全局 file_hash 去重，pdf 50 页）；_admin_only 权限（未登录 401/普通用户 403）
+  - 前端 ChatView.vue：左侧对话列表侧栏（230px，新建/切换/删除/可折叠 «，当前项青绿高亮，空态）+ 右侧聊天主区域（复用 SSE 流式+引用来源+打字动画，无对话空态+直接输入自动新建）；替代原 Playground.vue（删除）
+  - 前端 KbAdminView.vue：语料库管理表格（ID/标题/来源/所有者/块数/状态/上传时间/删除），上传为预置 public，删除任意文档含预置（二次确认），状态徽标（排队中/入库中/就绪/失败）
+  - App.vue：导航项 Playground→在线对话（💬），视图 key playground→chat；新增「语料库管理」导航项（admin 专属，管理面板下方，📚）；logout 时 kb-admin 也回主页
+  - 测试：14 个 chat 测试（匿名 CRUD/自定义标题/倒序/空消息/软删除/404/登录匿名隔离/双用户隔离/ask 带 session_id 持久化+标题自动更新/ask 不带不写库/无效 session_id 404）+ 9 个 admin_kb 测试（权限/列所有/删预置/上传预置/去重/格式校验/空内容），全绿
+  - 历史遗留修复：0bb14b80309f 迁移是分支从未执行，但数据库已有其创建的 6 张表 created_at 索引；kb_documents/kb_chunks 的 created_at 索引由本次迁移 cacaa643224a 补全；HNSW 索引 autogenerate 误报已手动排除
 
 ## 已知问题 / 踩过的坑
 - 安全审计：tasks 接口无认证（已修复）、SSE 缓冲（Nginx proxy_buffering off 已修）、upload 内存预检（已修）
