@@ -39,7 +39,7 @@ const navItems = computed(() => {
   const items = [
     { key: 'home', label: '首页', icon: '🏠', requireAuth: false },
     { key: 'chat', label: '在线对话', icon: '💬', requireAuth: false },
-    { key: 'history', label: '我的历史', icon: '📋', requireAuth: true },
+    { key: 'history', label: '使用日志', icon: '📋', requireAuth: true },
   ]
   if (currentUser.value?.role === 'admin') {
     items.push({ key: 'admin', label: '数据看板', icon: '📊', requireAuth: true, requireAdmin: true })
