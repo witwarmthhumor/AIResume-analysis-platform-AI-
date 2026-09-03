@@ -2,13 +2,13 @@
 import { computed, onMounted, ref } from 'vue'
 import { get, post } from './api.js'
 import HomeView from './components/HomeView.vue'
-import Playground from './components/Playground.vue'
+import ChatView from './components/ChatView.vue'
 import LoginPanel from './components/LoginPanel.vue'
 import HistoryView from './components/HistoryView.vue'
 import AdminPanel from './components/AdminPanel.vue'
 
 // —— 布局与视图 ——
-const activeView = ref('home') // home / playground / history / admin
+const activeView = ref('home') // home / chat / history / admin
 const collapsed = ref(false)
 const viewRef = ref(null) // 动态组件实例引用，用于调用 HomeView.refreshList
 
@@ -26,7 +26,7 @@ const avatarLetter = computed(() => {
 // —— 视图组件映射 ——
 const viewComponents = {
   home: HomeView,
-  playground: Playground,
+  chat: ChatView,
   history: HistoryView,
   admin: AdminPanel,
 }
@@ -36,7 +36,7 @@ const currentViewComponent = computed(() => viewComponents[activeView.value] || 
 const navItems = computed(() => {
   const items = [
     { key: 'home', label: '首页', icon: '🏠', requireAuth: false },
-    { key: 'playground', label: 'Playground', icon: '🧪', requireAuth: false },
+    { key: 'chat', label: '在线对话', icon: '💬', requireAuth: false },
     { key: 'history', label: '我的历史', icon: '📋', requireAuth: true },
   ]
   if (currentUser.value?.role === 'admin') {
