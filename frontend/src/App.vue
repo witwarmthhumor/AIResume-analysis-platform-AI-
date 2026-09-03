@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { get, post } from './api.js'
 import UploadCard from './components/UploadCard.vue'
 import ResumeList from './components/ResumeList.vue'
@@ -10,31 +10,42 @@ import LoginPanel from './components/LoginPanel.vue'
 import HistoryView from './components/HistoryView.vue'
 import AdminPanel from './components/AdminPanel.vue'
 
-// —— 健康检查（页脚胶囊状态条）——
-const health = ref(null)
-const healthLabel = {
-  ok: '运行中',
-  degraded: '异常',
-  unreachable: '无法连接',
-  connected: '已连接',
-  disconnected: '未连接',
-}
+// —— 布局与视图 ——
+const activeView = ref('home') // home / playground / history / admin
+const collapsed = ref(false)
 
-// —— 简历业务：列表 + 当前查看的详情 ——
+// —— 用户与登录 ——
+const currentUser = ref(null)
+const showLogin = ref(false)
+
+// —— 简历业务：列表 + 当前查看的详情（提交②迁入 HomeView）——
 const resumes = ref([])
 const currentResume = ref(null)
 const interviewResume = ref(null)
-const currentUser = ref(null)
-const showLogin = ref(false)
-const showHistory = ref(false)
-const showAdmin = ref(false)
-const showPlayground = ref(false)
 
 const STATUS = {
   success: { label: '解析成功', cls: 'ok' },
   unsupported: { label: '暂不支持', cls: 'warn' },
   failed: { label: '解析失败', cls: 'bad' },
   pending: { label: '解析中', cls: 'warn' },
+}
+
+// —— 侧边栏导航项：按登录态/角色计算 ——
+const navItems = computed(() => {
+  const items = [
+    { key: 'home', label: '首页', icon: '🏠', requireAuth: false },
+    { key: 'playground', label: 'Playground', icon: '🧪', requireAuth: false },
+    { key: 'history', label: '我的历史', icon: '📋', requireAuth: true },
+  ]
+  if (currentUser.value?.role === 'admin') {
+    items.push({ key: 'admin', label: '管理面板', icon: '⚙️', requireAuth: true, requireAdmin: true })
+  }
+  return items
+})
+
+function selectView(item) {
+  // 提交③：未登录点需登录项改为弹登录模态；此处先直接切换
+  activeView.value = item.key
 }
 
 async function loadUser() {
@@ -50,9 +61,10 @@ async function logout() {
     await post('/api/auth/logout')
   } finally {
     currentUser.value = null
-    showHistory.value = false
-    showAdmin.value = false
-    showPlayground.value = false
+    showLogin.value = false
+    if (activeView.value === 'history' || activeView.value === 'admin') {
+      activeView.value = 'home'
+    }
     await refreshList()
   }
 }
@@ -67,7 +79,7 @@ async function refreshList() {
   try {
     resumes.value = await get('/api/resumes')
   } catch {
-    /* 后端没起时列表留空，页脚健康条会给出提示 */
+    /* 后端没起时列表留空，各组件内嵌错误提示 */
   }
 }
 
@@ -98,115 +110,133 @@ async function onSelect(id) {
 onMounted(async () => {
   loadUser()
   refreshList()
-  try {
-    health.value = await get('/api/health') // 走 Vite 代理到后端，同源无跨域
-  } catch {
-    health.value = { status: 'unreachable', database: 'disconnected', version: '-' }
-  }
 })
 </script>
 
 <template>
   <div class="shell">
-    <nav class="nav">
-      <div class="nav-inner">
+    <!-- —— 顶栏 —— -->
+    <header class="topbar">
+      <div class="topbar-inner">
         <div class="brand">
-          <span class="logo">◉</span>
-          <span>AI 简历分析 <span class="plus">+</span> 模拟面试</span>
+          <svg class="logo-svg" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <path d="M4 8a4 4 0 0 1 4-4h16a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H12l-6 5v-5a4 4 0 0 1-2-3.46V8z" fill="url(#logo-g)"/>
+            <circle cx="11" cy="13" r="1.8" fill="#fff"/>
+            <circle cx="16" cy="13" r="1.8" fill="#fff"/>
+            <circle cx="21" cy="13" r="1.8" fill="#fff"/>
+            <defs>
+              <linearGradient id="logo-g" x1="4" y1="4" x2="28" y2="28">
+                <stop stop-color="#10b981"/>
+                <stop offset="1" stop-color="#059669"/>
+              </linearGradient>
+            </defs>
+          </svg>
+          <span class="brand-text">AI 简历分析 <span class="plus">+</span> 模拟面试</span>
         </div>
-        <div class="nav-btns">
-          <button
-            class="btn btn-ghost"
-            @click="showPlayground = !showPlayground; showHistory = false; showAdmin = false"
-          >
-            🧪 Playground
-          </button>
+        <div class="topbar-right">
           <template v-if="currentUser">
             <span class="whoami">{{ currentUser.email }}</span>
-            <button v-if="currentUser.role === 'admin'" class="btn btn-ghost" @click="showAdmin = !showAdmin; showHistory = false">
-              {{ showAdmin ? '收起面板' : '管理面板' }}
-            </button>
-            <button class="btn btn-ghost" @click="showHistory = !showHistory; showAdmin = false">
-              {{ showHistory ? '收起历史' : '我的历史' }}
-            </button>
-            <button class="btn btn-ghost" @click="logout">退出</button>
+            <button class="btn btn-ghost topbar-btn" @click="logout">退出</button>
           </template>
-          <button v-else class="btn btn-ghost" @click="showLogin = !showLogin">
-            登录 / 注册
-          </button>
+          <button v-else class="btn btn-ghost topbar-btn" @click="showLogin = true">登录 / 注册</button>
         </div>
       </div>
-    </nav>
+    </header>
 
-    <main class="page">
-      <p class="tagline">
-        <b>上传简历</b> · AI 深度分析 · <b>模拟实战面试</b> —— 求职路上的私人面试官
-      </p>
+    <!-- —— 主体：侧边栏 + 内容区 —— -->
+    <div class="layout-row">
+      <aside class="sidebar" :class="{ collapsed }">
+        <nav class="side-nav">
+          <button
+            v-for="item in navItems"
+            :key="item.key"
+            class="nav-item"
+            :class="{ active: activeView === item.key }"
+            @click="selectView(item)"
+            :title="collapsed ? item.label : ''"
+          >
+            <span class="nav-icon">{{ item.icon }}</span>
+            <span class="nav-label">{{ item.label }}</span>
+          </button>
+        </nav>
+        <button class="collapse-btn" @click="collapsed = !collapsed" :title="collapsed ? '展开侧边栏' : '折叠侧边栏'">
+          <span class="collapse-icon">{{ collapsed ? '»' : '«' }}</span>
+          <span class="nav-label">{{ collapsed ? '展开' : '折叠' }}</span>
+        </button>
+      </aside>
 
-      <LoginPanel v-if="showLogin && !currentUser" @logged-in="onLoggedIn" />
-      <AdminPanel v-if="showAdmin && currentUser?.role === 'admin'" />
-      <HistoryView v-if="showHistory && currentUser" />
-      <Playground v-if="showPlayground" />
-      <UploadCard @uploaded="onUploaded" />
-      <ResumeList
-        :resumes="resumes"
-        :current-id="currentResume?.id"
-        @select="onSelect"
-        @deleted="onDeleted"
-      />
+      <main class="content">
+        <div class="page">
+          <!-- —— 首页：简历全业务流（提交②迁入 HomeView）—— -->
+          <template v-if="activeView === 'home'">
+            <p class="tagline">
+              <b>上传简历</b> · AI 深度分析 · <b>模拟实战面试</b> —— 求职路上的私人面试官
+            </p>
 
-      <section v-if="currentResume" class="card detail">
-        <div class="detail-head">
-          <h2 class="detail-name">{{ currentResume.filename }}</h2>
-          <span class="badge" :class="STATUS[currentResume.parse_status]?.cls">
-            {{ STATUS[currentResume.parse_status]?.label ?? currentResume.parse_status }}
-          </span>
+            <LoginPanel v-if="showLogin && !currentUser" @logged-in="onLoggedIn" />
+
+            <UploadCard @uploaded="onUploaded" />
+            <ResumeList
+              :resumes="resumes"
+              :current-id="currentResume?.id"
+              @select="onSelect"
+              @deleted="onDeleted"
+            />
+
+            <section v-if="currentResume" class="card detail">
+              <div class="detail-head">
+                <h2 class="detail-name">{{ currentResume.filename }}</h2>
+                <span class="badge" :class="STATUS[currentResume.parse_status]?.cls">
+                  {{ STATUS[currentResume.parse_status]?.label ?? currentResume.parse_status }}
+                </span>
+              </div>
+              <p class="meta">
+                {{ currentResume.page_count ?? '-' }} 页 ·
+                {{ currentResume.file_size ? Math.round(currentResume.file_size / 1024) : '-' }} KB ·
+                {{ new Date(currentResume.created_at).toLocaleString() }}
+              </p>
+              <p v-if="currentResume.parse_status !== 'success'" class="msg warn">
+                {{ currentResume.parse_error }}
+              </p>
+              <pre v-else class="raw-text">{{ currentResume.raw_text }}</pre>
+              <div v-if="currentResume.parse_status === 'success'" class="detail-actions">
+                <button class="btn btn-primary" @click="startInterview">🤖 开始模拟面试</button>
+              </div>
+            </section>
+
+            <InterviewChat
+              v-if="interviewResume"
+              :key="interviewResume.id"
+              :resume="interviewResume"
+              @close="interviewResume = null"
+            />
+
+            <AnalysisReport
+              v-if="currentResume?.parse_status === 'success'"
+              :key="currentResume.id"
+              :resume="currentResume"
+            />
+          </template>
+
+          <!-- —— Playground 独立视图 —— -->
+          <Playground v-else-if="activeView === 'playground'" />
+
+          <!-- —— 我的历史（需登录）—— -->
+          <HistoryView v-else-if="activeView === 'history' && currentUser" />
+
+          <!-- —— 管理面板（需管理员）—— -->
+          <AdminPanel v-else-if="activeView === 'admin' && currentUser?.role === 'admin'" />
         </div>
-        <p class="meta">
-          {{ currentResume.page_count ?? '-' }} 页 ·
-          {{ currentResume.file_size ? Math.round(currentResume.file_size / 1024) : '-' }} KB ·
-          {{ new Date(currentResume.created_at).toLocaleString() }}
-        </p>
-        <p v-if="currentResume.parse_status !== 'success'" class="msg warn">
-          {{ currentResume.parse_error }}
-        </p>
-        <pre v-else class="raw-text">{{ currentResume.raw_text }}</pre>
-        <div v-if="currentResume.parse_status === 'success'" class="detail-actions">
-          <button class="btn btn-primary" @click="startInterview">🤖 开始模拟面试</button>
-        </div>
-      </section>
-
-      <InterviewChat
-        v-if="interviewResume"
-        :key="interviewResume.id"
-        :resume="interviewResume"
-        @close="interviewResume = null"
-      />
-
-      <AnalysisReport
-        v-if="currentResume?.parse_status === 'success'"
-        :key="currentResume.id"
-        :resume="currentResume"
-      />
-
-      <footer class="health">
-        <span class="hpill">
-          <span class="pulse" :class="{ off: health?.status !== 'ok' }"></span>
-          后端 {{ healthLabel[health?.status] || '检测中…' }}
-        </span>
-        <span class="hpill">
-          <span class="pulse" :class="{ off: health?.database !== 'connected' }"></span>
-          数据库 {{ healthLabel[health?.database] || '检测中…' }}
-        </span>
-        <span class="hpill ver">v{{ health?.version || '…' }}</span>
-      </footer>
-    </main>
+      </main>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .shell {
-  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
   font-family: var(--font, system-ui, 'Microsoft YaHei', sans-serif);
   color: var(--c-text);
   background:
@@ -215,70 +245,176 @@ onMounted(async () => {
     #f6f9f7;
 }
 
-/* —— 吸顶毛玻璃导航 —— */
-.nav {
+/* —— 顶栏（吸顶毛玻璃）—— */
+.topbar {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 20;
   backdrop-filter: blur(12px);
   background: rgb(255 255 255 / 72%);
   border-bottom: 1px solid rgb(229 231 235 / 80%);
+  flex-shrink: 0;
 }
-.nav-inner {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 11px 20px;
+.topbar-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 10px 20px;
+  max-width: 1400px;
+  margin: 0 auto;
 }
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 16.5px;
+  font-size: 16px;
   font-weight: 700;
   white-space: nowrap;
 }
-.logo {
+.logo-svg {
   width: 30px;
   height: 30px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, var(--c-primary), var(--c-primary-dark));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 14px;
-  box-shadow: 0 2px 8px rgb(16 185 129 / 35%);
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 6px rgb(16 185 129 / 30%));
 }
 .plus {
   color: var(--c-primary);
 }
-.nav-btns {
+.topbar-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 .whoami {
   color: var(--c-muted);
-  font-size: 12px;
-  max-width: 180px;
+  font-size: 12.5px;
+  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.nav-btns .btn {
-  padding: 6px 12px;
+.topbar-btn {
+  padding: 6px 14px;
   font-size: 12.5px;
 }
 
-/* —— 主内容列 —— */
+/* —— 主体行 —— */
+.layout-row {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* —— 侧边栏 —— */
+.sidebar {
+  width: 224px;
+  flex-shrink: 0;
+  background: rgb(255 255 255 / 60%);
+  border-right: 1px solid rgb(229 231 235 / 70%);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 16px 10px;
+  transition: width 0.25s ease;
+  overflow: hidden;
+}
+.sidebar.collapsed {
+  width: 64px;
+  padding: 16px 8px;
+}
+.side-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 0;
+  background: transparent;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-family: inherit;
+  color: var(--c-text-2);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+  text-align: left;
+  width: 100%;
+}
+.nav-item:hover {
+  background: rgb(16 185 129 / 8%);
+  color: var(--c-primary-dark);
+}
+.nav-item.active {
+  background: linear-gradient(135deg, rgb(16 185 129 / 14%), rgb(16 185 129 / 6%));
+  color: var(--c-primary-dark);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--c-primary);
+}
+.nav-icon {
+  font-size: 15px;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+.nav-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar.collapsed .nav-label {
+  display: none;
+}
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 9px 0;
+}
+
+/* —— 折叠按钮 —— */
+.collapse-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 0;
+  background: transparent;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: var(--c-faint);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+  margin-top: 8px;
+}
+.collapse-btn:hover {
+  background: rgb(0 0 0 / 4%);
+  color: var(--c-muted);
+}
+.collapse-icon {
+  font-size: 16px;
+  font-weight: 700;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.sidebar.collapsed .collapse-btn {
+  justify-content: center;
+  padding: 9px 0;
+}
+
+/* —— 内容区 —— */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px;
+}
 .page {
-  max-width: 760px;
+  max-width: 960px;
   margin: 0 auto;
-  padding: 22px 20px 44px;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -295,7 +431,7 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-/* —— 简历详情卡 —— */
+/* —— 简历详情卡（提交②迁入 HomeView）—— */
 .detail-head {
   display: flex;
   align-items: center;
@@ -333,37 +469,25 @@ onMounted(async () => {
   margin-top: 14px;
 }
 
-/* —— 页脚胶囊状态条 —— */
-.health {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  padding-top: 4px;
-}
-.hpill {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  background: #fff;
-  border: 1px solid var(--c-border);
-  border-radius: 999px;
-  padding: 6px 14px;
-  font-size: 12px;
-  color: var(--c-muted);
-  box-shadow: var(--shadow);
-}
-.pulse {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--c-primary);
-  animation: pulse-dot 1.6s infinite;
-}
-.pulse.off {
-  background: #ef4444;
-  animation: none;
-}
-.ver {
-  font-family: ui-monospace, Consolas, monospace;
+/* —— 窄屏兜底：≤900px 侧边栏自动收缩为图标条 —— */
+@media (max-width: 900px) {
+  .sidebar {
+    width: 64px !important;
+    padding: 16px 8px !important;
+  }
+  .sidebar .nav-label,
+  .sidebar .collapse-btn {
+    display: none !important;
+  }
+  .sidebar .nav-item {
+    justify-content: center;
+    padding: 9px 0;
+  }
+  .content {
+    padding: 16px 14px;
+  }
+  .brand-text {
+    display: none;
+  }
 }
 </style>
