@@ -1,17 +1,14 @@
 # 进度日志
 
 > **本文件是干嘛的**：项目进度日志——当前进行、已完成、踩过的坑、下一步。AI 每次新会话先读它接续上下文；每次会话结束前更新本文件。
-> 最后更新：2026-09-03（v3.1 在线对话多会话+语料库管理迁移、v3.2 数据看板 UI 重设计 已完成；v3.3 使用日志重设计 规划中待动工）。
+> 最后更新：2026-09-03（v3.1 在线对话多会话+语料库管理迁移、v3.2 数据看板 UI 重设计、v3.3 使用日志重设计 均已完成）。
 
 ## 当前进行
 - v3.0 Playground 知识库问答已封版，tag v3.0（本地）
 - 前端布局重构完成（顶栏+可折叠侧边栏+四视图 KeepAlive）
 - v3.1 在线对话多会话+语料库管理迁移 已完成（详见已完成）
 - **v3.2 已完成（1 提交，纯前端，npm build 通过）**：数据看板 UI 重设计（五卡悬浮+用户列表分页+用量卡片+CSS柱状图），详见已完成
-- **v3.3 规划中（待动工，等用户指令）**：
-  - 我的历史→使用日志重设计：改名、内容改为 usage_logs 调用明细（动作/模型/Token/IP/时间）、筛选条件卡片（日期范围+今日/7天/30天+动作类型+模型+IP+重置搜索）、新增 DateRangePicker.vue 日期时间选择器组件（点击日历图标弹出浮层：月份切换+日期网格+开始/结束时间+确定取消）、使用日志表格+动作彩色徽章+空态大虚线框+后端分页、后端新增 GET /api/usage/logs 接口（分页+筛选）
-  - 后端新增 1 接口 + 前端重写 HistoryView.vue + 新增 DateRangePicker.vue，3 个提交
-  - 完整计划：`docs/实施计划-v3.3-使用日志重设计.txt`
+- **v3.3 已完成（2 提交功能+本次记录，87 pytest 全绿、ruff 全绿、npm build 通过）**：使用日志重设计（后端 usage 明细接口+前端筛选卡片+日期选择器+后端分页），详见已完成
 - 项目功能开发完结，进入按需维护
 
 ## 已完成
@@ -57,6 +54,12 @@
   - 近7日用量卡片化：左右分栏（左表格 flex 0 0 42% 分页每页5条+当日行浅绿高亮，右侧纯 CSS 柱状图 flex 1 虚线分隔），柱状图全量 7 天不受分页影响（有数据青绿渐变柱/零数据浅灰最小3px/日期标签/底部说明）
   - 两内容卡片一上一下 flex:1 等比 min-height 270px；App.vue .page 加 .wide 修饰类，admin 视图 max-width 1100px
   - 分页页码超过 7 页用省略号折叠（1 2 3 … N），纯前端 slice 零后端改动；窄屏 ≤900px 五卡换行、用量双栏改上下堆叠
+- **v3.3 使用日志重设计**（2 功能提交，87 pytest 全绿、ruff 全绿、npm build 通过）：
+  - 后端新增 GET /api/usage/logs（app/api/usage.py，RouterRegistry 自动注册）：get_current_user 权限（未登录 401，只返回当前用户 user_id 日志，匿名日志不展示），后端分页 page/page_size（上限50），筛选 action_type 精确/model_name ILIKE 模糊/ip_address 精确/start_date~end_date 日期范围（含当天 00:00:00~23:59:59，date.fromisoformat 解析+本地 tzinfo），排序 created_at DESC,id DESC，返回 {items,total,page,page_size}；原 /api/history 保留不删
+  - 新增 DateRangePicker.vue：纯手写日期时间范围选择器（无第三方依赖），点击输入框弹浮层，月份切换+周一起始 6x7 日期网格（上下月灰色/范围内浅绿/选中日青绿圆白字）+开始结束 time 输入+确定取消+点击外部关闭，v-model {start,end,startTime,endTime}，单日时结束=开始
+  - HistoryView.vue 整体重写：我的历史→使用日志，内容从简历/分析/面试分组改为 usage_logs 明细（时间/动作/模型/Token/IP）；筛选条件卡片（DateRangePicker+今日/7天/30天快捷+动作下拉+模型+IP+重置/搜索+激活筛选数徽章）；动作五色徽章（解析灰/分析蓝/面试橙/上传青/问答绿）、Token 千分位、空态大虚线框、后端分页（每页10/20/50+共N条+页码省略号+禁用态）
+  - App.vue：侧边栏我的历史→使用日志（📋），视图 key history 与文件名不变
+  - 测试：10 个 test_usage（401/双用户隔离/分页/倒序/action_type/model ILIKE/ip 精确/日期范围含边界/空结果/page_size 上限422），全绿；修复 ruff DTZ 时区规则（strptime→date.fromisoformat，combine 显式 tzinfo）
 
 ## 已知问题 / 踩过的坑
 - 安全审计：tasks 接口无认证（已修复）、SSE 缓冲（Nginx proxy_buffering off 已修）、upload 内存预检（已修）

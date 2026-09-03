@@ -4,7 +4,7 @@
 原 /api/history 摘要接口保留不动。
 """
 
-from datetime import datetime, time
+from datetime import date, datetime, time
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
@@ -24,11 +24,12 @@ def _parse_day(value: str, *, end_of_day: bool = False) -> datetime | None:
     非法日期返回 None（忽略该筛选条件，不抛 422，保持筛选容错）。
     """
     try:
-        day = datetime.strptime(value, "%Y-%m-%d").date()
+        day = date.fromisoformat(value)
     except (ValueError, TypeError):
         return None
     clock = time.max if end_of_day else time.min
-    return datetime.combine(day, clock).astimezone()
+    local_tz = datetime.now().astimezone().tzinfo
+    return datetime.combine(day, clock, tzinfo=local_tz)
 
 
 @router.get("/logs")
