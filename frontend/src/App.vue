@@ -1,10 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { get, post } from './api.js'
-import UploadCard from './components/UploadCard.vue'
-import ResumeList from './components/ResumeList.vue'
-import AnalysisReport from './components/AnalysisReport.vue'
-import InterviewChat from './components/InterviewChat.vue'
+import HomeView from './components/HomeView.vue'
 import Playground from './components/Playground.vue'
 import LoginPanel from './components/LoginPanel.vue'
 import HistoryView from './components/HistoryView.vue'
@@ -13,22 +10,20 @@ import AdminPanel from './components/AdminPanel.vue'
 // —— 布局与视图 ——
 const activeView = ref('home') // home / playground / history / admin
 const collapsed = ref(false)
+const viewRef = ref(null) // 动态组件实例引用，用于调用 HomeView.refreshList
 
 // —— 用户与登录 ——
 const currentUser = ref(null)
 const showLogin = ref(false)
 
-// —— 简历业务：列表 + 当前查看的详情（提交②迁入 HomeView）——
-const resumes = ref([])
-const currentResume = ref(null)
-const interviewResume = ref(null)
-
-const STATUS = {
-  success: { label: '解析成功', cls: 'ok' },
-  unsupported: { label: '暂不支持', cls: 'warn' },
-  failed: { label: '解析失败', cls: 'bad' },
-  pending: { label: '解析中', cls: 'warn' },
+// —— 视图组件映射 ——
+const viewComponents = {
+  home: HomeView,
+  playground: Playground,
+  history: HistoryView,
+  admin: AdminPanel,
 }
+const currentViewComponent = computed(() => viewComponents[activeView.value] || HomeView)
 
 // —— 侧边栏导航项：按登录态/角色计算 ——
 const navItems = computed(() => {
@@ -65,52 +60,17 @@ async function logout() {
     if (activeView.value === 'history' || activeView.value === 'admin') {
       activeView.value = 'home'
     }
-    await refreshList()
+    viewRef.value?.refreshList?.()
   }
 }
 
 function onLoggedIn(user) {
   currentUser.value = user
   showLogin.value = false
-  refreshList()
+  viewRef.value?.refreshList?.()
 }
 
-async function refreshList() {
-  try {
-    resumes.value = await get('/api/resumes')
-  } catch {
-    /* 后端没起时列表留空，各组件内嵌错误提示 */
-  }
-}
-
-async function onUploaded(resume) {
-  currentResume.value = resume
-  await refreshList()
-}
-
-async function onDeleted(id) {
-  if (currentResume.value?.id === id) currentResume.value = null
-  await refreshList()
-}
-
-function startInterview() {
-  if (currentResume.value?.parse_status === 'success') interviewResume.value = currentResume.value
-}
-
-async function onSelect(id) {
-  interviewResume.value = null
-  currentResume.value = null
-  try {
-    currentResume.value = await get(`/api/resumes/${id}`)
-  } catch {
-    /* 网络异常时详情区留空，重试即可 */
-  }
-}
-
-onMounted(async () => {
-  loadUser()
-  refreshList()
-})
+onMounted(loadUser)
 </script>
 
 <template>
@@ -167,65 +127,13 @@ onMounted(async () => {
 
       <main class="content">
         <div class="page">
-          <!-- —— 首页：简历全业务流（提交②迁入 HomeView）—— -->
-          <template v-if="activeView === 'home'">
-            <p class="tagline">
-              <b>上传简历</b> · AI 深度分析 · <b>模拟实战面试</b> —— 求职路上的私人面试官
-            </p>
+          <!-- 登录面板（提交③改为居中模态） -->
+          <LoginPanel v-if="showLogin && !currentUser" @logged-in="onLoggedIn" />
 
-            <LoginPanel v-if="showLogin && !currentUser" @logged-in="onLoggedIn" />
-
-            <UploadCard @uploaded="onUploaded" />
-            <ResumeList
-              :resumes="resumes"
-              :current-id="currentResume?.id"
-              @select="onSelect"
-              @deleted="onDeleted"
-            />
-
-            <section v-if="currentResume" class="card detail">
-              <div class="detail-head">
-                <h2 class="detail-name">{{ currentResume.filename }}</h2>
-                <span class="badge" :class="STATUS[currentResume.parse_status]?.cls">
-                  {{ STATUS[currentResume.parse_status]?.label ?? currentResume.parse_status }}
-                </span>
-              </div>
-              <p class="meta">
-                {{ currentResume.page_count ?? '-' }} 页 ·
-                {{ currentResume.file_size ? Math.round(currentResume.file_size / 1024) : '-' }} KB ·
-                {{ new Date(currentResume.created_at).toLocaleString() }}
-              </p>
-              <p v-if="currentResume.parse_status !== 'success'" class="msg warn">
-                {{ currentResume.parse_error }}
-              </p>
-              <pre v-else class="raw-text">{{ currentResume.raw_text }}</pre>
-              <div v-if="currentResume.parse_status === 'success'" class="detail-actions">
-                <button class="btn btn-primary" @click="startInterview">🤖 开始模拟面试</button>
-              </div>
-            </section>
-
-            <InterviewChat
-              v-if="interviewResume"
-              :key="interviewResume.id"
-              :resume="interviewResume"
-              @close="interviewResume = null"
-            />
-
-            <AnalysisReport
-              v-if="currentResume?.parse_status === 'success'"
-              :key="currentResume.id"
-              :resume="currentResume"
-            />
-          </template>
-
-          <!-- —— Playground 独立视图 —— -->
-          <Playground v-else-if="activeView === 'playground'" />
-
-          <!-- —— 我的历史（需登录）—— -->
-          <HistoryView v-else-if="activeView === 'history' && currentUser" />
-
-          <!-- —— 管理面板（需管理员）—— -->
-          <AdminPanel v-else-if="activeView === 'admin' && currentUser?.role === 'admin'" />
+          <!-- 四视图统一保活切换 -->
+          <KeepAlive>
+            <component :is="currentViewComponent" ref="viewRef" />
+          </KeepAlive>
         </div>
       </main>
     </div>
@@ -418,55 +326,6 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 18px;
-}
-.tagline {
-  text-align: center;
-  font-size: 13px;
-  color: var(--c-muted);
-  letter-spacing: 0.5px;
-  margin: 2px 0 0;
-}
-.tagline b {
-  color: var(--c-primary-dark);
-  font-weight: 600;
-}
-
-/* —— 简历详情卡（提交②迁入 HomeView）—— */
-.detail-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.detail-name {
-  margin: 0;
-  font-size: 16px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.meta {
-  margin: 8px 0 12px;
-  color: var(--c-muted);
-  font-size: 12.5px;
-}
-.raw-text {
-  background: var(--c-bg-soft);
-  border: 1px solid var(--c-border);
-  border-radius: 10px;
-  padding: 14px;
-  font-size: 12.5px;
-  line-height: 1.8;
-  color: #475569;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 420px;
-  overflow: auto;
-  margin: 0;
-}
-.detail-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 14px;
 }
 
 /* —— 窄屏兜底：≤900px 侧边栏自动收缩为图标条 —— */
