@@ -6,6 +6,7 @@ import ChatView from './components/ChatView.vue'
 import LoginPanel from './components/LoginPanel.vue'
 import HistoryView from './components/HistoryView.vue'
 import AdminPanel from './components/AdminPanel.vue'
+import KbAdminView from './components/KbAdminView.vue'
 
 // —— 布局与视图 ——
 const activeView = ref('home') // home / chat / history / admin
@@ -29,6 +30,7 @@ const viewComponents = {
   chat: ChatView,
   history: HistoryView,
   admin: AdminPanel,
+  'kb-admin': KbAdminView,
 }
 const currentViewComponent = computed(() => viewComponents[activeView.value] || HomeView)
 
@@ -41,6 +43,7 @@ const navItems = computed(() => {
   ]
   if (currentUser.value?.role === 'admin') {
     items.push({ key: 'admin', label: '管理面板', icon: '⚙️', requireAuth: true, requireAdmin: true })
+    items.push({ key: 'kb-admin', label: '语料库管理', icon: '📚', requireAuth: true, requireAdmin: true })
   }
   return items
 })
@@ -70,7 +73,7 @@ async function logout() {
     currentUser.value = null
     showLogin.value = false
     showUserMenu.value = false
-    if (activeView.value === 'history' || activeView.value === 'admin') {
+    if (['history', 'admin', 'kb-admin'].includes(activeView.value)) {
       activeView.value = 'home'
     }
     viewRef.value?.refreshList?.()
