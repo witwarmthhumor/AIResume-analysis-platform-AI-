@@ -20,12 +20,13 @@ def _email() -> str:
 
 @pytest.fixture(autouse=True)
 def _clean_chat_and_usage():
-    """每个用例前后清理 chat 表与 playground 用量。"""
+    """每个用例前后清理 chat 表与 playground / chat_create 用量。"""
     yield
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM chat_messages"))
         conn.execute(text("DELETE FROM chat_sessions"))
         conn.execute(text("DELETE FROM usage_logs WHERE action_type = 'playground'"))
+        conn.execute(text("DELETE FROM usage_logs WHERE action_type = 'chat_create'"))
 
 
 # —— 会话 CRUD ——
@@ -278,3 +279,20 @@ def test_ask_with_invalid_session_id_404(monkeypatch) -> None:
         json={"content": "test", "session_id": 999999},
     )
     assert resp.status_code == 404
+
+
+def test_create_session_rate_limited(monkeypatch) -> None:
+    """建会话每日限流：超过 daily_chat_session_limit 后 429，且有 chat_create 记账。"""
+    from app.core.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "daily_chat_session_limit", 3)
+    for _ in range(3):
+        assert client.post("/api/chat/sessions", json={}).status_code == 200
+    assert client.post("/api/chat/sessions", json={}).status_code == 429
+
+    # 记账落库：chat_create 共 3 条（成功路径才记账）
+    with engine.begin() as conn:
+        count = conn.execute(
+            text("SELECT COUNT(*) FROM usage_logs WHERE action_type = 'chat_create'")
+        ).scalar()
+    assert count == 3

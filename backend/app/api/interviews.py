@@ -282,6 +282,8 @@ def send_message(
         )
         db.add(
             UsageLog(
+                # user_id 必须写：v3.3 使用日志接口按 user_id 过滤，漏写会让登录用户的面试记录不可见
+                user_id=user.id if user else None,
                 anonymous_id=anonymous_id,
                 action_type="interview_message",
                 model_name=settings.ai_model,
@@ -362,6 +364,8 @@ def finish_interview(
     session.final_report_json = result.report
     db.add(
         UsageLog(
+            # user_id 必须写：v3.3 使用日志接口按 user_id 过滤，漏写会让登录用户的面试记录不可见
+            user_id=user.id if user else None,
             anonymous_id=anonymous_id,
             action_type="interview_message",
             model_name=result.model_name,

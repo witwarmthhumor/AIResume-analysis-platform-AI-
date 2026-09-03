@@ -12,10 +12,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.auth_deps import get_optional_current_user
-from app.api.deps import get_anonymous_id
+from app.api.deps import enforce_daily_limit, get_anonymous_id
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.chat import ChatMessage, ChatSession
 from app.models.user import User
+from app.services.usage_service import write_usage
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -76,13 +78,33 @@ def create_session(
     anonymous_id: str = Depends(get_anonymous_id),
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
 ) -> dict:
-    """新建对话，返回会话对象。"""
+    """新建对话，返回会话对象。
+
+    建会话本身要占库表行，与提问同等级别限额：每日次数上限 + 记账
+    （chat_create 用量作为限流依据；提问另有 playground 配额）。
+    """
+    enforce_daily_limit(
+        db,
+        anonymous_id,
+        settings.daily_chat_session_limit,
+        "chat_create",
+        user_id=user.id if user else None,
+    )
     session = ChatSession(
         user_id=user.id if user else None,
         anonymous_id=anonymous_id if not user else None,
         title=body.title.strip() or "新对话",
     )
     db.add(session)
+    write_usage(
+        db,
+        anonymous_id if user is None else None,
+        user.id if user else None,
+        "chat_create",
+        None,
+        None,
+        None,
+    )
     db.commit()
     db.refresh(session)
     return {

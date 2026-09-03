@@ -2,8 +2,11 @@
 
 只返回当前登录用户（按 user_id）的 usage_logs，匿名日志不在此展示。
 原 /api/history 摘要接口保留不动。
+日期筛选支持可选的 HH:MM 时间粒度（start_time/end_time），
+与前端 DateRangePicker 的时间选择保持一致；不传时间则按整天过滤。
 """
 
+import re
 from datetime import date, datetime, time
 
 from fastapi import APIRouter, Depends, Query
@@ -17,17 +20,31 @@ from app.models.user import User
 
 router = APIRouter(prefix="/api/usage", tags=["usage"])
 
+_HHMM_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
-def _parse_day(value: str, *, end_of_day: bool = False) -> datetime | None:
-    """YYYY-MM-DD → 本地时区 datetime；end_of_day=True 取当天 23:59:59.999999。
 
-    非法日期返回 None（忽略该筛选条件，不抛 422，保持筛选容错）。
+def _parse_day(
+    value: str,
+    *,
+    end_of_day: bool = False,
+    time_override: str | None = None,
+) -> datetime | None:
+    """YYYY-MM-DD → 本地时区 datetime；time_override（HH:MM）替换默认的 0 点/当天末。
+
+    end_of_day=True 且无 time_override 时取当天 23:59:59.999999。
+    非法日期/时间返回 None（忽略该筛选条件，不抛 422，保持筛选容错）。
     """
     try:
         day = date.fromisoformat(value)
     except (ValueError, TypeError):
         return None
-    clock = time.max if end_of_day else time.min
+    if time_override is not None:
+        m = _HHMM_RE.match(time_override.strip())
+        if m is None:
+            return None
+        clock = time(int(m.group(1)), int(m.group(2)))
+    else:
+        clock = time.max if end_of_day else time.min
     local_tz = datetime.now().astimezone().tzinfo
     return datetime.combine(day, clock, tzinfo=local_tz)
 
@@ -41,6 +58,8 @@ def list_usage_logs(
     ip_address: str | None = Query(default=None),
     start_date: str | None = Query(default=None),
     end_date: str | None = Query(default=None),
+    start_time: str | None = Query(default=None, description="HH:MM，覆盖 start_date 当天 0 点"),
+    end_time: str | None = Query(default=None, description="HH:MM，覆盖 end_date 当天末"),
     db: Session = Depends(get_db),  # noqa: B008
     user: User = Depends(get_current_user),  # noqa: B008
 ) -> dict:
@@ -53,10 +72,12 @@ def list_usage_logs(
     if ip_address and ip_address.strip():
         conditions.append(UsageLog.ip_address == ip_address.strip())
 
-    start_dt = _parse_day(start_date) if start_date else None
+    start_dt = _parse_day(start_date, time_override=start_time) if start_date else None
     if start_dt is not None:
         conditions.append(UsageLog.created_at >= start_dt)
-    end_dt = _parse_day(end_date, end_of_day=True) if end_date else None
+    end_dt = (
+        _parse_day(end_date, end_of_day=True, time_override=end_time) if end_date else None
+    )
     if end_dt is not None:
         conditions.append(UsageLog.created_at <= end_dt)
 

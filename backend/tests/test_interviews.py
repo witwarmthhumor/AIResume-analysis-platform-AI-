@@ -280,3 +280,49 @@ def test_interview_prompt_contains_position_type(monkeypatch) -> None:
     ]:
         text = build_interviewer_system_prompt("简历", "technical", 2, 10, pt)
         assert keyword in text
+
+
+def test_logged_in_message_writes_user_id_usage(monkeypatch) -> None:
+    """P1 回归：登录用户的面试消息/结束评价记账必须带 user_id（使用日志按它过滤）。"""
+    from fastapi.testclient import TestClient as TC
+
+    user_client = TC(app)
+    import uuid as _uuid
+
+    addr = f"test-interview-{_uuid.uuid4().hex[:10]}@example.com"
+    user_client.post(
+        "/api/auth/register", json={"email": addr, "password": "correct-horse-123"}
+    )
+    try:
+        _mock_stream(monkeypatch)
+        # 上传与建会话走登录态
+        upload = user_client.post(
+            "/api/resumes",
+            files={"file": ("resume.pdf", make_text_pdf(), "application/pdf")},
+        )
+        assert upload.status_code == 201
+        resume_id = upload.json()["resume"]["id"]
+        session = user_client.post(f"/api/resumes/{resume_id}/interviews").json()["session"]
+
+        msg = user_client.post(
+            f"/api/interviews/{session['id']}/messages", json={"content": "我的回答"}
+        )
+        assert msg.status_code == 200
+
+        finish = user_client.post(f"/api/interviews/{session['id']}/finish")
+        assert finish.status_code == 200
+
+        # usage_logs 里该用户的两条 interview_message 都带 user_id
+        with engine.begin() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT action_type, user_id FROM usage_logs "
+                    "WHERE action_type = 'interview_message' "
+                    "AND user_id = (SELECT id FROM users WHERE email = :e)"
+                ),
+                {"e": addr},
+            ).fetchall()
+        assert len(rows) == 2  # 一条消息 + 一条结束评价
+        assert all(r[1] is not None for r in rows)
+    finally:
+        user_client.post("/api/auth/logout")

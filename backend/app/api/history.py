@@ -1,4 +1,8 @@
-"""当前登录用户的历史记录摘要。"""
+"""当前登录用户的历史记录摘要。
+
+v3.3 起前端改用 /api/usage/logs（明细）+ /api/resumes（列表）组合；
+本接口前端已无调用，按 v3.3 决策保留作为对外 API 兼容层（PROGRESS.md）。
+"""
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select

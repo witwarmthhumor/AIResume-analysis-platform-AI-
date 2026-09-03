@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     kb_search_top_k: int = 5  # RAG 召回块数
     kb_min_similarity: float = 0.65  # 余弦相似度低于此值视为无关，不作引用来源（实测相关 0.70+，无关 0.60-）
     daily_playground_limit: int = 50  # 每人每日 Playground 提问上限
+    daily_chat_session_limit: int = 100  # 每人每日在线对话新建会话上限（防匿名刷表）
 
     # 知识库上传配额：上传会触发切块+批量向量化（消耗 Ollama 资源），需与提问同等级别的限额
     daily_kb_upload_limit: int = 10  # 每人每日上传文档次数上限（按归属者统计）

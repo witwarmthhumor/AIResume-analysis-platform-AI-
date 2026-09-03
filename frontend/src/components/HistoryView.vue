@@ -37,6 +37,7 @@ const actionMap = {
   interview_message: { label: '模拟面试', color: '#92400E', bg: '#FEF3C7' },
   kb_upload: { label: '知识库上传', color: '#0E7490', bg: '#CFFAFE' },
   playground: { label: '知识库问答', color: '#065F46', bg: '#D1FAE5' },
+  chat_create: { label: '新建对话', color: '#7C3AED', bg: '#EDE9FE' },
 }
 
 async function loadLogs() {
@@ -49,8 +50,14 @@ async function loadLogs() {
     if (actionType.value) params.set('action_type', actionType.value)
     if (modelName.value.trim()) params.set('model_name', modelName.value.trim())
     if (ipAddress.value.trim()) params.set('ip_address', ipAddress.value.trim())
-    if (dateRange.value.start) params.set('start_date', dateRange.value.start)
-    if (dateRange.value.end) params.set('end_date', dateRange.value.end)
+    if (dateRange.value.start) {
+      params.set('start_date', dateRange.value.start)
+      params.set('start_time', dateRange.value.startTime || '00:00')
+    }
+    if (dateRange.value.end) {
+      params.set('end_date', dateRange.value.end)
+      params.set('end_time', dateRange.value.endTime || '23:59')
+    }
     const res = await get('/api/usage/logs?' + params.toString())
     logs.value = res.items
     total.value = res.total

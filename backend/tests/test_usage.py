@@ -197,3 +197,41 @@ def test_page_size_capped_at_50() -> None:
     client = TestClient(app)
     _register(client)
     assert client.get("/api/usage/logs?page_size=100").status_code == 422
+
+
+def test_time_granularity_filter() -> None:
+    """v3.3 契约修复回归：start_time/end_time 覆盖整天默认值，时间粒度生效。"""
+    client = TestClient(app)
+    addr = _register(client)
+    with engine.begin() as conn:
+        uid = _user_id(conn, addr)
+        # 同一天：08:00 和 12:00 各一条
+        _insert_log(conn, user_id=uid, action_type="parse", tokens=1,
+                    created_at="2026-09-01T08:00:00+08:00")
+        _insert_log(conn, user_id=uid, action_type="parse", tokens=2,
+                    created_at="2026-09-01T12:00:00+08:00")
+
+    # 不传时间：整天 → 2 条
+    all_day = client.get("/api/usage/logs?start_date=2026-09-01&end_date=2026-09-01").json()
+    assert all_day["total"] == 2
+
+    # 10:00 之后 → 只有 12:00 那条
+    after = client.get(
+        "/api/usage/logs?start_date=2026-09-01&end_date=2026-09-01&start_time=10:00"
+    ).json()
+    assert after["total"] == 1
+    assert after["items"][0]["tokens_total"] == 2
+
+    # 08:00 ~ 09:00 → 只有 08:00 那条
+    early = client.get(
+        "/api/usage/logs?start_date=2026-09-01&end_date=2026-09-01"
+        "&start_time=08:00&end_time=09:00"
+    ).json()
+    assert early["total"] == 1
+    assert early["items"][0]["tokens_total"] == 1
+
+    # 非法时间 → 容错忽略该条件（不抛 422），回到整天语义
+    bad = client.get(
+        "/api/usage/logs?start_date=2026-09-01&end_date=2026-09-01&start_time=25:99"
+    ).json()
+    assert bad["total"] == 2

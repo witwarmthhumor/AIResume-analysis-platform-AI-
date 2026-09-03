@@ -100,10 +100,13 @@ def ask(
         if session is None:
             return
         try:
-            msg_count = db.scalar(
-                select(ChatMessage.id).where(ChatMessage.session_id == session.id)
+            # limit(1)：只判"是否存在"，避免长会话多扫行
+            existing = db.scalar(
+                select(ChatMessage.id)
+                .where(ChatMessage.session_id == session.id)
+                .limit(1)
             )
-            is_first = msg_count is None
+            is_first = existing is None
             user_msg = ChatMessage(
                 session_id=session.id,
                 role="user",
