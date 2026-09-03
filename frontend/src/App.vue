@@ -15,6 +15,13 @@ const viewRef = ref(null) // 动态组件实例引用，用于调用 HomeView.re
 // —— 用户与登录 ——
 const currentUser = ref(null)
 const showLogin = ref(false)
+const showUserMenu = ref(false)
+
+// 头像首字母（邮箱首字符大写）
+const avatarLetter = computed(() => {
+  const ch = currentUser.value?.email?.trim()?.[0]
+  return ch ? ch.toUpperCase() : '?'
+})
 
 // —— 视图组件映射 ——
 const viewComponents = {
@@ -39,7 +46,12 @@ const navItems = computed(() => {
 })
 
 function selectView(item) {
-  // 提交③：未登录点需登录项改为弹登录模态；此处先直接切换
+  // 未登录点需登录项 → 弹登录模态，不切换视图
+  if (item.requireAuth && !currentUser.value) {
+    showLogin.value = true
+    return
+  }
+  showUserMenu.value = false
   activeView.value = item.key
 }
 
@@ -57,6 +69,7 @@ async function logout() {
   } finally {
     currentUser.value = null
     showLogin.value = false
+    showUserMenu.value = false
     if (activeView.value === 'history' || activeView.value === 'admin') {
       activeView.value = 'home'
     }
@@ -95,8 +108,21 @@ onMounted(loadUser)
         </div>
         <div class="topbar-right">
           <template v-if="currentUser">
-            <span class="whoami">{{ currentUser.email }}</span>
-            <button class="btn btn-ghost topbar-btn" @click="logout">退出</button>
+            <div class="user-menu-wrap">
+              <button class="avatar-btn" @click="showUserMenu = !showUserMenu" :title="currentUser.email">
+                <span class="avatar">{{ avatarLetter }}</span>
+              </button>
+              <!-- 下拉菜单 -->
+              <div v-if="showUserMenu" class="user-dropdown">
+                <div class="dropdown-email">{{ currentUser.email }}</div>
+                <div v-if="currentUser.role === 'admin'" class="dropdown-role">
+                  <span class="badge ok">管理员</span>
+                </div>
+                <button class="dropdown-item" @click="logout">退出登录</button>
+              </div>
+              <!-- 点击外部关闭 -->
+              <div v-if="showUserMenu" class="dropdown-backdrop" @click="showUserMenu = false"></div>
+            </div>
           </template>
           <button v-else class="btn btn-ghost topbar-btn" @click="showLogin = true">登录 / 注册</button>
         </div>
@@ -127,15 +153,20 @@ onMounted(loadUser)
 
       <main class="content">
         <div class="page">
-          <!-- 登录面板（提交③改为居中模态） -->
-          <LoginPanel v-if="showLogin && !currentUser" @logged-in="onLoggedIn" />
-
           <!-- 四视图统一保活切换 -->
           <KeepAlive>
             <component :is="currentViewComponent" ref="viewRef" />
           </KeepAlive>
         </div>
       </main>
+    </div>
+
+    <!-- —— 登录模态（居中遮罩）—— -->
+    <div v-if="showLogin && !currentUser" class="modal-overlay" @click.self="showLogin = false">
+      <div class="modal-box">
+        <button class="modal-close" @click="showLogin = false" aria-label="关闭登录">✕</button>
+        <LoginPanel @logged-in="onLoggedIn" />
+      </div>
     </div>
   </div>
 </template>
@@ -194,17 +225,134 @@ onMounted(loadUser)
   align-items: center;
   gap: 10px;
 }
-.whoami {
-  color: var(--c-muted);
+.topbar-btn {
+  padding: 6px 14px;
   font-size: 12.5px;
-  max-width: 200px;
+}
+
+/* —— 头像与下拉菜单 —— */
+.user-menu-wrap {
+  position: relative;
+}
+.avatar-btn {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+}
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--c-primary), var(--c-primary-dark));
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgb(16 185 129 / 30%);
+  transition: transform 0.15s ease;
+}
+.avatar-btn:hover .avatar {
+  transform: scale(1.06);
+}
+.user-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 200px;
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+  padding: 10px;
+  z-index: 30;
+  animation: fade-in-up 0.18s ease both;
+}
+.dropdown-email {
+  font-size: 12.5px;
+  color: var(--c-text);
+  font-weight: 600;
+  padding: 6px 8px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.topbar-btn {
-  padding: 6px 14px;
-  font-size: 12.5px;
+.dropdown-role {
+  padding: 2px 8px 8px;
+}
+.dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--c-text-2);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.dropdown-item:hover {
+  background: rgb(16 185 129 / 8%);
+  color: var(--c-primary-dark);
+}
+.dropdown-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  background: transparent;
+}
+
+/* —— 登录模态 —— */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 20px;
+  animation: modal-fade 0.2s ease both;
+}
+.modal-box {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  animation: modal-pop 0.22s ease both;
+}
+.modal-close {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 0;
+  background: #fff;
+  color: var(--c-muted);
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  z-index: 1;
+  transition: color 0.12s ease, transform 0.12s ease;
+}
+.modal-close:hover {
+  color: var(--c-text);
+  transform: scale(1.08);
+}
+@keyframes modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modal-pop {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* —— 主体行 —— */

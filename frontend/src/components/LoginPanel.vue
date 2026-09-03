@@ -22,7 +22,7 @@ async function submit() {
 </script>
 
 <template>
-  <section class="card" style="max-width:420px;align-self:center">
+  <section class="card" style="max-width:420px">
     <h2 style="margin-bottom:8px">{{ mode === 'login' ? '登录' : '注册账号' }}</h2>
     <label class="label" for="login-email">邮箱</label>
     <input id="login-email" v-model="email" type="email" autocomplete="email" placeholder="your@email.com" />
