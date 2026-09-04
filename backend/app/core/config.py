@@ -38,22 +38,37 @@ class Settings(BaseSettings):
 
     # 阶段3：文字模拟面试
     max_interview_turns: int = 10  # 单场面试最大轮次，防无限聊（PROJECT-PLAN §2）
-    daily_interview_message_limit: int = 100  # 每人每日 AI 回复条数上限（按匿名 cookie 统计）
+    daily_interview_message_limit: int = (
+        100  # 每人每日 AI 回复条数上限（按匿名 cookie 统计）
+    )
     interview_abandon_minutes: int = 30  # 超时无活动自动置 abandoned（P1）
 
     # 阶段6（v3.0）：Playground 本地 embedding。切云端只改这三行（base_url/api_key/model）
-    embedding_base_url: str = "http://localhost:11434/v1"  # 本地 Ollama；docker 内为 http://ollama:11434/v1
+    embedding_base_url: str = (
+        "http://localhost:11434/v1"  # 本地 Ollama；docker 内为 http://ollama:11434/v1
+    )
     embedding_api_key: str = "ollama"  # Ollama 本地不校验，占位；云端填真实 key
     embedding_model: str = "nomic-embed-text"
-    embedding_dim: int = 768  # 与 nomic-embed-text 对齐；换模型（如 bge-m3 1024 维）需新迁移+重向量化
+    embedding_dim: int = (
+        768  # 与 nomic-embed-text 对齐；换模型（如 bge-m3 1024 维）需新迁移+重向量化
+    )
 
     # 切块与检索
     kb_chunk_size: int = 600  # 块目标字数
     kb_chunk_overlap: int = 60  # 相邻块重叠字数，保上下文连续
     kb_search_top_k: int = 5  # RAG 召回块数
-    kb_min_similarity: float = 0.65  # 余弦相似度低于此值视为无关，不作引用来源（实测相关 0.70+，无关 0.60-）
+    kb_min_similarity: float = (
+        0.65  # 余弦相似度低于此值视为无关，不作引用来源（实测相关 0.70+，无关 0.60-）
+    )
     daily_playground_limit: int = 50  # 每人每日 Playground 提问上限
     daily_chat_session_limit: int = 100  # 每人每日在线对话新建会话上限（防匿名刷表）
+
+    # v3.4：AI 客服 Agent（LangChain）。与在线对话独立限流；Agent 单次可能多轮调 LLM，故上限更低
+    daily_agent_limit: int = 30  # 每人每日 AI 客服提问上限
+    agent_max_iterations: int = 6  # Agent 单次最大工具循环步数，防无限循环
+    agent_history_turns: int = (
+        10  # 多轮对话带入上下文的最近消息轮数（user+assistant 各一为一轮）
+    )
 
     # 知识库上传配额：上传会触发切块+批量向量化（消耗 Ollama 资源），需与提问同等级别的限额
     daily_kb_upload_limit: int = 10  # 每人每日上传文档次数上限（按归属者统计）

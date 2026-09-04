@@ -1,7 +1,7 @@
 # 进度日志
 
 > **本文件是干嘛的**：项目进度日志——当前进行、已完成、踩过的坑、下一步。AI 每次新会话先读它接续上下文；每次会话结束前更新本文件。
-> 最后更新：2026-09-03（v3.1 在线对话多会话+语料库管理迁移、v3.2 数据看板 UI 重设计、v3.3 使用日志重设计 均已完成）。
+> 最后更新：2026-09-04（v3.4 双端分离与 LangChain AI 客服完成：Agent SSE 流式+个人中心+双端导航，109 pytest 全绿、ruff 全绿、npm build 通过、真机冒烟通过；代码未 commit，由用户自行提交）。
 
 ## 当前进行
 - v3.0 Playground 知识库问答已封版，tag v3.0（本地）
@@ -9,6 +9,7 @@
 - v3.1 在线对话多会话+语料库管理迁移 已完成（详见已完成）
 - **v3.2 已完成（1 提交，纯前端，npm build 通过）**：数据看板 UI 重设计（五卡悬浮+用户列表分页+用量卡片+CSS柱状图），详见已完成
 - **v3.3 已完成（2 提交功能+本次记录，87 pytest 全绿、ruff 全绿、npm build 通过）**：使用日志重设计（后端 usage 明细接口+前端筛选卡片+日期选择器+后端分页），详见已完成
+- **v3.4 已完成（功能全部落地、未 git commit，109 pytest 全绿、ruff 全绿、npm build 通过、真机冒烟通过）**：LangChain 0.3 ReAct Agent AI 客服（整页+管理端悬浮两形态、SSE 工具过程可见、会话历史持久化）+ 用户端个人中心 + 双端导航分离，详见已完成
 - 项目功能开发完结，进入按需维护
 
 ## 已完成
@@ -60,6 +61,17 @@
   - HistoryView.vue 整体重写：我的历史→使用日志，内容从简历/分析/面试分组改为 usage_logs 明细（时间/动作/模型/Token/IP）；筛选条件卡片（DateRangePicker+今日/7天/30天快捷+动作下拉+模型+IP+重置/搜索+激活筛选数徽章）；动作五色徽章（解析灰/分析蓝/面试橙/上传青/问答绿）、Token 千分位、空态大虚线框、后端分页（每页10/20/50+共N条+页码省略号+禁用态）
   - App.vue：侧边栏我的历史→使用日志（📋），视图 key history 与文件名不变
   - 测试：10 个 test_usage（401/双用户隔离/分页/倒序/action_type/model ILIKE/ip 精确/日期范围含边界/空结果/page_size 上限422），全绿；修复 ruff DTZ 时区规则（strptime→date.fromisoformat，combine 显式 tzinfo）
+- **v3.4 双端分离 + LangChain AI 客服**（功能全落地、**未 git commit 由用户自行提交**，109 pytest 全绿、ruff 全绿、npm build 通过、真机冒烟通过）：
+  - **LangChain 选型（重要）**：锁 0.3 稳定线 `langchain>=0.3,<0.4` / `langchain-openai>=0.2,<0.4`（实测 0.3.30/0.3.86/0.3.35）；**1.x 已移除 AgentExecutor/create_openai_tools_agent（改 langgraph.create_react_agent），与本设计不符故封顶 0.3，不引 langgraph**
+  - DB 迁移 f3a91c2b407d：chat_sessions 加 `session_type`（NOT NULL server_default 'chat' + 索引，chat/agent 两类隔离共用两表）、chat_messages 加 `tool_steps` JSONB（存 Agent 工具调用过程）；upgrade→downgrade→upgrade 实测可逆
+  - 后端 Agent 服务 services/agent/ 四文件：llm_factory（ChatOpenAI streaming，未配 key 抛 ValueError→API 503）、tools（每请求闭包工厂，唯一工具 kb_search 复用 embed+pgvector 检索，回填 citations，单块截 300 字，异常吞掉兜底）、executor（create_openai_tools_agent+AgentExecutor，后台 daemon 线程+QueueCallback 把 on_tool_start/on_tool_end/on_llm_new_token 转成 action/observation/delta 事件队列）、build_history 取最近 N 轮
+  - api/agent.py（prefix=/api/agent，自动注册）：会话 CRUD 限 session_type='agent'（GET 列表/POST 建/DELETE 软删/GET 消息含 tool_steps，归属校验不符一律 404）；POST /ask 全程 SSE，事件序 meta→(action→observation)*→delta*→done{content,iterations,tokens,citations,message_id}，异常 error；建会话 agent_create、问答 agent 两路记账+每日限额（daily_agent_limit=30）
+  - api/me.py（prefix=/api/me，全部 get_current_user 强制登录，未登录 401）：/stats 本人五卡（我的简历/分析/面试/今日Token/**累计Token**，口径与 admin 对齐只加 user_id 过滤）、/usage 本人近 7 日 calls+tokens；日志明细复用既有 /api/usage/logs
+  - 前端 AI 客服三组件 components/agent/：AgentChatCore（核心，消息区+**工具调用过程折叠可见**+SSE 逐字打字机+引用来源+欢迎推荐问，props sessionId/compact，无会话自动新建 emit）、AgentChatView（用户端整页：左会话侧栏新建/切换/删除+右 Core）、AgentWidget（**仅 admin** 右下 56px 青绿气泡→轻遮罩+400px 浮层，头部历史下拉/新建/关闭，compact 复用 Core；z 分层 气泡40/遮罩41/浮层42/登录模态50）
+  - 前端 ProfileView.vue 个人中心（必须登录）：个人信息卡（头像/邮箱/角色徽章/注册时间/退出）+ 本人五卡（第5卡累计 Token，非全站用户数）+ 近7日 CSS 柱图与表 + 精简使用日志（复用 /api/usage/logs 后端分页）；退出 emit logout 交 App 处理
+  - App.vue 双端导航分离：**admin 保持现状五项**（首页/在线对话/使用日志/数据看板/语料库管理）+ 挂 AgentWidget 悬浮；**普通/匿名用户仅三项**（首页/AI客服整页/个人中心[需登录]），用户端无悬浮、无在线对话入口；agent/profile 视图走 .page.wide；logout 回退集合补 profile/chat
+  - 测试：test_agent 7 例（mock embedding/检索，工具命中/未命中兜底/历史构造/回调事件）+ test_agent_api 8 例（mock LangChain 运行时，专测编排/SSE/隔离/归属/限额/503）+ test_me 4 例（401/本人计数与今日累计 token/双用户隔离/近7日），共新增 19 例（90→109）
+  - 真机冒烟：问 HashMap 触发 2 次 kb_search（各走一次 Ollama embedding+DeepSeek ReAct），500 个 delta 分片，assistant 951 字/tool_steps=2/2504 tokens 落库，本人 tokens_total=2504，匿名 401，测试数据自动清理
 
 ## 已知问题 / 踩过的坑
 - 安全审计：tasks 接口无认证（已修复）、SSE 缓冲（Nginx proxy_buffering off 已修）、upload 内存预检（已修）
@@ -68,4 +80,7 @@
 - 预置语料 seed 脚本需在 backend/ 目录下运行（因为读 backend/.env 配置）
 - 本地 Ollama 首次需拉模型 ~275MB，已预拉好；容器重建后 ollama_data 卷保留模型
 - 前端布局重构：KeepAlive 动态组件用 viewRef 调用 HomeView.refreshList()（登录/退出后刷新列表），其他视图无此方法用可选链跳过
+- v3.4 LangChain：pip 默认装 1.x（已删 AgentExecutor），必须锁 0.3 线；装 1.x 会拉入 langgraph 全家桶需卸载，`pip check` 确认无冲突
+- v3.4 跑全量 pytest 前必须三个容器都在（ai-interview-db/ollama/**redis**）；redis 缺失会让走 Celery `.delay()` 的 analyses/admin_kb 用例报 RuntimeError，与本次改动无关
+- v3.4 AI 客服与在线对话共用 chat_sessions/chat_messages，靠 session_type 区分；Agent 会话不会出现在在线对话列表、反之亦然
 - 其余已知问题同上版本

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>v3.4 效果图 · 管理端</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,'Microsoft YaHei',sans-serif;color:#1f2937;background:#f6f9f7;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+  /* 顶栏 */
+  .topbar{height:54px;background:rgba(255,255,255,.85);backdrop-filter:blur(12px);border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;padding:0 22px;flex-shrink:0}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:700;font-size:15px}
+  .logo{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#10b981,#059669);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px}
+  .avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#10b981,#059669);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
+  /* 主体 */
+  .row{flex:1;display:flex;min-height:0}
+  .side{width:208px;flex-shrink:0;background:rgba(255,255,255,.6);border-right:1px solid #e5e7eb;padding:14px 10px;display:flex;flex-direction:column;gap:4px}
+  .nav{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;font-size:13px;color:#4b5563}
+  .nav.active{background:linear-gradient(135deg,rgba(16,185,129,.14),rgba(16,185,129,.06));color:#059669;font-weight:600;box-shadow:inset 2px 0 0 #10b981}
+  .content{flex:1;overflow-y:auto;padding:20px 24px;position:relative}
+  .role-tag{position:fixed;top:66px;right:20px;background:#059669;color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;z-index:30;box-shadow:0 3px 10px rgba(16,185,129,.35)}
+  h2{font-size:17px;margin-bottom:14px}
+  /* 五卡 */
+  .stat-row{display:flex;gap:11px;margin-bottom:14px}
+  .stat{flex:1;background:#fff;border:1px solid #f3f4f6;border-radius:13px;padding:12px;box-shadow:0 2px 10px rgba(0,0,0,.04)}
+  .stat .l{font-size:11px;color:#9ca3af;display:flex;align-items:center;gap:5px}
+  .dot{width:7px;height:7px;border-radius:50%}
+  .stat .n{font-size:23px;font-weight:700;margin-top:7px}
+  .panel{background:#fff;border-radius:16px;box-shadow:0 2px 14px rgba(0,0,0,.06);padding:14px 18px;margin-bottom:14px}
+  .panel h3{font-size:14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+  .badge{background:#f3f4f6;color:#6b7280;font-size:10px;font-weight:600;padding:2px 9px;border-radius:999px}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;color:#9ca3af;font-size:11px;padding:7px 9px;border-bottom:2px solid #f3f4f6;background:#fff}
+  td{padding:7px 9px;border-bottom:1px solid #f3f4f6;color:#4b5563}
+  .role-admin{background:#d1fae5;color:#059669;font-size:10px;font-weight:600;padding:2px 7px;border-radius:6px}
+  .role-user{background:#f3f4f6;color:#6b7280;font-size:10px;font-weight:600;padding:2px 7px;border-radius:6px}
+  .note{background:#ecfdf5;border:1px dashed #10b981;color:#059669;font-size:11.5px;border-radius:10px;padding:8px 12px;margin-bottom:14px}
+  /* 悬浮 AI 客服 */
+  .mask{position:fixed;inset:0;background:rgba(0,0,0,.16);z-index:41}
+  .chat-panel{position:fixed;right:22px;bottom:88px;width:380px;height:520px;background:#fff;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.2);z-index:42;display:flex;flex-direction:column;overflow:hidden;animation:pop .2s ease both}
+  @keyframes pop{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+  .ch-head{display:flex;align-items:center;gap:9px;padding:11px 13px;border-bottom:1px solid #f0f1ef}
+  .ch-av{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#10b981,#059669);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+  .ch-name{font-size:13px;font-weight:700;line-height:1.2}
+  .ch-sub{font-size:10.5px;color:#9ca3af;margin-top:2px}
+  .ch-new{margin-left:auto;border:1px solid #d1fae5;background:#ecfdf5;color:#059669;font-size:11px;padding:4px 9px;border-radius:7px}
+  .ch-x{border:0;background:transparent;color:#9ca3af;font-size:14px;cursor:pointer}
+  .ch-body{flex:1;overflow-y:auto;padding:13px;background:#fcfdfc;display:flex;flex-direction:column;gap:12px}
+  .msg{display:flex;gap:7px}
+  .msg.u{justify-content:flex-end}
+  .mav{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#10b981,#059669);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+  .bub{max-width:80%;padding:8px 11px;font-size:12px;line-height:1.55;border-radius:11px}
+  .msg.ai .bub{background:#f3f4f6;border-top-left-radius:3px}
+  .msg.u .bub{background:linear-gradient(135deg,#10b981,#059669);color:#fff;border-top-right-radius:3px}
+  .tool{margin-top:7px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;font-size:10.5px;color:#059669;font-weight:600;padding:6px 9px}
+  .ch-foot{padding:11px;border-top:1px solid #f0f1ef;display:flex;gap:8px;align-items:center}
+  .ch-in{flex:1;border:1px solid #e5e7eb;border-radius:18px;padding:8px 13px;font-size:12px}
+  .ch-send{width:34px;height:34px;border-radius:50%;border:0;background:linear-gradient(135deg,#10b981,#059669);color:#fff;flex-shrink:0}
+  .fab{position:fixed;right:22px;bottom:22px;width:54px;height:54px;border-radius:50%;border:0;background:linear-gradient(135deg,#10b981,#059669);box-shadow:0 6px 20px rgba(16,185,129,.4);color:#fff;font-size:22px;z-index:40;display:flex;align-items:center;justify-content:center}
+  .fab-note{position:fixed;right:84px;bottom:38px;background:#1f2937;color:#fff;font-size:11px;padding:4px 9px;border-radius:7px;z-index:40}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="logo">💬</span>AI 简历分析 <span style="color:#10b981">+</span> 模拟面试</div>
+    <div class="avatar">管</div>
+  </div>
+  <div class="row">
+    <aside class="side">
+      <div class="nav">🏠 首页</div>
+      <div class="nav">💬 在线对话</div>
+      <div class="nav">📋 使用日志</div>
+      <div class="nav active">📊 数据看板</div>
+      <div class="nav">📚 语料库管理</div>
+    </aside>
+    <main class="content">
+      <div class="role-tag">管理端 admin</div>
+      <h2>📊 数据看板</h2>
+      <div class="note">管理端保留：① 完整 5 项导航　② 数据看板含「用户列表」（全站用户）　③ 右下角<strong>悬浮 AI 客服</strong>（仅管理端有）。悬浮内「🕘 历史 / ＋ 新建」可切换多会话，历史持久化、刷新可恢复；工具过程与回答全程流式。</div>
+      <div class="stat-row">
+        <div class="stat"><div class="l"><span class="dot" style="background:#10b981"></span>用户</div><div class="n" style="color:#10b981">8</div></div>
+        <div class="stat"><div class="l"><span class="dot" style="background:#3b82f6"></span>简历</div><div class="n" style="color:#3b82f6">12</div></div>
+        <div class="stat"><div class="l"><span class="dot" style="background:#06b6d4"></span>分析</div><div class="n" style="color:#06b6d4">11</div></div>
+        <div class="stat"><div class="l"><span class="dot" style="background:#f59e0b"></span>面试</div><div class="n" style="color:#f59e0b">6</div></div>
+        <div class="stat"><div class="l"><span class="dot" style="background:#8b5cf6"></span>今日Token</div><div class="n" style="color:#8b5cf6">12.4k</div></div>
+      </div>
+      <div class="panel">
+        <h3>👥 用户列表 <span class="badge">共 8 人 · 管理端独有</span></h3>
+        <table>
+          <thead><tr><th>ID</th><th>邮箱</th><th>角色</th><th>简历数</th><th>注册时间</th></tr></thead>
+          <tbody>
+            <tr><td>28</td><td>2578415251@qq.com</td><td><span class="role-admin">admin</span></td><td>3</td><td style="color:#9ca3af">2026/9/1</td></tr>
+            <tr><td>339</td><td>test-07@example.com</td><td><span class="role-user">user</span></td><td>0</td><td style="color:#9ca3af">2026/9/3</td></tr>
+            <tr><td>338</td><td>test-06@example.com</td><td><span class="role-user">user</span></td><td>1</td><td style="color:#9ca3af">2026/9/3</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3>📈 近 7 日用量（全站）</h3>
+        <table>
+          <thead><tr><th>日期</th><th>调用次数</th><th>Token</th></tr></thead>
+          <tbody>
+            <tr><td>2026-09-02</td><td>24</td><td style="color:#059669;font-weight:600">18,204</td></tr>
+            <tr style="background:#ecfdf5"><td>2026-09-04</td><td>31</td><td style="color:#059669;font-weight:600">12,430</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <!-- 管理端：悬浮 AI 客服（展开态） -->
+  <div class="mask"></div>
+  <div class="fab">💬</div>
+  <div class="fab-note">← 管理端悬浮入口（固定右下角，所有页面都在）</div>
+  <div class="chat-panel">
+    <div class="ch-head">
+      <span class="ch-av">✦</span>
+      <div><div class="ch-name">AI 客服</div><div class="ch-sub">在线为您解答技术问题</div></div>
+      <button class="ch-new" title="查看历史会话">🕘 历史</button>
+      <button class="ch-new">+ 新建</button>
+      <button class="ch-x">✕</button>
+    </div>
+    <div class="ch-body">
+      <div class="msg ai"><span class="mav">✦</span><div class="bub">管理员您好，我是 AI 客服，可检索知识库回答技术问题～</div></div>
+      <div class="msg u"><div class="bub">什么是 RAG？</div></div>
+      <div class="msg ai"><span class="mav">✦</span><div>
+        <div class="bub"><div class="tool">🔧 调用 kb_search（query=RAG 检索增强）· 命中 3 段</div>
+        <div style="margin-top:7px">RAG 是先检索知识库片段、再让大模型基于片段回答的技术，可减少幻觉、支持溯源……</div></div>
+      </div></div>
+    </div>
+    <div class="ch-foot"><input class="ch-in" placeholder="请输入你的问题…"><button class="ch-send">➤</button></div>
+  </div>
+</body>
+</html>

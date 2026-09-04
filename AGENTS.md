@@ -3,7 +3,7 @@
 > **本文件是干嘛的**：项目"户口本"——技术栈、启动命令、代码约定、铁律都记在这里。AI 每次会话开工必读；只在阶段切换或约定变更时更新。
 
 ## 当前状态
-- 当前版本：v3.0（Playground 知识库问答；分支 main）
+- 当前版本：v3.4（双端分离 + LangChain AI 客服；分支 main；v3.4 代码尚未 git commit）
 - 项目根目录：E:\AIDevelop\AIProject
 - 权威计划：PROJECT-PLAN.md（改需求先改它）
 - 协作约定：AI-COLLABORATION.md（每次会话先读本文件和 PROGRESS.md）
@@ -12,6 +12,7 @@
 - 后端：FastAPI + Postgres 16（pgvector）+ SQLAlchemy 2 + Alembic + Celery/Redis
 - 前端：Vue 3 + Vite（JavaScript 起步，配置文件用 vite.config.ts）
 - AI：OpenAI 兼容协议（当前：DeepSeek deepseek-chat；换通义 = 改 backend/.env 三行），Key 只放 backend/.env
+- Agent：LangChain 0.3 稳定线（langchain / langchain-openai，锁 <0.4；1.x 已移除 AgentExecutor 故不升、不引 langgraph），ReAct Agent + 单工具 kb_search，SSE 流式
 - Embedding：Ollama 本地（nomic-embed-text 768 维，OpenAI 兼容 API）；切云端改 settings 三行
 - 向量检索：pgvector HNSW 余弦索引
 - 后台任务：Celery + Redis
@@ -67,6 +68,7 @@ cd backend
 - AI 提示词带版本号 PROMPT_VERSION（backend/app/services/prompts.py）：改提示词必须递增，旧版本报告自动失效不复用
 - v3.0 约定：切块/embedding 改动后必须跑 scripts/eval_rag.py 对比基线（data/kb_eval/report.md）；embedding 模型维度变更需新迁移 + 重新入库（Vector(768) 写死在迁移里）
 - v3.0 目录：预置语料 data/preset_kb/（新增语料放这里跑 seed 脚本）；黄金问答集 data/kb_eval/qa.json（改检索逻辑先加题再验证）
+- v3.4 约定：AI 客服会话与在线对话共用 chat_sessions/chat_messages，靠 session_type('agent'/'chat') 隔离；改 Agent 提示词/工具后用真机冒烟确认 action/observation 事件；LangChain 不升 1.x
 
 ## Git / GitHub 策略（用户 2026-08-31 指示，覆盖原计划的逐阶段推送）
 - 现在：本地 git commit + 每阶段验收后打 tag，**不推送远端**
@@ -80,9 +82,10 @@ cd backend
 5. 执行任何命令前，先用一句大白话解释它做什么、动什么、有没有风险，解释完再执行
 6. 写每个文件前，先说明这个文件是干嘛的、为什么这样命名；约定俗成的固定文件名（如 .gitignore、README.md）要指出"这是约定名，不能改"
 
-## 环境现状（2026-09-01 复核）
+## 环境现状（2026-09-04 复核）
 - git 2.52.0 ✓（身份已配置：十四 / 2578415251@qq.com）
 - Python 3.13.9 ✓ / Node.js 24.12.0 ✓ / Docker Desktop 29.7.2 + Compose v5.4.0 ✓
 - Postgres 容器 ai-interview-db 运行中（具名卷 pgdata）；开发端口 8000（后端）/ 5173（前端）
-- AI：通义 qwen-plus，Key 已填 backend/.env ✓
+- AI：DeepSeek deepseek-chat，Key 已填 backend/.env ✓；LangChain 0.3.30 已装
+- 容器：db / ollama(nomic-embed-text 768) / redis 三个；跑全量 pytest 前三者都需在（Celery 用例依赖 redis）
 - 已知：Docker Desktop 手动启动（不随开机自启）；Vite 只绑 IPv6 [::1]，curl 用 localhost 不用 127.0.0.1

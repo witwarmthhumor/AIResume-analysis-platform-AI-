@@ -7,6 +7,9 @@ import LoginPanel from './components/LoginPanel.vue'
 import HistoryView from './components/HistoryView.vue'
 import AdminPanel from './components/AdminPanel.vue'
 import KbAdminView from './components/KbAdminView.vue'
+import AgentChatView from './components/agent/AgentChatView.vue'
+import AgentWidget from './components/agent/AgentWidget.vue'
+import ProfileView from './components/ProfileView.vue'
 
 // —— 布局与视图 ——
 const activeView = ref('home') // home / chat / history / admin
@@ -31,21 +34,30 @@ const viewComponents = {
   history: HistoryView,
   admin: AdminPanel,
   'kb-admin': KbAdminView,
+  agent: AgentChatView,
+  profile: ProfileView,
 }
 const currentViewComponent = computed(() => viewComponents[activeView.value] || HomeView)
 
-// —— 侧边栏导航项：按登录态/角色计算 ——
+const isAdmin = computed(() => currentUser.value?.role === 'admin')
+
+// —— 侧边栏导航项：双端分离（v3.4）——
+// 管理端保持现状五项；用户端仅 首页 / AI客服(整页) / 个人中心（必须登录）。
 const navItems = computed(() => {
-  const items = [
-    { key: 'home', label: '首页', icon: '🏠', requireAuth: false },
-    { key: 'chat', label: '在线对话', icon: '💬', requireAuth: false },
-    { key: 'history', label: '使用日志', icon: '📋', requireAuth: true },
-  ]
-  if (currentUser.value?.role === 'admin') {
-    items.push({ key: 'admin', label: '数据看板', icon: '📊', requireAuth: true, requireAdmin: true })
-    items.push({ key: 'kb-admin', label: '语料库管理', icon: '📚', requireAuth: true, requireAdmin: true })
+  if (isAdmin.value) {
+    return [
+      { key: 'home', label: '首页', icon: '🏠', requireAuth: false },
+      { key: 'chat', label: '在线对话', icon: '💬', requireAuth: false },
+      { key: 'history', label: '使用日志', icon: '📋', requireAuth: true },
+      { key: 'admin', label: '数据看板', icon: '📊', requireAuth: true },
+      { key: 'kb-admin', label: '语料库管理', icon: '📚', requireAuth: true },
+    ]
   }
-  return items
+  return [
+    { key: 'home', label: '首页', icon: '🏠', requireAuth: false },
+    { key: 'agent', label: 'AI客服', icon: '🤖', requireAuth: false },
+    { key: 'profile', label: '个人中心', icon: '👤', requireAuth: true },
+  ]
 })
 
 function selectView(item) {
@@ -73,7 +85,7 @@ async function logout() {
     currentUser.value = null
     showLogin.value = false
     showUserMenu.value = false
-    if (['history', 'admin', 'kb-admin'].includes(activeView.value)) {
+    if (['history', 'admin', 'kb-admin', 'profile', 'chat'].includes(activeView.value)) {
       activeView.value = 'home'
     }
     viewRef.value?.refreshList?.()
@@ -155,14 +167,17 @@ onMounted(loadUser)
       </aside>
 
       <main class="content">
-        <div class="page" :class="{ wide: activeView === 'admin' }">
-          <!-- 四视图统一保活切换 -->
+        <div class="page" :class="{ wide: ['admin', 'agent', 'profile'].includes(activeView) }">
+          <!-- 视图统一保活切换 -->
           <KeepAlive>
-            <component :is="currentViewComponent" ref="viewRef" />
+            <component :is="currentViewComponent" ref="viewRef" @logout="logout" />
           </KeepAlive>
         </div>
       </main>
     </div>
+
+    <!-- —— 管理端右下角悬浮 AI 客服（仅 admin；用户端无悬浮，用整页 AI客服）—— -->
+    <AgentWidget v-if="isAdmin" />
 
     <!-- —— 登录模态（居中遮罩）—— -->
     <div v-if="showLogin && !currentUser" class="modal-overlay" @click.self="showLogin = false">
