@@ -62,12 +62,7 @@ flowchart LR
 
 ## 本地开发启动
 
-```bash
-# 根目录
-bash .agents/skills/run-app/scripts/run-app.sh start
-```
-
-也可以按开发模式分别启动：
+按开发模式分别启动（先启动 Docker 中的 db / redis / ollama）：
 
 ```bash
 docker compose up -d db redis
@@ -102,10 +97,8 @@ npm run build
 
 ## 项目文档
 
-- `PROJECT-PLAN.md`：阶段计划、数据表和验收标准
-- `AI-COLLABORATION.md`：人机协作约定
-- `AGENTS.md`：技术与启动约定
-- `PROGRESS.md`：进度日志
+- `docs/database-schema.md`：数据库表结构说明与查看方式
+- `docs/tech-stack-and-features.md`：技术栈与功能点清单
 
 
 ## 技术亮点（真实代码支撑 · v3.0）
