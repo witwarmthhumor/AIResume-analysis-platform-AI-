@@ -127,7 +127,7 @@ onMounted(startOrResume)
       <p class="loading">正在恢复面试会话…</p>
     </div>
     <template v-else-if="session?.status === 'finished'">
-      <InterviewReport :report="session.final_report" />
+      <InterviewReport :report="session.final_report" :session-id="session.id || null" />
     </template>
     <template v-else-if="session && session.turn_count === 0 && !messages.length">
       <!-- P5 智能出题：开始前选择岗位类型 -->

@@ -42,3 +42,9 @@ class AnalysisResultOut(BaseModel):
 
     cached: bool
     analysis: AnalysisOut
+
+
+class AnalysisVersionsOut(BaseModel):
+    """该简历的历次分析报告列表（v3.5 报告页「版本对比」数据源）。"""
+
+    items: list[AnalysisOut]

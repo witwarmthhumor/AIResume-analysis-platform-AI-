@@ -63,6 +63,17 @@ class Settings(BaseSettings):
     daily_playground_limit: int = 50  # 每人每日 Playground 提问上限
     daily_chat_session_limit: int = 100  # 每人每日在线对话新建会话上限（防匿名刷表）
 
+    # v3.5 混合检索：向量（语义）+ BM25（词法）双路召回，RRF 融合排序。
+    # 改检索逻辑后必须跑 scripts/eval_rag.py 对比 data/kb_eval/report.md 基线。
+    kb_hybrid_enabled: bool = True  # 关掉即退回纯向量检索（便于 A/B 对比与回滚）
+    kb_hybrid_candidates: int = 50  # 每路召回候选数（融合后再截到 kb_search_top_k）
+    # RRF 平滑常数：论文默认 60，但那是英文长文档场景。本项目是中文短查询，
+    # 头部名次含金量更高——k=5 时"词法第 1 名"能有足够权重压过向量长尾，
+    # 实测 49 题评测集 hit@1 41/49（k=60）→ 43/49（k=5）。改前请重跑 eval。
+    kb_rrf_k: int = 5
+    kb_bm25_k1: float = 1.5  # BM25 词频饱和参数
+    kb_bm25_b: float = 0.75  # BM25 文档长度归一化参数
+
     # v3.4：AI 客服 Agent（LangChain）。与在线对话独立限流；Agent 单次可能多轮调 LLM，故上限更低
     daily_agent_limit: int = 30  # 每人每日 AI 客服提问上限
     agent_max_iterations: int = 6  # Agent 单次最大工具循环步数，防无限循环

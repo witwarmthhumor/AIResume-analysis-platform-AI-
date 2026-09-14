@@ -1,28 +1,65 @@
-"""Agent 工具集（v3.4）：第一版只挂 kb_search 一个工具。
+"""Agent 工具集（v3.4 起，v3.5 扩到四件套）。
 
 设计要点：
 - make_tools 是"每请求工厂"：闭包绑定本次请求的 db 会话与归属者（user_id/anonymous_id），
   杜绝多请求共享工具导致的用户串数据。
+- 所有工具都只查"当前归属者"自己的数据，天然带用户隔离；未识别到身份时明确拒绝，
+  而不是返回空结果让模型自行脑补。
 - 检索直接复用现有 embedding_service.embed_texts + kb_service.search_chunks，不重写 RAG。
 - ToolContext 回收本次命中的引用来源（citations），供 API 层随 done 事件回传前端；
   工具返回给 LLM 的是拼好的文本片段。
 - 工具内部吞掉检索类异常并返回自然语言说明，让 Agent 能换通用知识兜底，而不是整轮崩掉。
+
+工具清单：
+1. kb_search          查平台技术知识库（RAG 主链路，唯一会回填 citations 的工具）
+2. resume_lookup      查当前用户自己的简历（有哪些、正文里有没有提到某关键词）
+3. interview_history  查当前用户自己的模拟面试记录与分维度评分
+4. usage_stats        查当前用户自己的平台用量（近 N 天各动作次数与 token）
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 
 from langchain_core.tools import BaseTool, tool
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.models.interview import InterviewSession
+from app.models.resume import Resume
+from app.models.usage_log import UsageLog
 from app.services.embedding_service import embed_texts
 from app.services.kb_service import search_chunks
+from app.services.lexical_service import tokenize
 
 logger = get_logger(__name__)
 
 # 单块内容回灌给 LLM 的最大字符数（5 块 × 约 300 字，控制 Agent 上下文体积）
 _TOOL_CHUNK_CHARS = 300
+# 列表类工具单次返回条数上限与片段宽度
+_TOOL_LIST_LIMIT = 5
+_TOOL_SNIPPET_WIDTH = 80
+
+# 用量动作的中文名（与前端使用日志的徽章映射保持一致）
+_ACTION_LABELS = {
+    "parse": "简历解析",
+    "analysis": "AI 简历分析",
+    "interview_message": "模拟面试对话",
+    "kb_upload": "知识库上传",
+    "playground": "在线对话问答",
+    "chat_create": "新建对话",
+    "agent": "AI 客服问答",
+    "agent_create": "新建客服会话",
+}
+
+# 面试结束评价的分维度中文名（与 interview_prompts 的 JSON 结构一一对应）
+_SCORE_LABELS = {
+    "technical_depth": "技术深度",
+    "communication": "表达结构",
+    "project_authenticity": "项目真实性",
+    "overall": "整体表现",
+}
 
 
 @dataclass
@@ -30,6 +67,38 @@ class ToolContext:
     """一次 Agent 运行期间工具的共享状态：最近一次知识库命中（用于前端引用来源）。"""
 
     citations: list[dict] = field(default_factory=list)
+
+
+def _owner_filter(model, user_id: int | None, anonymous_id: str | None):
+    """归属过滤条件：登录按 user_id，匿名按 (user_id IS NULL + anonymous_id)。
+
+    识别不到身份时返回 None，调用方应直接告知"无法查询"而非返回全部数据。
+    """
+    if user_id is not None:
+        return model.user_id == user_id
+    if anonymous_id:
+        return and_(model.user_id.is_(None), model.anonymous_id == anonymous_id)
+    return None
+
+
+def _snippet(text: str, keyword: str, width: int = _TOOL_SNIPPET_WIDTH) -> str | None:
+    """在正文里定位关键词（先分词再逐个找）并返回上下文片段，找不到返回 None。"""
+    haystack = text or ""
+    if not haystack:
+        return None
+    terms = tokenize(keyword) or [keyword.strip()]
+    for term in terms:
+        if not term:
+            continue
+        idx = haystack.find(term)
+        if idx < 0:
+            continue
+        start = max(0, idx - width)
+        end = min(len(haystack), idx + len(term) + width)
+        prefix = "…" if start > 0 else ""
+        suffix = "…" if end < len(haystack) else ""
+        return f"{prefix}{haystack[start:end].replace(chr(10), ' ')}{suffix}"
+    return None
 
 
 def make_tools(
@@ -60,6 +129,8 @@ def make_tools(
                 user_id,
                 anonymous_id,
                 top_k=settings.kb_search_top_k,
+                # v3.5：工具入参原文一并交给检索层，走向量 + BM25 混合检索
+                query_text=query,
             )
         except Exception:
             logger.exception("agent kb_search 检索失败")
@@ -86,4 +157,143 @@ def make_tools(
             parts.append(f"【来源：{h['title']}（第{h['seq']}块）】\n{snippet}")
         return "以下是知识库检索到的资料，请据此回答：\n\n" + "\n\n".join(parts)
 
-    return [kb_search]
+    @tool
+    def resume_lookup(query: str) -> str:
+        """查询当前用户自己上传的简历。当用户问"我上传了哪些简历""我的简历情况"
+        "我的简历里有没有提到某技能/项目/经历"时调用。
+        入参 query 为要在简历正文里查的关键词；若只想列出简历清单，传空字符串即可。"""
+        owner = _owner_filter(Resume, user_id, anonymous_id)
+        if owner is None:
+            return "当前会话无法识别用户身份，查不到个人简历数据。请提示用户先登录后再提问。"
+
+        try:
+            rows = (
+                db.scalars(
+                    select(Resume)
+                    .where(Resume.deleted_at.is_(None), owner)
+                    .order_by(Resume.created_at.desc(), Resume.id.desc())
+                    .limit(_TOOL_LIST_LIMIT)
+                )
+                .all()
+            )
+        except Exception:
+            logger.exception("agent resume_lookup 查询失败")
+            return "简历查询暂时出错，请稍后再试。"
+
+        if not rows:
+            return "该用户名下没有已上传的简历。可提示用户到首页上传一份 PDF 简历后再来提问。"
+
+        keyword = (query or "").strip()
+        parts = []
+        for resume in rows:
+            uploaded = resume.created_at.strftime("%Y-%m-%d") if resume.created_at else "未知"
+            head = (
+                f"【简历】{resume.filename}"
+                f"（{resume.page_count or '?'} 页，解析状态 {resume.parse_status}，上传于 {uploaded}）"
+            )
+            if keyword:
+                snippet = _snippet(resume.raw_text or "", keyword)
+                head += (
+                    f"\n  命中片段：{snippet}"
+                    if snippet
+                    else f"\n  正文中未找到与「{keyword}」相关的内容"
+                )
+            parts.append(head)
+        return "以下是该用户自己的简历信息（仅本人可见）：\n" + "\n".join(parts)
+
+    @tool
+    def interview_history(limit: int = 3) -> str:
+        """查询当前用户自己的模拟面试记录与结束评价。当用户问"我面试表现怎么样"
+        "上次模拟面试多少分""我练了几场"时调用。入参 limit 为返回的最近场次数，默认 3。"""
+        owner = _owner_filter(InterviewSession, user_id, anonymous_id)
+        if owner is None:
+            return "当前会话无法识别用户身份，查不到个人面试记录。请提示用户先登录后再提问。"
+
+        try:
+            count = max(1, min(int(limit or 3), _TOOL_LIST_LIMIT))
+            rows = (
+                db.scalars(
+                    select(InterviewSession)
+                    .where(owner)
+                    .order_by(InterviewSession.created_at.desc(), InterviewSession.id.desc())
+                    .limit(count)
+                )
+                .all()
+            )
+        except Exception:
+            logger.exception("agent interview_history 查询失败")
+            return "面试记录查询暂时出错，请稍后再试。"
+
+        if not rows:
+            return "该用户名下暂无模拟面试记录。可提示用户到首页基于简历开始一场模拟面试。"
+
+        status_labels = {
+            "in_progress": "进行中",
+            "finished": "已结束",
+            "abandoned": "已放弃",
+        }
+        position_labels = {"intern": "实习", "fresh": "校招", "senior": "社招"}
+        parts = [f"该用户最近 {len(rows)} 场模拟面试："]
+        for index, session in enumerate(rows, start=1):
+            when = session.created_at.strftime("%Y-%m-%d") if session.created_at else "未知"
+            position = position_labels.get(session.position_type or "", "通用")
+            status = status_labels.get(session.status, session.status)
+            parts.append(
+                f"【第 {index} 场 · 最近在前】{when} · {position} · {status}"
+                f" · 已进行 {session.turn_count or 0} 轮"
+            )
+            report = session.final_report_json
+            if not isinstance(report, dict):
+                parts.append("  尚未生成结束评价报告。")
+                continue
+            scores = [
+                f"{label} {report[key]}"
+                for key, label in _SCORE_LABELS.items()
+                if isinstance(report.get(key), (int, float))
+            ]
+            if scores:
+                parts.append("  评分（10 分制）：" + " / ".join(scores))
+            summary = str(report.get("summary") or "").strip()
+            if summary:
+                parts.append(f"  评价：{summary[:200]}")
+        return "\n".join(parts)
+
+    @tool
+    def usage_stats(days: int = 7) -> str:
+        """查询当前用户自己在本平台的用量统计。当用户问"我用了多少次""消耗了多少
+        token""最近用得多不多"时调用。入参 days 为统计天数，默认 7，最大 90。"""
+        owner = _owner_filter(UsageLog, user_id, anonymous_id)
+        if owner is None:
+            return "当前会话无法识别用户身份，查不到用量数据。请提示用户先登录后再提问。"
+
+        try:
+            span = max(1, min(int(days or 7), 90))
+            since = datetime.now(timezone.utc) - timedelta(days=span)
+            rows = db.execute(
+                select(
+                    UsageLog.action_type,
+                    func.count(),
+                    func.coalesce(func.sum(UsageLog.tokens_total), 0),
+                )
+                .where(owner, UsageLog.created_at >= since)
+                .group_by(UsageLog.action_type)
+                .order_by(func.count().desc())
+            ).all()
+        except Exception:
+            logger.exception("agent usage_stats 查询失败")
+            return "用量统计查询暂时出错，请稍后再试。"
+
+        if not rows:
+            return f"最近 {span} 天没有用量记录。"
+
+        total_tokens = 0
+        lines = [f"最近 {span} 天用量统计："]
+        for action_type, count, tokens in rows:
+            token_count = int(tokens or 0)
+            total_tokens += token_count
+            label = _ACTION_LABELS.get(action_type, action_type)
+            lines.append(f"- {label}：{count} 次，{token_count} tokens")
+        lines.append(f"合计消耗 {total_tokens} tokens。")
+        return "\n".join(lines)
+
+    return [kb_search, resume_lookup, interview_history, usage_stats]

@@ -16,12 +16,15 @@ from app.db.session import get_db
 from app.models.analysis import Analysis
 from app.models.resume import Resume
 from app.models.user import User
-from app.schemas.analysis import AnalysisOut, AnalysisResultOut
+from app.schemas.analysis import AnalysisOut, AnalysisResultOut, AnalysisVersionsOut
 from app.services.ai_client import AIError, analyze_resume
 from app.services.analysis_service import record_analysis
 from app.services.prompts import PROMPT_VERSION
 
 router = APIRouter(prefix="/api", tags=["analyses"])
+
+# 版本对比最多回看多少版（够用即可，避免把整表拖给前端）
+_MAX_VERSIONS = 10
 
 
 def _to_out(a: Analysis) -> AnalysisOut:
@@ -108,13 +111,11 @@ def analyze_resume_endpoint(
     return AnalysisResultOut(cached=False, analysis=_to_out(analysis))
 
 
-@router.get("/resumes/{resume_id}/analysis", response_model=AnalysisOut)
-def get_analysis(
-    resume_id: int,
-    db: Session = Depends(get_db),  # noqa: B008
-    user: User | None = Depends(get_optional_current_user),  # noqa: B008
-) -> AnalysisOut:
-    """该简历最新的有效分析报告；没有则 404。"""
+def _get_owned_resume(db: Session, resume_id: int, user: User | None) -> Resume:
+    """取"本人可见"的简历：不存在 / 已软删 / 非本人 / 匿名查登录用户的简历，一律 404。
+
+    统一 404 而非 403 是有意为之——不向调用方泄露"这条记录存在但不是你的"。
+    """
     resume = db.get(Resume, resume_id)
     if resume is None or resume.deleted_at is not None:
         raise HTTPException(404, "简历记录不存在或已删除")
@@ -122,6 +123,39 @@ def get_analysis(
         raise HTTPException(404, "简历记录不存在或已删除")
     if user is None and resume.user_id is not None:
         raise HTTPException(404, "简历记录不存在或已删除")
+    return resume
+
+
+@router.get("/resumes/{resume_id}/analyses", response_model=AnalysisVersionsOut)
+def list_resume_analyses(
+    resume_id: int,
+    db: Session = Depends(get_db),  # noqa: B008
+    user: User | None = Depends(get_optional_current_user),  # noqa: B008
+) -> AnalysisVersionsOut:
+    """该简历的历次分析报告，按时间倒序（v3.5 报告页「版本对比」数据源）。
+
+    与 `/analysis` 的区别：这里**不过滤 prompt_version**——改提示词后 PROMPT_VERSION
+    递增、旧报告不再被复用，但它们仍在库里，正是版本对比要看的东西。
+    只保留 valid_json=True 的记录（输出没通过校验的没有对比价值）。
+    """
+    _get_owned_resume(db, resume_id, user)
+    rows = db.scalars(
+        select(Analysis)
+        .where(Analysis.resume_id == resume_id, Analysis.valid_json.is_(True))
+        .order_by(Analysis.created_at.desc(), Analysis.id.desc())
+        .limit(_MAX_VERSIONS)
+    ).all()
+    return AnalysisVersionsOut(items=[_to_out(a) for a in rows])
+
+
+@router.get("/resumes/{resume_id}/analysis", response_model=AnalysisOut)
+def get_analysis(
+    resume_id: int,
+    db: Session = Depends(get_db),  # noqa: B008
+    user: User | None = Depends(get_optional_current_user),  # noqa: B008
+) -> AnalysisOut:
+    """该简历最新的有效分析报告；没有则 404。"""
+    _get_owned_resume(db, resume_id, user)
     analysis = _latest_valid_analysis(db, resume_id)
     if analysis is None:
         raise HTTPException(404, "该简历还没有分析报告")

@@ -17,6 +17,9 @@ openai>=1.40
 # 阶段6：Playground 知识库 RAG（v3.0）
 pgvector>=0.3        # SQLAlchemy 的 vector 类型映射；embedding 由 Ollama 提供，无本地模型依赖
 
+# v3.5：混合检索（向量 + BM25 词法，RRF 融合）——中文分词用 jieba，纯 Python 无系统依赖
+jieba>=0.42
+
 # v3.4：AI 客服 Agent（LangChain 局部引入，仅 Agent 层使用，现有手写 RAG 不改）
 # 锁定 0.3 线：1.x 移除了 AgentExecutor/create_openai_tools_agent（改走 langgraph），
 # 本项目 Agent 流式基于 0.3 的 AgentExecutor + BaseCallbackHandler，故上限 <0.4

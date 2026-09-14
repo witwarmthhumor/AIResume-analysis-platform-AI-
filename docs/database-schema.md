@@ -1,8 +1,8 @@
 # 数据库表结构与查看指南
 
-> 本文档说明项目数据库的连接信息、8 张业务表结构、索引/外键设计，以及自己查看数据库的三种方式。
-> 字段与索引来自对运行中数据库的实时查询（2026-09-03），与 `backend/app/models/` 模型定义一致。
-> 最后更新：2026-09-03
+> 本文档说明项目数据库的连接信息、10 张业务表结构、索引/外键设计，以及自己查看数据库的三种方式。
+> 字段与索引来自对运行中数据库的实时查询（2026-09-03）与 `backend/app/models/` 模型定义（v3.4）。
+> 最后更新：2026-09-14（v3.4：补 chat_sessions / chat_messages 两表）
 
 ---
 
@@ -21,7 +21,9 @@
 | 用户名 Username | `ai` |
 | 密码 Password | `ai`（本地开发账号，仅本机可见，生产用 `.env.docker`） |
 
-共 **8 张业务表** + 1 张 `alembic_version`（Alembic 迁移版本表，自动管理，不用手动碰）。
+共 **10 张业务表** + 1 张 `alembic_version`（Alembic 迁移版本表，自动管理，不用手动碰）。
+
+> 「10 张」= users / resumes / analyses / interview_sessions / interview_messages / kb_documents / kb_chunks / usage_logs / **chat_sessions** / **chat_messages**（最后两张为 v3.1 在线对话引入，v3.4 起被在线对话与 AI 客服共用以 `session_type` 区分）。
 
 ## 二、表关系（ER 图）
 
@@ -32,10 +34,12 @@ erDiagram
     users ||--o{ interview_sessions : "user_id 逻辑归属"
     users ||--o{ usage_logs : "user_id 逻辑归属"
     users ||--o{ kb_documents : "user_id 逻辑归属"
+    users ||--o{ chat_sessions : "user_id 逻辑归属"
     resumes ||--o{ analyses : "resume_id（1:N）"
     resumes ||--o{ interview_sessions : "resume_id（1:N）"
     interview_sessions ||--o{ interview_messages : "session_id（1:N）"
     kb_documents ||--o{ kb_chunks : "document_id 物理外键 CASCADE"
+    chat_sessions ||--o{ chat_messages : "session_id（1:N）"
 
     users {
         bigint id PK
@@ -106,6 +110,24 @@ erDiagram
         varchar model_name
         int tokens_total
         varchar ip_address
+    }
+    chat_sessions {
+        bigint id PK
+        bigint user_id "可空,索引"
+        varchar anonymous_id "可空,索引"
+        varchar session_type "chat/agent,索引"
+        varchar title
+        timestamptz updated_at "列表排序,索引"
+        timestamptz deleted_at "软删除"
+    }
+    chat_messages {
+        bigint id PK
+        bigint session_id "索引"
+        varchar role "user/assistant"
+        text content
+        jsonb citations "引用来源"
+        jsonb tool_steps "v3.4 Agent 工具过程"
+        int tokens
     }
 ```
 
@@ -226,16 +248,44 @@ erDiagram
 |---|---|---|---|
 | id | bigint | 否 | 主键 |
 | user_id / anonymous_id | | 是 | 双轨限流索引 |
-| action_type | varchar(30) | 否 | `parse / analysis / interview_message` |
+| action_type | varchar(30) | 否 | `parse`（简历解析）/ `analysis`（AI 分析）/ `interview_message`（模拟面试）/ `kb_upload`（知识库上传）/ `playground`（在线对话问答）/ `chat_create`（新建对话）/ `agent`（AI 客服问答）/ `agent_create`（新建客服会话） |
 | model_name | varchar(100) | 是 | 模型 |
 | tokens_total | int | 是 | 本次消耗 token |
 | ip_address | varchar(64) | 是 | 来源 IP |
 | created_at | timestamptz | 否 | 索引，每日限流按此日期聚合 |
 
+### 9. chat_sessions — 对话会话（v3.1 在线对话 / v3.4 AI 客服共用）
+
+| 列 | 类型 | 可空 | 说明 |
+|---|---|---|---|
+| id | bigint | 否 | 主键 |
+| user_id / anonymous_id | bigint / varchar(64) | 是 | 归属索引，登录记 user_id，匿名记 anonymous_id |
+| session_type | varchar(20) | 否 | **`chat`（在线对话）/ `agent`（AI 客服）**，默认 `chat`，索引；两类数据互相不可见 |
+| title | varchar(100) | 否 | 会话标题，默认「新对话」，首条提问时截前 20 字更新 |
+| updated_at | timestamptz | 否 | 最近活跃时间，**列表按此倒序**，索引 |
+| deleted_at | timestamptz | 是 | 软删除；会话删除后消息保留（审计可查，列表与检索自动排除） |
+| created_at | timestamptz | 否 | 索引 |
+
+### 10. chat_messages — 对话消息（v3.1 / v3.4）
+
+| 列 | 类型 | 可空 | 说明 |
+|---|---|---|---|
+| id | bigint | 否 | 主键 |
+| session_id | bigint | 否 | 逻辑关联 chat_sessions，**不建物理外键**（与 interview_messages 同惯例），索引 |
+| role | varchar(20) | 否 | `user / assistant` |
+| content | text | 否 | 消息正文 |
+| citations | **jsonb** | 是 | assistant 消息的引用来源（RAG 命中的文档标题/块序号/相似度），前端折叠展示 |
+| tool_steps | **jsonb** | 是 | **v3.4**：Agent 工具调用过程（`action`/`observation` 列表），仅 AI 客服的 assistant 消息有值，前端「工具调用过程」折叠区 |
+| tokens | int | 是 | 该条 token 数 |
+| created_at | timestamptz | 否 | 索引，消息按此正序返回 |
+
+> v3.4 迁移 `f3a91c2b407d` 给 chat_sessions 加 `session_type`（NOT NULL + server_default 'chat' + 索引）、给 chat_messages 加 `tool_steps`（JSONB），升级前已存在的会话自动归为 `chat` 类型。
+
 ## 五、索引设计要点
 
 - **主键**：每表 `pk_表名`（btree，id）。
 - **高频查询字段全部建 btree 索引**：`user_id / anonymous_id / resume_id / session_id / document_id / file_hash / created_at`。
+- **会话类补充索引（v3.4）**：`chat_sessions.session_type`（两类会话隔离过滤）+ `chat_sessions.updated_at`（列表倒序）；`chat_messages.session_id`（按会话取消息）。
 - **唯一索引**：`ix_users_email`（email 唯一）、`alembic_version_pkc`（版本号唯一）。
 - **向量索引（重点）**：
 
@@ -247,7 +297,7 @@ erDiagram
 
 - 768 维与 nomic-embed-text 模型绑定，**换 embedding 维度必须新建迁移 + 全部重新入库**（`Vector(768)` 写死在迁移里）。
 
-## 六、当前本地数据量（2026-09-03 实时）
+## 六、当前本地数据量（2026-09-03 快照）
 
 | 表 | 行数 | 表 | 行数 |
 |---|---|---|---|
@@ -255,6 +305,8 @@ erDiagram
 | resumes | 1 | usage_logs | 5 |
 | analyses | 1 | kb_documents | 6 |
 | interview_sessions | 1 | kb_chunks | 83 |
+
+> `chat_sessions` / `chat_messages`（v3.1 引入、v3.4 扩充）上表快照未覆盖，查实时行数用第七节方式 1：`docker exec ai-interview-db psql -U ai -d ai_interview -c "SELECT count(*) FROM chat_messages;"`。
 
 ## 七、自己怎么查看
 
@@ -307,7 +359,7 @@ docker exec ai-interview-db psql -U ai -d ai_interview -c "\d kb_chunks"
 
 ### 方式 3：直接读源码（表结构的权威定义来源）
 
-- 模型定义：`backend/app/models/`（base / user / resume / analysis / interview / usage_log / kb），字段类型、索引、注释与数据库一一对应。
+- 模型定义：`backend/app/models/`（base / user / resume / analysis / interview / usage_log / kb / **chat**），字段类型、索引、注释与数据库一一对应。
 - 建表与每次变更历史：`backend/alembic/versions/` 迁移脚本（含 HNSW 索引创建语句）。
 - 最初设计稿：`PROJECT-PLAN.md` 第 2 节。
 

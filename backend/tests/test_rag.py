@@ -145,3 +145,88 @@ def test_ingest_dim_mismatch_marks_failed(db_session, monkeypatch) -> None:
     assert doc.status == "failed"
     assert "维度" in message
     assert message == doc.parse_error
+
+
+# —— v3.5 混合检索（向量 + BM25，RRF 融合）——
+
+_ORTHOGONAL_VEC = [0.0] * 768  # 与 _QUERY_VEC 余弦相似度 ≈ 0.036，远低于 0.65 阈值
+_ORTHOGONAL_VEC[0] = 1.0
+
+
+def _ready_doc(db, title: str):
+    """造一个 ready 状态的文档（search 只认 ready）。"""
+    doc = _make_doc(db, title)
+    doc.status = "ready"
+    db.commit()
+    return doc
+
+
+def _insert_chunk(db, doc, content: str, embedding: list[float]):
+    """直接插切块：绕开 ingest，便于精确指定向量与正文。"""
+    chunk = KBChunk(
+        document_id=doc.id,
+        seq=0,
+        content=content,
+        token_count=len(content),
+        embedding=embedding,
+    )
+    db.add(chunk)
+    db.commit()
+    return chunk
+
+
+def test_hybrid_rescues_term_hit_filtered_by_vector_threshold(db_session) -> None:
+    """术语命中但向量不相似：纯向量被阈值过滤，混合检索应把该块救回并排第一。"""
+    db = db_session
+    lex_doc = _ready_doc(db, "lex_doc")
+    vec_doc = _ready_doc(db, "vec_doc")
+    _insert_chunk(db, lex_doc, "聚簇索引是把数据行按主键顺序物理存储的结构。", _ORTHOGONAL_VEC)
+    _insert_chunk(db, vec_doc, "Redis 的持久化方式有 RDB 和 AOF 两种。", _FAKE_VEC)
+
+    # 纯向量：lex_doc 相似度 0.036 < 0.65 → 被过滤，只剩 vec_doc
+    vector_only = search_chunks(db, _QUERY_VEC, None, "anon", top_k=5)
+    assert {r["title"] for r in vector_only} == {"vec_doc"}
+
+    # 混合：lex_doc 占词法第 1 名 + 向量第 2 名，RRF 分高于只有向量第 1 名的 vec_doc
+    hybrid = search_chunks(
+        db, _QUERY_VEC, None, "anon", top_k=5, query_text="聚簇索引是什么"
+    )
+    assert hybrid[0]["title"] == "lex_doc"
+    assert {"lex_doc", "vec_doc"} == {r["title"] for r in hybrid}
+    # 混合结果带归因字段（调试用）
+    assert "rrf_score" in hybrid[0] and "lexical_score" in hybrid[0]
+
+
+def test_hybrid_disabled_falls_back_to_vector(db_session, monkeypatch) -> None:
+    """关掉开关即退回纯向量路径（便于 A/B 对比与回滚）。"""
+    monkeypatch.setattr("app.services.kb_service.settings.kb_hybrid_enabled", False)
+    db = db_session
+    lex_doc = _ready_doc(db, "lex_doc")
+    _insert_chunk(db, lex_doc, "聚簇索引是把数据行按主键顺序物理存储的结构。", _ORTHOGONAL_VEC)
+
+    results = search_chunks(
+        db, _QUERY_VEC, None, "anon", top_k=5, query_text="聚簇索引是什么"
+    )
+    assert results == []
+
+
+def test_hybrid_keeps_owner_isolation(db_session) -> None:
+    """混合检索同样受可见性约束：别人的私有文档不可见。"""
+    db = db_session
+    other_doc = create_document(
+        db,
+        title="other_private",
+        doc_type="text",
+        raw_text="聚簇索引相关私有资料。" * 20,
+        user_id=2,
+        anonymous_id=None,
+        source_type="uploaded",
+    )
+    other_doc.status = "ready"
+    db.commit()
+    _insert_chunk(db, other_doc, "聚簇索引是把数据行按主键顺序物理存储的结构。", _ORTHOGONAL_VEC)
+
+    hybrid = search_chunks(
+        db, _QUERY_VEC, 1, None, top_k=5, query_text="聚簇索引是什么"
+    )
+    assert hybrid == []

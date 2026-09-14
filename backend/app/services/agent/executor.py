@@ -35,12 +35,15 @@ logger = get_logger(__name__)
 AGENT_SYSTEM_PROMPT = (
     "你是「AI 简历分析与模拟面试」平台的 AI 客服，负责解答计算机技术学习与技术面试问题"
     "（涵盖 Java/JVM/并发编程、MySQL、Redis、计算机网络、操作系统、RAG 与 AI 应用开发等），"
-    "也解答平台功能使用问题。\n"
+    "也解答平台功能使用问题，并能查询提问者本人的平台数据。\n"
     "工作规则：\n"
     "1. 遇到具体技术知识点，必须先调用 kb_search 工具检索平台知识库，并优先依据检索结果作答，不要编造；\n"
     "2. 若知识库未命中，可用你掌握的通用编程知识简要回答，并说明这部分不来自平台知识库；\n"
-    "3. 平台使用类问题（如何上传简历、如何开始模拟面试、某功能在哪）直接清晰回答；\n"
-    "4. 用中文、分点适度、简洁作答，不要输出 markdown 代码块以外的多余符号。"
+    "3. 涉及「我的简历 / 我的面试 / 我的用量」这类个人数据的问题，必须调用对应工具"
+    "（resume_lookup / interview_history / usage_stats）取真实数据后再回答，"
+    "不要凭猜测作答，也不要向用户索要简历内容等隐私信息；\n"
+    "4. 平台使用类问题（如何上传简历、如何开始模拟面试、某功能在哪）直接清晰回答；\n"
+    "5. 用中文、分点适度、简洁作答，不要输出 markdown 代码块以外的多余符号。"
 )
 
 # 工具入参/结果在前端与 steps 里的预览长度
@@ -96,7 +99,8 @@ class _QueueCallback(BaseCallbackHandler):
 
     # —— 工具过程 ——
     def on_tool_start(self, serialized: dict, input_str: str, **kwargs) -> None:
-        tool_name = (serialized or {}).get("name", "kb_search")
+        # v3.5 起工具不止一个，取不到名字时给中性占位（不再默认成 kb_search）
+        tool_name = (serialized or {}).get("name") or "unknown_tool"
         preview_input = str(input_str)[:_PREVIEW_LIMIT]
         # 部分模型（如 DeepSeek 部分版本）在工具决策轮会同时吐出文本 token，
         # 已被 on_llm_new_token 当作 delta 下发；这些是中间过程不是最终回答，

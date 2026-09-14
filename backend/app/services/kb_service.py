@@ -1,7 +1,8 @@
 """知识库服务（v3.0）：切块入库、向量检索、文档 CRUD（owner 隔离）。
 
 ingest：切块 → 批量向量化（Ollama）→ 写 kb_chunks → 文档置 ready。
-search：提问向量做 HNSW 余弦近似检索，召回 top-k 块并带来源文档信息。
+search：v3.5 起为混合检索——向量路（HNSW 余弦，走数据库索引）+ 词法路（BM25），
+        RRF 融合排序；不传 query_text 时退回纯向量检索（兼容旧调用方）。
 owner 隔离：scope=public（预置语料）全站可见；scope=private（用户上传）仅本人可见。
 """
 
@@ -16,6 +17,7 @@ from app.core.logging import get_logger
 from app.models.kb import KBChunk, KBDocument
 from app.services.embedding_service import EmbeddingError, embed_texts
 from app.services.kb_chunker import chunk_text
+from app.services.lexical_service import Bm25Index
 
 logger = get_logger(__name__)
 
@@ -105,15 +107,19 @@ def ingest_kb_document(
     return True, None
 
 
-def search_chunks(
-    db: Session,
-    query_embedding: list[float],
-    user_id: int | None,
-    anonymous_id: str | None,
-    top_k: int | None = None,
-) -> list[dict]:
-    """余弦近似检索可见语料，返回命中块（含来源标题），相似度低于阈值的不算命中。"""
-    rows = db.execute(
+def _cosine(a: list[float], b: list[float]) -> float:
+    """手算余弦相似度。数据库只负责排序（走 HNSW 索引），阈值判定在 Python 侧做。"""
+    if not a or not b:
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    return dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
+
+
+def _visible_ready_query(user_id: int | None, anonymous_id: str | None):
+    """可见 + 就绪的切块查询骨架：向量路与词法路共用，避免过滤条件漂移。"""
+    return (
         select(KBChunk, KBDocument.title)
         .join(KBDocument, KBChunk.document_id == KBDocument.id)
         .where(
@@ -121,21 +127,37 @@ def search_chunks(
             KBDocument.status == "ready",
             _visible_clause(user_id, anonymous_id),
         )
+    )
+
+
+def search_chunks(
+    db: Session,
+    query_embedding: list[float],
+    user_id: int | None,
+    anonymous_id: str | None,
+    top_k: int | None = None,
+    query_text: str | None = None,
+) -> list[dict]:
+    """检索可见语料，返回命中块（含来源标题）。
+
+    传了 query_text 且 kb_hybrid_enabled=True → 混合检索（向量 + BM25，RRF 融合）；
+    否则只走向量检索（低于 kb_min_similarity 的按无关丢弃）。
+    保持默认参数不传时行为与 v3.0 完全一致，老调用方与测试无需改动。
+    """
+    if query_text and settings.kb_hybrid_enabled:
+        return search_chunks_hybrid(
+            db, query_text, query_embedding, user_id, anonymous_id, top_k
+        )
+
+    rows = db.execute(
+        _visible_ready_query(user_id, anonymous_id)
         .order_by(KBChunk.embedding.cosine_distance(query_embedding))
         .limit(top_k or settings.kb_search_top_k)
     ).all()
 
     results = []
     for chunk, title in rows:
-        # order_by 里用的是 SQLAlchemy 表达式（数据库算距离）；取回后 chunk.embedding
-        # 是 Python list，这里手动算余弦相似度做阈值过滤
-        vec = chunk.embedding or []
-        if not vec:
-            continue
-        dot = sum(a * b for a, b in zip(vec, query_embedding))
-        norm_a = math.sqrt(sum(a * a for a in vec))
-        norm_b = math.sqrt(sum(b * b for b in query_embedding))
-        similarity = dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
+        similarity = _cosine(chunk.embedding or [], query_embedding)
         if similarity < settings.kb_min_similarity:
             continue  # 明显无关的召回（如冷启动噪声）不当作引用来源
         results.append(
@@ -145,6 +167,96 @@ def search_chunks(
                 "seq": chunk.seq,
                 "content": chunk.content,
                 "similarity": round(similarity, 4),
+            }
+        )
+    return results
+
+
+def search_chunks_hybrid(
+    db: Session,
+    query_text: str,
+    query_embedding: list[float],
+    user_id: int | None,
+    anonymous_id: str | None,
+    top_k: int | None = None,
+) -> list[dict]:
+    """混合检索：向量路（语义）+ BM25 词法路，RRF 融合后取 top_k。
+
+    RRF（Reciprocal Rank Fusion）只看两路各自的名次而非原始分数，因此不必把
+    余弦相似度与 BM25 分数归一化到同一量纲：
+        score(d) = Σ 1 / (k + rank_i(d))
+    仅出现于一路的候选也保留（缺的那路不贡献分数），正好能救回
+    "向量排 30 名、词法排第 1 名" 的术语类查询。
+
+    过滤规则：混合路径不再套用 kb_min_similarity——那条阈值是给纯向量检索滤噪声用的，
+    而"仅词法命中、向量分低"恰恰是混合检索要救回的术语类查询（如「聚簇索引」）。
+    BM25 自带 IDF（无区分度的常用词分本身就低），噪声由词法侧自行抑制。
+
+    :return: 命中块列表（含 similarity / rrf_score / lexical_score，后者仅供调试归因）
+    """
+    limit = top_k or settings.kb_search_top_k
+    candidate_n = max(settings.kb_hybrid_candidates, limit)
+    base_query = _visible_ready_query(user_id, anonymous_id)
+
+    # —— 向量路：交给数据库按余弦距离排序（命中 HNSW 索引），只取候选 ——
+    vector_rows = db.execute(
+        base_query.order_by(KBChunk.embedding.cosine_distance(query_embedding)).limit(
+            candidate_n
+        )
+    ).all()
+
+    vector_rank: dict[int, int] = {}
+    chunk_map: dict[int, tuple] = {}
+    similarity_map: dict[int, float] = {}
+    for rank, (chunk, title) in enumerate(vector_rows, start=1):
+        vector_rank[chunk.id] = rank
+        chunk_map[chunk.id] = (chunk, title)
+        similarity_map[chunk.id] = _cosine(chunk.embedding or [], query_embedding)
+
+    # —— 词法路：取可见语料的全部切块文本，建内存 BM25 索引 ——
+    all_rows = db.execute(base_query).all()
+    for chunk, title in all_rows:
+        chunk_map.setdefault(chunk.id, (chunk, title))
+
+    bm25 = Bm25Index([(chunk.id, chunk.content) for chunk, _title in all_rows])
+    lexical_hits = bm25.search(query_text, candidate_n)
+    lexical_rank = {cid: rank for rank, (cid, _score) in enumerate(lexical_hits, start=1)}
+    lexical_score = {cid: score for cid, score in lexical_hits}
+
+    # —— RRF 融合 ——
+    rrf_k = settings.kb_rrf_k
+    fused: list[tuple[float, float, float, int, str, object]] = []
+    for chunk_id in set(vector_rank) | set(lexical_rank):
+        score = 0.0
+        if chunk_id in vector_rank:
+            score += 1.0 / (rrf_k + vector_rank[chunk_id])
+        if chunk_id in lexical_rank:
+            score += 1.0 / (rrf_k + lexical_rank[chunk_id])
+
+        similarity = similarity_map.get(chunk_id)
+        if similarity is None:
+            chunk, _title = chunk_map[chunk_id]
+            similarity = _cosine(chunk.embedding or [], query_embedding)
+            similarity_map[chunk_id] = similarity
+
+        fused.append(
+            (score, similarity, lexical_score.get(chunk_id, 0.0), chunk_id, *chunk_map[chunk_id])
+        )
+
+    fused.sort(key=lambda item: item[0], reverse=True)
+
+    results = []
+    for score, similarity, lex_score, chunk_id, chunk, title in fused[:limit]:
+        results.append(
+            {
+                "document_id": chunk.document_id,
+                "title": title,
+                "seq": chunk.seq,
+                "content": chunk.content,
+                "similarity": round(similarity, 4),
+                # 调试/评测可见：融合分与词法分（前端不展示，仅用于归因）
+                "rrf_score": round(score, 6),
+                "lexical_score": round(lex_score, 4),
             }
         )
     return results

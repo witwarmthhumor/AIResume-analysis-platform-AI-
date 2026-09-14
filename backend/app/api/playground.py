@@ -165,6 +165,8 @@ def ask(
             user.id if user else None,
             anonymous_id,
             top_k=settings.kb_search_top_k,
+            # v3.5：把提问原文交给检索层，走「向量 + BM25 → RRF 融合」混合检索
+            query_text=body.content,
         )
     except Exception:
         logger.exception("kb 检索失败")

@@ -171,6 +171,65 @@ def start_interview(
     )
 
 
+@router.get("/interviews/scores")
+def list_interview_scores(
+    limit: int = 10,
+    db: Session = Depends(get_db),  # noqa: B008
+    anonymous_id: str = Depends(get_anonymous_id),
+    user: User | None = Depends(get_optional_current_user),  # noqa: B008
+) -> dict:
+    """本人已结束场次的分维度评分列表（v3.5：面试报告雷达图的历史对比数据源）。
+
+    只返回当前归属者自己的场次（登录按 user_id、匿名按 anonymous_id），按时间倒序；
+    只挑有结束评价报告的场次——没报告的场次没有评分可比。
+    路径必须声明在 `/interviews/{session_id}` 之前，否则 scores 会被当成 session_id。
+    """
+    owner = (
+        InterviewSession.user_id == user.id
+        if user is not None
+        else InterviewSession.anonymous_id == anonymous_id
+    )
+    # limit 容错：非正数回落默认 10，上限 30（雷达图对比一次用不了更多）
+    safe_limit = 10 if limit <= 0 else min(limit, 30)
+    rows = db.scalars(
+        select(InterviewSession)
+        .where(
+            owner,
+            InterviewSession.status == "finished",
+            InterviewSession.final_report_json.is_not(None),
+        )
+        .order_by(InterviewSession.created_at.desc(), InterviewSession.id.desc())
+        .limit(safe_limit)
+    ).all()
+
+    items = []
+    for session in rows:
+        report = session.final_report_json
+        # 兜底：JSONB 列写入 Python None 会落成 JSON null 字面量（不是 SQL NULL），
+        # 光靠 is_not(None) 过滤不掉，这里再判一次类型，避免把空报告当成绩返回
+        if not isinstance(report, dict):
+            continue
+        items.append(
+            {
+                "id": session.id,
+                "created_at": session.created_at.isoformat() if session.created_at else None,
+                "position_type": session.position_type,
+                "turn_count": session.turn_count,
+                "summary": report.get("summary"),
+                "scores": {
+                    key: report.get(key)
+                    for key in (
+                        "technical_depth",
+                        "communication",
+                        "project_authenticity",
+                        "overall",
+                    )
+                },
+            }
+        )
+    return {"items": items}
+
+
 @router.get("/interviews/{session_id}", response_model=SessionOut)
 def get_interview(
     session_id: int,
