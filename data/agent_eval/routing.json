@@ -1,0 +1,33 @@
+[
+  {"question": "Redis 缓存穿透和缓存雪崩有什么区别，一般怎么解决", "expected_tool": "kb_search"},
+  {"question": "Java 里 synchronized 和 ReentrantLock 该怎么选", "expected_tool": "kb_search"},
+  {"question": "TCP 三次握手为什么不能改成两次", "expected_tool": "kb_search"},
+
+  {"question": "我简历里写过 Kubernetes 吗", "expected_tool": "resume_lookup"},
+  {"question": "我一共上传了几份简历，分别叫什么名字", "expected_tool": "resume_lookup"},
+  {"question": "帮我看看我简历里有没有提到消息队列相关的项目经历", "expected_tool": "resume_lookup"},
+
+  {"question": "我上一场模拟面试拿了多少分", "expected_tool": "interview_history"},
+  {"question": "我最近一次模拟面试的评价是怎么说的", "expected_tool": "interview_history"},
+  {"question": "我一共练过几场模拟面试", "expected_tool": "interview_history"},
+
+  {"question": "我最近的面试表现是进步了还是退步了", "expected_tool": "score_trend"},
+  {"question": "我这几场模拟面试的分数有没有提升", "expected_tool": "score_trend"},
+  {"question": "跟前几次比，我这次面试表现变好了吗", "expected_tool": "score_trend"},
+
+  {"question": "我最近一周用了多少次 AI 分析", "expected_tool": "usage_stats"},
+  {"question": "我这个月在平台上消耗了多少 token", "expected_tool": "usage_stats"},
+  {"question": "我最近平台用得多不多，帮我统计一下用量", "expected_tool": "usage_stats"},
+
+  {"question": "我的简历分析报告说我有哪些短板", "expected_tool": "analysis_read"},
+  {"question": "上次 AI 分析给我的结论是什么", "expected_tool": "analysis_read"},
+  {"question": "我简历缺哪些关键词，分析报告里怎么说的", "expected_tool": "analysis_read"},
+
+  {"question": "知识库里都有哪些资料", "expected_tool": "kb_list"},
+  {"question": "平台知识库收录了哪些文档", "expected_tool": "kb_list"},
+  {"question": "我能在这个平台上问哪些方向的技术问题", "expected_tool": "kb_list"},
+
+  {"question": "怎么上传简历", "expected_tool": "platform_help"},
+  {"question": "模拟面试在哪里开始", "expected_tool": "platform_help"},
+  {"question": "使用日志在哪看", "expected_tool": "platform_help"}
+]

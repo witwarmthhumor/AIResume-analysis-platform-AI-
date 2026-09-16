@@ -122,8 +122,8 @@
         "ruff check . 通过"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成：data/agent_eval/routing.json 24 条用例（8 工具各 3 条）；backend/scripts/eval_agent_routing.py 用 bind_tools + 单次 LLM 调用做选择（工具执行体从不运行，temperature 0），产出 top-1 准确率/分工具命中率/混淆矩阵/逐题明细/误选清单并写入 data/agent_eval/report.md；LLM 不可用或未配置时退出码 2 且不写报告。新增 10 项单测，全量 203 项通过。真机已跑通（DeepSeek 通道正常）：8 工具口径 24/24 = 100%，作为 US-012 对比基线。"
     },
     {
       "id": "US-008",

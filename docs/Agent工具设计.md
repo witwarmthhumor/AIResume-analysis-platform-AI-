@@ -139,7 +139,23 @@ Router → Service → Model 单向依赖，反向引用会让路由层无法独
 
 ---
 
-## 五、待办口径
+## 五、工具路由评测（准确率怎么量）
+
+工具从 4 个扩到 8 个、再到 11 个，判断"要不要拆多 Agent"靠的不是感觉，是**路由 top-1 准确率**：
+用户一句问法，模型挑的工具对不对。
+
+- 用例集：`data/agent_eval/routing.json`（`question` + `expected_tool`，8 工具各 3 条口语化问法）
+- 脚本：`backend/scripts/eval_agent_routing.py`（backend/ 目录下 `python -m scripts.eval_agent_routing`）
+- 口径：每题**一次** LLM 调用做选择（temperature 0），只取返回消息里首个 `tool_calls` 的工具名；
+  **工具执行体全程不运行**（不查库、不检索），所以脚本不碰任何业务数据
+- 产出：`data/agent_eval/report.md`，含 top-1 准确率、分工具命中率、混淆矩阵（期望 × 实际）、逐题明细、误选清单
+- LLM 不可用（欠费/未配置/超时）时脚本**以退出码 2 中止且不写报告**，避免空报告被当成评测结果
+
+新增/改写工具描述后重跑该脚本即为路由回归；扩到 11 个工具后（US-012）要拿新报告与 8 工具基线对比。
+
+---
+
+## 六、待办口径
 
 - 新增工具若调用 LLM（`job_match` / `answer_review`），**必须计入 `usage_logs`**，否则限流与成本统计会漏。
 - 现有 `daily_agent_limit=30` 是按"单 Agent 单轮"定的；工具内部再调 LLM 会让实际消耗翻倍，**扩到 10 个工具时需重算限额口径**。

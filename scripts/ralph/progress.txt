@@ -26,6 +26,9 @@ Started: 2026-09-16
 - 工具 `description` 要三段式（做什么 / 什么时候用 / 什么时候**不**用），易撞的工具互相点名排他（如 `kb_search` ↔ `platform_help`、`resume_lookup` ↔ `analysis_read`）。
 - 描述的可校验写法：统一用**中文冒号小标题**「什么时候用：」「什么时候不用：」当锚点，测试断言 `len(description) > 50` 且两个锚点都在；再加一条「参数化清单 == `make_tools` 实际返回」的测试，新增工具漏写描述会直接红。
 - 改描述属于**纯 docstring 改动**，不影响任何工具行为：断言描述不需要数据库，`make_tools(None, None, None, ToolContext())` 取 `.description` 即可（与 US-005 证明静态工具不查库同一手法）。
+- ⚠️ ruff 实际启用的是**扩展规则集**（含 `RUF100` / `BLE001` / `B008` / `SIM`），但 **`E402` 未启用**：照 `scripts/eval_rag.py` 写 `sys.path.insert` 后再 import 时**不要加 `# noqa: E402`**（会被 RUF100 判为多余指令）；吞异常一律写 `except Exception:  # noqa: BLE001  原因`，与既有代码一致。
+- 写可测脚本（CLI 评测类）的套路：把「一次 LLM 调用」抽成注入的 `ask: (question) -> BaseMessage`，`run(cases, ask)` 只做纯统计；测试里用**替身模型**（只需实现 `bind` / `bind_tools` / `invoke` 三个方法返回 `AIMessage(tool_calls=[...])`）即可离线覆盖。测 `main()` 时 monkeypatch 三件套：`load_cases` / `REPORT_PATH`(tmp_path) / `build_chat_llm`。
+- 路由评测只需**工具 schema**，不要执行工具：`make_tools(None, None, None, ToolContext())` 拿描述 → `build_chat_llm().bind(temperature=0).bind_tools(tools)` → 读 `msg.tool_calls[0]["name"]`；模型直接文字作答时用 `NO_TOOL` 占位计入未命中。
 
 ## Log
 
@@ -132,4 +135,24 @@ Started: 2026-09-16
   - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
 ---
   - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
+---
+
+## 2026-09-16 16:10 - US-007
+- What was implemented: 工具路由评测集 + 脚本就绪（8 工具口径）。`data/agent_eval/routing.json` 24 条口语化用例（8 个工具各 3 条，字段 question/expected_tool，题面与 US-006 校准后的描述边界一一对应）。`backend/scripts/eval_agent_routing.py` 用真实工具 schema（`make_tools(None, None, None, ToolContext())` 只取描述）+ `build_chat_llm().bind(temperature=0).bind_tools(tools)`，每题**一次** LLM 调用，读返回消息首个 `tool_calls` 的工具名——**工具执行体全程不运行**（不查库、不检索）。产出 top-1 准确率 / 分工具命中率 / 混淆矩阵（期望 × 实际）/ 逐题明细 / 误选清单，写入 `data/agent_eval/report.md`。LLM 未配置（ValueError）或调用失败（402/超时）时以**退出码 2 中止且不写报告**，避免空报告被当成评测结果。可测性上把「一次 LLM 调用」抽成注入的 `ask(question) -> BaseMessage`，`run/summarize/confusion_matrix/build_report` 全是纯函数。
+- Files changed:
+  - `data/agent_eval/routing.json`（新增，24 条用例）
+  - `backend/scripts/eval_agent_routing.py`（新增评测脚本）
+  - `backend/tests/test_eval_agent_routing.py`（新增 10 项单测）
+  - `data/agent_eval/report.md`（真机跑通的基线报告，24/24 = 100%）
+  - `docs/Agent工具设计.md`（新增 §五「工具路由评测（准确率怎么量）」，原待办口径顺延为 §六）
+  - `AGENTS.md`（启动命令补 eval_agent_routing；v3.5 约定补「改工具描述/增删工具后必须跑路由评测」与 8 工具基线 24/24）
+  - `scripts/ralph/prd.json`（US-007 passes=true）
+- Quality checks: `ruff check .` all passed；`pytest -q` 203 passed（US-006 时 193，本次 +10）；`pytest tests/test_eval_agent_routing.py` 10 passed。全量跑完 kb 表被清空，已 `python -m scripts.seed_kb_preset` 恢复 7 条预置语料。真机跑通 `python -m scripts.eval_agent_routing`：DeepSeek 通道正常，8 工具口径 **24/24 = 100%**。
+- **Learnings for future iterations:**
+  - **ruff 的启用规则集比默认多**：`RUF100`（多余 noqa）/ `BLE001`（盲吞异常）/ `B008` / `SIM` 都在生效，但 **`E402` 没启用**。照 `scripts/eval_rag.py` 抄「`sys.path.insert` 后再 import」时**别加 `# noqa: E402`**，会直接被 RUF100 判红；吞异常照既有写法 `except Exception:  # noqa: BLE001  原因`。
+  - 路由评测不需要跑工具：`make_tools` 的返回值本身就是 LangChain 工具对象（带 schema 与描述），bind 给模型后读 `msg.tool_calls[0]["name"]` 即可；**db 传 None 也不会被执行**，脚本因此完全不碰业务数据。
+  - 让 CLI 脚本可测的关键是**把 LLM 调用抽成参数**：`run(cases, ask)` 里 `ask` 是 `(question) -> BaseMessage`；测试用替身模型（只需 `bind` / `bind_tools` / `invoke`）就能离线覆盖统计与报告。测 `main()` 则 monkeypatch `load_cases` + `REPORT_PATH`(tmp_path) + `build_chat_llm` 三件套，顺势把「LLM 挂了要非零退出且不落报告」也测了。
+  - 评测类脚本产出必须**防空报告**：任何中止路径（未配置 Key、调用异常）都要在不写文件的前提下退出非零，否则后一轮会拿空报告当基线对比。
+  - `AIMessage` 没走工具时 `tool_calls` 是空列表，要落一个 `NO_TOOL` 占位计入未命中，否则「模型直接回答」会被漏统计、准确率虚高。
+  - 真机跑通的**同时**把报告写进仓库，US-012 扩到 11 工具时可直接对比这条 8 工具基线（100%）。
 ---
