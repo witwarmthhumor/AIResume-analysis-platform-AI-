@@ -228,8 +228,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 13,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成：AgentChatCore.vue 新增组件内常量 TOOL_LABELS（11 个工具 + unknown_tool 占位）+ toolLabel(name) 回落原始名，「调用 X」改为「调用 中文名」；映射键与后端 make_tools 的 11 个工具名逐一对齐（脚本校验无缺失无多余）。验证方式：用 @vue/compiler-sfc 现场编译该 SFC 并 SSR 渲染带 5 条 toolSteps 的消息，输出确认为「调用 检索知识库 / 读取分析报告 / 点评我的回答 / 未知工具 / brand_new_tool（未收录名原样显示）」，英文工具名不再出现；npm run build 通过。"
     }
   ]
 }

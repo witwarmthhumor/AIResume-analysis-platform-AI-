@@ -47,6 +47,9 @@ Started: 2026-09-16
 - 测「入参截断」时填充字符要**避开提示词模板里已有的字**：「答」会撞上 `候选人的回答：` 让计数多 1（`2001 != 2000`），换模板里不存在的字（如「好」）或直接照 job_match 用例用 `x`。
 - **路由评测用例必须"自包含"**：单轮评测只发一句问法给模型，凡是"我贴一段 JD…""刚才那道题我是这样答的…"这类**引用本轮看不到内容**的问法，模型正确地选择"不调用工具"会被判误选 —— 写用例时把 JD 要求原文 / 回答原文写进问句里。
 - 模型"不调用工具"的三大根因（按出现频率）：① 描述里有劝退句（job_match 的"用户没贴 JD 时不要调用"让口语化岗位要求全部落空）② 用户话里的技术名词把它带跑（"Redis 缓存穿透…能得几分" → kb_search）③ 归属词误判（"这个平台" → platform_help）。修法都是在**描述里写清触发场景与反例**，而不是删参数。
+- **前端没有测试框架、也没有 lint**（`package.json` 只有 dev/build/preview），质量门禁就是 `npm run build`；但 vite build **不会**校验模板里引用的函数是否存在（`<script setup>` 绑定是运行时解析），改完必须另想办法验证渲染。
+- 离线验证单个 Vue 组件渲染的可行套路（无需浏览器）：`node` + `@vue/compiler-sfc`（`parse` → `compileScript`（**不要** inlineTemplate）→ `compileTemplate`）拼成一个临时 `.mjs` 写进组件同目录（相对 import 才不会断），再用 `createSSRApp` + `renderToString` 渲染。`compileScript` 必须**不带** `inlineTemplate`，否则 setup 返回的是 render 函数、拿不到绑定。
+- 想改组件内部状态做渲染验证：`<script setup>` 的绑定**不允许**从 mixin/beforeCreate 外部改（Vue 会 warn 并抛 "trap returned falsish"）。正确姿势是包一层组件 `setup(props, ctx) { const b = Comp.setup(props, ctx); b.messages.value = [...]; return b }` —— 绑定对象是 ref 集合，直接改 `.value`。
 - 描述校准的有效句式：「用户只用口语描述了岗位要求（例：这家公司要求熟悉 MySQL 和 K8s）**也算 JD**」「不要因为用户贴的回答里提到某个技术名词就去 kb_search」「问的是**收录范围**而非**操作入口**」——把判别标准而不是工具名写给模型，比堆砌"请用 X"有效。
 
 ## Log
@@ -285,5 +288,22 @@ Started: 2026-09-16
   - **路由评测用例必须自包含**：单轮只发一句问法，凡是引用上文内容（"我贴一段 JD…""刚才那道题…"）的问法，模型"不调用工具"其实是**正确**行为，却被判误选。这类用例要改写成自带原文，否则会一直污染准确率。
   - 首轮 81.8% 看着像"11 个工具太多导致模型记不住"，实际拆开看全是**可修的描述/用例问题**——先按工具维度看混淆矩阵（本次 job_match 0/3、answer_review 1/3），能立刻定位是描述问题还是容量问题，别急着下"要拆多 Agent"的结论。
   - `data/agent_eval/report.md` 每次跑都会**整体覆盖**，8 工具基线只存在于 git 历史与本报告里 —— 这也是加 `BASELINE` 常量的原因：以后对比不用翻 commit。
+  - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
+---
+
+## 2026-09-16 21:30 - US-013
+- What was implemented: 前端工具名中文化。`AgentChatCore.vue` 顶部新增组件内常量 `TOOL_LABELS`（11 个工具 + `unknown_tool` → 「未知工具」占位，后端 `executor.py:103` 在取不到工具名时确实会发这个名字）与回落函数 `toolLabel(name) { return TOOL_LABELS[name] || name }`，模板里「调用 {{ step.tool }}」改为「调用 {{ toolLabel(step.tool) }}」。中文名沿用各工具 docstring 的语义：检索知识库 / 查看简历原文 / 查看面试历史 / 查看分数趋势 / 查看用量统计 / 读取分析报告 / 列出知识库文档 / 平台功能说明 / 岗位匹配分析 / 生成面试题 / 点评我的回答。
+- Files changed:
+  - `frontend/src/components/agent/AgentChatCore.vue`（新增 `TOOL_LABELS` 常量 + `toolLabel` 助手；模板第 192 行改用中文名）
+  - `scripts/ralph/prd.json`（US-013 passes=true）
+  - `scripts/ralph/progress.txt`（Codebase Patterns 补 3 条）
+- Quality checks: `npm run build` 通过（vite 7.3.6，45 modules）。另做了两项额外校验 —— ① 「映射键 == 后端工具名」脚本比对：后端 `make_tools(None,None,None,ToolContext())` 取到 11 个工具名，与 `TOOL_LABELS` 的 12 个键（11 + unknown_tool）**无缺失、无多余**；② 真实渲染验证：用 `@vue/compiler-sfc` 现场编译该 SFC（`compileScript` 不带 inlineTemplate + `compileTemplate`）拼成临时模块，注入 5 条 toolSteps 后 SSR 渲染，输出为「调用 检索知识库（B+ 树）/ 读取分析报告 / 点评我的回答 / 未知工具 / brand_new_tool」，英文工具名不再出现，未收录名原样显示。探针脚本已删除，工作区干净。
+- **Learnings for future iterations:**
+  - **`npm run build` 不足以证明 Vue 模板改对了**：`<script setup>` 的绑定在运行时解析，模板里写了不存在的函数 build 也照样绿。本项目前端**没有测试框架、也没有 lint**（`package.json` 只有 dev/build/preview），所以前端改动要么真机看，要么像本次一样离线 SSR 渲染验证（套路已写进 Codebase Patterns）。
+  - 离线渲染单个 SFC 时，`compileScript` **绝对不要加 `inlineTemplate: true`** —— 那样 setup 返回 render 函数、绑定对象消失，只能拿到空 setupState（第一版探针卡在这里，渲染出的是欢迎页）。不带该选项时 setup 返回绑定集合，才有操作空间。
+  - **`<script setup>` 的绑定不能从外部改**：mixin 的 `beforeCreate` 里 `this.messages = [...]` 会被 Vue 拦下（warn "Cannot mutate <script setup> binding" + proxy trap 抛错）。要注入状态就包一层组件，在 `setup` 里调 `Comp.setup(props, ctx)` 拿到绑定后改 `bindings.messages.value`。
+  - 临时编译产物必须写在**组件同目录**：SFC 里的 `import ... from '../../api.js'` 是相对路径，写错目录会解析失败（已写进 Codebase Patterns）。
+  - `unknown_tool` 不是我臆想的占位：后端 `app/services/agent/executor.py:103` 在 `serialized.get("name")` 取空时真的会发这个名字，前端映射表里留着它有实际意义。
+  - 本次没有真机浏览器验证：环境里没装 `agent-browser`（需全局安装 + 下载 Chromium 约 500MB），且 print 模式下无法常驻后端/前端进程。**若需人工复核**：起三个容器 → 后端 `uvicorn app.main:app --port 8001`（用户的 vite.config.ts 代理目标已改成 8001）→ `npm run dev` → 在 AI 客服里问「我简历里写过 K8s 吗」，确认折叠区显示「调用 查看简历原文」。
   - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
 ---

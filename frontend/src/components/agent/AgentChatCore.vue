@@ -19,6 +19,27 @@ const error = ref('')
 const chatBox = ref(null)
 let currentSessionId = props.sessionId
 
+// 工具名 → 中文名（与后端 make_tools 的 11 个工具一一对应）
+// 不在表内的工具名原样显示，保证新增工具不会显示为空
+const TOOL_LABELS = {
+  kb_search: '检索知识库',
+  resume_lookup: '查看简历原文',
+  interview_history: '查看面试历史',
+  score_trend: '查看分数趋势',
+  usage_stats: '查看用量统计',
+  analysis_read: '读取分析报告',
+  kb_list: '列出知识库文档',
+  platform_help: '平台功能说明',
+  job_match: '岗位匹配分析',
+  question_gen: '生成面试题',
+  answer_review: '点评我的回答',
+  unknown_tool: '未知工具',
+}
+
+function toolLabel(name) {
+  return TOOL_LABELS[name] || name
+}
+
 async function scrollBottom() {
   await nextTick()
   if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight
@@ -168,7 +189,7 @@ const suggestions = ['synchronized 和 ReentrantLock 区别？', '什么是 RAG�
               <details open>
                 <summary>
                   <span class="ac-tool-badge">{{ step.running ? '⏳' : '🔧' }}</span>
-                  调用 {{ step.tool }}（{{ step.input }}）
+                  调用 {{ toolLabel(step.tool) }}（{{ step.input }}）
                 </summary>
                 <div v-if="step.preview" class="ac-tool-prev">{{ step.preview }}</div>
               </details>
