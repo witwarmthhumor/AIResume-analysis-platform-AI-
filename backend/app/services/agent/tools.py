@@ -9,6 +9,9 @@
 - ToolContext 回收本次命中的引用来源（citations），供 API 层随 done 事件回传前端；
   工具返回给 LLM 的是拼好的文本片段。
 - 工具内部吞掉检索类异常并返回自然语言说明，让 Agent 能换通用知识兜底，而不是整轮崩掉。
+- 工具内部自己还要调一次 LLM 的工具（job_match / question_gen / answer_review）统一走
+  _run_tool_llm：按 daily_agent_tool_llm_limit 单独限额、单独记 agent_tool_llm 用量，
+  与 Agent 主循环的 daily_agent_limit 分开，否则实际可用次数会莫名腰斩且无法归因。
 - 工具的 docstring 就是给模型看的"路由说明"，统一按「做什么 → 什么时候用 → 什么时候不用」
   三段写；易撞的工具要在"什么时候不用"里**互相点名**（见 docs/Agent工具设计.md 的易撞组合表）。
 
@@ -23,8 +26,10 @@
 8. platform_help      答"本平台自身功能怎么用"（纯静态文案，不查库不调模型）
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import TypeVar
 
 from langchain_core.tools import BaseTool, tool
 from sqlalchemy import and_, func, select
@@ -43,8 +48,11 @@ from app.services.kb_service import (
     search_chunks,
 )
 from app.services.lexical_service import tokenize
+from app.services.usage_service import count_today_usage_by_owner, write_usage
 
 logger = get_logger(__name__)
+
+_T = TypeVar("_T")
 
 # 单块内容回灌给 LLM 的最大字符数（5 块 × 约 300 字，控制 Agent 上下文体积）
 _TOOL_CHUNK_CHARS = 300
@@ -59,6 +67,13 @@ _TOOL_REPORT_ITEMS = 6
 _TOOL_REPORT_QUESTIONS = 5
 # 知识库清单最多列出的文档数（与 kb_max_documents_per_owner 同量级）
 _TOOL_KB_LIMIT = 20
+# 工具内部自带 LLM 调用的记账口径：与 Agent 主循环的 agent/agent_create 分开统计，
+# 上限独立走 settings.daily_agent_tool_llm_limit
+_TOOL_LLM_ACTION = "agent_tool_llm"
+_TOOL_LLM_LIMIT_REPLY = (
+    "今日工具内 AI 调用已达上限，这个功能今天暂时用不了（次日 0 点自动恢复）。"
+    "不要改用自己编造的内容代替，直接说明该功能今日次数已用完即可。"
+)
 
 # 知识库文档的状态与来源中文名（与前端知识库页的徽章口径一致）
 _KB_STATUS_LABELS = {
@@ -79,6 +94,7 @@ _ACTION_LABELS = {
     "chat_create": "新建对话",
     "agent": "AI 客服问答",
     "agent_create": "新建客服会话",
+    "agent_tool_llm": "工具内 AI 调用",
 }
 
 # 面试结束评价的分维度中文名（与 interview_prompts 的 JSON 结构一一对应）
@@ -282,6 +298,77 @@ def _platform_reply(topic: str) -> str:
             if any(alias in text for alias in aliases):
                 return reply
     return _PLATFORM_OVERVIEW
+
+
+def _tokens_total(result) -> int | None:
+    """取 ai_client.AnalysisResult 之类结果里的 token 合计；取不到就记 None。"""
+    prompt = getattr(result, "tokens_prompt", None)
+    completion = getattr(result, "tokens_completion", None)
+    if prompt is None and completion is None:
+        return None
+    return int(prompt or 0) + int(completion or 0)
+
+
+def _record_tool_llm_usage(
+    db: Session,
+    user_id: int | None,
+    anonymous_id: str | None,
+    tokens_total: int | None,
+) -> None:
+    """记一条 agent_tool_llm 用量并提交：Agent 后续崩了，这笔消耗也不能丢。
+
+    记账属于旁路，失败只告警（不抛、不回滚掉工具结果）；无归属者的账单没法归因，
+    直接不写，免得污染全站总量统计。
+    """
+    if user_id is None and anonymous_id is None:
+        return
+    try:
+        write_usage(
+            db,
+            anonymous_id,
+            user_id,
+            _TOOL_LLM_ACTION,
+            settings.ai_model,
+            tokens_total,
+            None,
+        )
+        db.commit()
+    except Exception:  # 记账失败不能拖垮工具本身
+        logger.warning("agent 工具内 LLM 用量记账失败", exc_info=True)
+        db.rollback()
+
+
+def _run_tool_llm(
+    db: Session,
+    user_id: int | None,
+    anonymous_id: str | None,
+    call: Callable[[], _T],
+) -> tuple[_T | None, str | None]:
+    """工具内调 LLM 的统一入口：当日限额 → 执行 → 记一条 agent_tool_llm 用量。
+
+    返回 (结果, 兜底话术)，两者只有一个非空：已超限时结果为 None、话术是上限提示，
+    调用方直接把它返回给模型即可；执行成功时结果为 call() 的返回值、话术为 None。
+
+    为什么要单独限额：工具内再调一次模型会让单次提问的实际消耗翻倍，跟主循环的
+    daily_agent_limit 混在一起就没法归因（docs/Agent工具设计.md §六）。
+
+    异常不在这里吞——"JD 太短""回答为空""服务欠费"要给的上下文话术各不相同，由各工具
+    自己 try/except 组织。**失败的调用不记账**（重试仍受主循环 daily_agent_limit 约束）。
+    """
+    try:
+        used = count_today_usage_by_owner(
+            db, _TOOL_LLM_ACTION, user_id=user_id, anonymous_id=anonymous_id
+        )
+    except Exception:  # 限额查不到时按不可用处理，不让整轮 Agent 崩
+        logger.exception("agent 工具内 LLM 限额查询失败")
+        return None, "工具内 AI 调用暂时不可用，请稍后再试。"
+
+    if used >= settings.daily_agent_tool_llm_limit:
+        return None, _TOOL_LLM_LIMIT_REPLY
+
+    result = call()
+    _record_tool_llm_usage(db, user_id, anonymous_id, _tokens_total(result))
+    return result, None
 
 
 def make_tools(

@@ -140,8 +140,8 @@
         "ruff check . 通过"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成：config 新增 daily_agent_tool_llm_limit=20（.env.docker.example 同步），tools.py 新增 _run_tool_llm(db, user_id, anonymous_id, call) 统一入口——先按 agent_tool_llm 查当日次数，达到上限即不调模型直接回「今日工具内 AI 调用已达上限」话术（limit=0 即关闭），放行则执行并记一条带 token 合计的 agent_tool_llm 用量后提交；异常由各工具自己兜（本层不吞），失败的调用不记账，无归属者不写不可归因的账，记账失败只告警不连累结果。计数/写入复用 usage_service 两个函数，daily_agent_limit 判定逻辑未动。新增 9 项单测，全量 211 项通过。"
     },
     {
       "id": "US-009",

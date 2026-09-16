@@ -14,8 +14,9 @@ kb_list / platform_help。
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 
+from app.core.config import settings
 from app.db.session import SessionLocal, engine
 from app.models.analysis import Analysis
 from app.models.interview import InterviewSession
@@ -23,6 +24,12 @@ from app.models.kb import KBChunk, KBDocument
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
 from app.services.agent import ToolContext, make_tools
+from app.services.agent.tools import (
+    _TOOL_LLM_ACTION,
+    _TOOL_LLM_LIMIT_REPLY,
+    _run_tool_llm,
+)
+from app.services.ai_client import AnalysisResult
 from app.services.prompts import PROMPT_VERSION
 
 _OWNER = "agent_tool_test_owner"
@@ -801,3 +808,150 @@ def test_confusable_tools_name_each_other(name: str, other: str) -> None:
 def test_descriptions_cover_every_tool() -> None:
     """上面的参数化清单要跟 make_tools 的实际返回一致，防止加了工具忘了补描述口径。"""
     assert set(_descriptions()) == set(_ALL_TOOLS)
+
+
+# —— 工具内 LLM 调用的独立限额与记账 ——
+# US-009~011 的 job_match / question_gen / answer_review 都走 _run_tool_llm，
+# 三个工具落地前先把它单独测透（这层只管"放不放行 + 记没记账"）。
+
+
+def _tool_llm_logs(db, anonymous_id: str = _OWNER) -> list[UsageLog]:
+    """取本人的 agent_tool_llm 用量行（正序）。"""
+    return list(
+        db.scalars(
+            select(UsageLog)
+            .where(
+                UsageLog.anonymous_id == anonymous_id,
+                UsageLog.action_type == _TOOL_LLM_ACTION,
+            )
+            .order_by(UsageLog.id.asc())
+        )
+    )
+
+
+def _fake_result(prompt: int = 120, completion: int = 80) -> AnalysisResult:
+    """替身：真实调用返回的就是 AnalysisResult，直接借它验 token 取数。"""
+    return AnalysisResult(
+        report={"ok": True},
+        valid=True,
+        model_name="deepseek-chat",
+        tokens_prompt=prompt,
+        tokens_completion=completion,
+        duration_ms=5,
+    )
+
+
+def test_run_tool_llm_calls_and_records_usage(db_session, monkeypatch) -> None:
+    """未超限：正常执行，并记一条带 token 合计的 agent_tool_llm 用量。"""
+    monkeypatch.setattr(settings, "daily_agent_tool_llm_limit", 3)
+    calls: list[int] = []
+
+    def call() -> AnalysisResult:
+        calls.append(1)
+        return _fake_result()
+
+    result, reply = _run_tool_llm(db_session, None, _OWNER, call)
+
+    assert reply is None
+    assert result is not None and result.report == {"ok": True}
+    assert calls == [1]
+    logs = _tool_llm_logs(db_session)
+    assert len(logs) == 1
+    assert logs[0].tokens_total == 200  # prompt + completion
+    assert logs[0].model_name == settings.ai_model
+
+
+def test_run_tool_llm_still_allowed_just_below_limit(db_session, monkeypatch) -> None:
+    """已用 = 上限 - 1 时还能用：只有达到上限才拦。"""
+    monkeypatch.setattr(settings, "daily_agent_tool_llm_limit", 3)
+    for _ in range(2):
+        _add_usage(db_session, _TOOL_LLM_ACTION, 100)
+
+    result, reply = _run_tool_llm(db_session, None, _OWNER, _fake_result)
+
+    assert reply is None and result is not None
+    assert len(_tool_llm_logs(db_session)) == 3
+
+
+@pytest.mark.parametrize("existing", [3, 5])
+def test_run_tool_llm_blocks_at_and_over_limit(
+    db_session, monkeypatch, existing: int
+) -> None:
+    """恰好达上限与超限都只回话术：不调模型（省钱）、不抛异常、不重复记账。"""
+    monkeypatch.setattr(settings, "daily_agent_tool_llm_limit", 3)
+    for _ in range(existing):
+        _add_usage(db_session, _TOOL_LLM_ACTION, 100)
+    calls: list[int] = []
+
+    def call() -> str:
+        calls.append(1)
+        return "不该被调用"
+
+    result, reply = _run_tool_llm(db_session, None, _OWNER, call)
+
+    assert result is None
+    assert reply is not None and "今日工具内 AI 调用已达上限" in reply
+    assert calls == []  # 关闸的关键：超限时一次模型都不调
+    assert len(_tool_llm_logs(db_session)) == existing
+
+
+def test_run_tool_llm_disabled_by_zero_limit(db_session, monkeypatch) -> None:
+    """daily_agent_tool_llm_limit=0 即关闭工具内模型调用，一次都放不出去。"""
+    monkeypatch.setattr(settings, "daily_agent_tool_llm_limit", 0)
+
+    result, reply = _run_tool_llm(db_session, None, _OWNER, _fake_result)
+
+    assert result is None
+    assert reply == _TOOL_LLM_LIMIT_REPLY
+    assert _tool_llm_logs(db_session) == []
+
+
+def test_run_tool_llm_swallows_limit_query_error(db_session, monkeypatch) -> None:
+    """限额查询本身出错时给兜底话术，不向上抛（抛了整轮 Agent 就崩）。"""
+    monkeypatch.setattr(settings, "daily_agent_tool_llm_limit", 3)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(
+        "app.services.agent.tools.count_today_usage_by_owner", _boom
+    )
+
+    result, reply = _run_tool_llm(db_session, None, _OWNER, _fake_result)
+
+    assert result is None
+    assert reply is not None and "暂时不可用" in reply
+
+
+def test_run_tool_llm_survives_usage_write_failure(db_session, monkeypatch) -> None:
+    """记账是旁路：写不进库也要照常返回结果，不能连累功能本身。"""
+    monkeypatch.setattr(settings, "daily_agent_tool_llm_limit", 3)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("write failed")
+
+    monkeypatch.setattr("app.services.agent.tools.write_usage", _boom)
+
+    result, reply = _run_tool_llm(db_session, None, _OWNER, _fake_result)
+
+    assert reply is None and result is not None
+    assert _tool_llm_logs(db_session) == []
+
+
+def test_run_tool_llm_works_without_identity(db_session, monkeypatch) -> None:
+    """出题这类工具不查个人数据，无身份也要能用；无归属者的账写不了，直接不写。"""
+    monkeypatch.setattr(settings, "daily_agent_tool_llm_limit", 3)
+
+    result, reply = _run_tool_llm(db_session, None, None, _fake_result)
+
+    assert reply is None and result is not None
+    assert _tool_llm_logs(db_session) == []
+
+
+def test_usage_stats_labels_tool_llm_action(db_session) -> None:
+    """工具内 LLM 调用在用量统计里要有中文名，不能把英文 action_type 直接甩给用户。"""
+    _add_usage(db_session, _TOOL_LLM_ACTION, 300)
+
+    out = _tool(db_session, "usage_stats").invoke({"days": 7})
+
+    assert "工具内 AI 调用：1 次，300 tokens" in out

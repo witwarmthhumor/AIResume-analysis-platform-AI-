@@ -26,7 +26,10 @@ Started: 2026-09-16
 - 工具 `description` 要三段式（做什么 / 什么时候用 / 什么时候**不**用），易撞的工具互相点名排他（如 `kb_search` ↔ `platform_help`、`resume_lookup` ↔ `analysis_read`）。
 - 描述的可校验写法：统一用**中文冒号小标题**「什么时候用：」「什么时候不用：」当锚点，测试断言 `len(description) > 50` 且两个锚点都在；再加一条「参数化清单 == `make_tools` 实际返回」的测试，新增工具漏写描述会直接红。
 - 改描述属于**纯 docstring 改动**，不影响任何工具行为：断言描述不需要数据库，`make_tools(None, None, None, ToolContext())` 取 `.description` 即可（与 US-005 证明静态工具不查库同一手法）。
-- ⚠️ ruff 实际启用的是**扩展规则集**（含 `RUF100` / `BLE001` / `B008` / `SIM`），但 **`E402` 未启用**：照 `scripts/eval_rag.py` 写 `sys.path.insert` 后再 import 时**不要加 `# noqa: E402`**（会被 RUF100 判为多余指令）；吞异常一律写 `except Exception:  # noqa: BLE001  原因`，与既有代码一致。
+- ⚠️ ruff 实际启用的是**扩展规则集**（含 `RUF100` / `BLE001` / `B008` / `SIM` / `S110`），但 **`E402` 未启用**：照 `scripts/eval_rag.py` 写 `sys.path.insert` 后再 import 时**不要加 `# noqa: E402`**（会被 RUF100 判为多余指令）。
+- ⚠️ **`BLE001`（盲吞异常）的免死金牌是"带堆栈地记日志"**：`logger.exception(...)` 或 `logger.warning(..., exc_info=True)` 的处理器**不报**；纯 `return`/赋值/`logger.warning("x")`（无 `exc_info`）才报——`app/main.py:89`、`app/db/session.py:38` 属于后者所以才要 `# noqa: BLE001`。tools.py 里最常见的 `except Exception:` + `logger.exception(...)` + `return 文案` 写法**千万别加 noqa**（反被 RUF100 判为多余）。判据永远是直接跑 `ruff check <文件>`，别照抄别处。
+- 工具内部要调模型的场景统一走 `_run_tool_llm(db, user_id, anonymous_id, call)`：返回 `(结果, 兜底话术)` 两者只有一个非空；**超限/`limit=0` 时连 `call` 都不执行**（这是省钱的关闸）；异常不在这一层吞（"JD 太短""回答为空""服务欠费"话术各不相同，由工具自己 try/except）；**成功才记账**（写 `agent_tool_llm` 并 commit）；无归属者不写账。新工具要调模型必须走它，否则限流与成本统计会漏。
+- 新增 `action_type` 时记得同步 `tools.py` 的 `_ACTION_LABELS`，否则 `usage_stats` 会把英文枚举直接甩给用户。
 - 写可测脚本（CLI 评测类）的套路：把「一次 LLM 调用」抽成注入的 `ask: (question) -> BaseMessage`，`run(cases, ask)` 只做纯统计；测试里用**替身模型**（只需实现 `bind` / `bind_tools` / `invoke` 三个方法返回 `AIMessage(tool_calls=[...])`）即可离线覆盖。测 `main()` 时 monkeypatch 三件套：`load_cases` / `REPORT_PATH`(tmp_path) / `build_chat_llm`。
 - 路由评测只需**工具 schema**，不要执行工具：`make_tools(None, None, None, ToolContext())` 拿描述 → `build_chat_llm().bind(temperature=0).bind_tools(tools)` → 读 `msg.tool_calls[0]["name"]`；模型直接文字作答时用 `NO_TOOL` 占位计入未命中。
 
@@ -155,4 +158,28 @@ Started: 2026-09-16
   - 评测类脚本产出必须**防空报告**：任何中止路径（未配置 Key、调用异常）都要在不写文件的前提下退出非零，否则后一轮会拿空报告当基线对比。
   - `AIMessage` 没走工具时 `tool_calls` 是空列表，要落一个 `NO_TOOL` 占位计入未命中，否则「模型直接回答」会被漏统计、准确率虚高。
   - 真机跑通的**同时**把报告写进仓库，US-012 扩到 11 工具时可直接对比这条 8 工具基线（100%）。
+---
+
+## 2026-09-16 11:35 - US-008
+- What was implemented: 工具内 LLM 调用的**独立限额与记账**（批次 2 的硬前置，本 story 不新增工具）。`config.py` 新增 `daily_agent_tool_llm_limit: int = 20`（`.env.docker.example` 同步 `DAILY_AGENT_TOOL_LLM_LIMIT=20`）；`tools.py` 新增模块级统一入口 `_run_tool_llm(db, user_id, anonymous_id, call)`：查当日 `agent_tool_llm` 次数 → 达到上限（含 `limit=0`，等于关闭）就 **不执行 call** 直接返回「今日工具内 AI 调用已达上限」话术 → 放行则执行并记一条带 token 合计的 `agent_tool_llm` 用量后 commit。辅助函数 `_tokens_total(result)` 用 `getattr` 取 `AnalysisResult` 的 prompt/completion 合计（非该类型记 None），`_record_tool_llm_usage(...)` 专管记账。计数/写入复用 `usage_service.count_today_usage_by_owner` / `write_usage`，**没写新 SQL，也没动 `daily_agent_limit` 的判定**。`_ACTION_LABELS` 补 `agent_tool_llm → 工具内 AI 调用`，避免用量统计把英文枚举甩给用户。
+- Files changed:
+  - `backend/app/core/config.py`（新增 `daily_agent_tool_llm_limit=20`）
+  - `backend/.env.docker.example`（同步该配置项）
+  - `backend/app/services/agent/tools.py`（导入 `Callable`/`TypeVar`/usage_service 两函数；新增 `_TOOL_LLM_ACTION` / `_TOOL_LLM_LIMIT_REPLY` 常量、`_T` TypeVar、`_tokens_total` / `_record_tool_llm_usage` / `_run_tool_llm` 三个助手；`_ACTION_LABELS` 补一条；模块 docstring「设计要点」补一段）
+  - `backend/tests/test_agent_tools.py`（新增 9 项：未超限执行并记账、未达上限（=上限-1）放行、恰好达上限与超限（参数化 3/5）拦下且不调模型不多记账、limit=0 关闭、限额查询抛错兜底不抛、记账写库失败不连累结果、无身份可跑但不写不可归因的账、usage_stats 显示中文动作名）
+  - `docs/Agent工具设计.md`（§六「待办口径」改写为已实现的「工具内 LLM 调用的限额与记账」）
+  - `AGENTS.md`（v3.5 约定补「工具内部要调模型的必须走 tools._run_tool_llm」）——**该文件被 `.gitignore:29` 忽略，属本地手册，改动不会进提交**
+  - `scripts/ralph/progress.txt`（Codebase Patterns 修正 BLE001 误传 + 新增两条工具限额/记账模式）
+  - `scripts/ralph/prd.json`（US-008 passes=true）
+- Quality checks: `ruff check .` all passed；`pytest -q` 211 passed（US-007 时 203，本次 +8 后追加 1 项 → `test_agent_tools.py` 63 → 72）；`pytest tests/test_agent_tools.py` 72 passed。全量跑完 kb 表被清空，已 `python -m scripts.seed_kb_preset` 恢复 7 条预置语料（111 块），并复查开发库 `agent_tool_llm` 残留行数 = 0。
+- **Learnings for future iterations:**
+  - ⚠️ **修正 US-002/US-007 里"吞异常一律加 `# noqa: BLE001`"的说法——那条是错的**，照做会立刻被 `RUF100` 判为多余指令。实测规律：`BLE001`（盲吞异常）**只要处理器带堆栈地记了日志就免报**——`logger.exception(...)` 或 `logger.warning(..., exc_info=True)` 都不报；纯 `return`/赋值、或 `logger.warning("x")`（无 `exc_info`）才报（`app/main.py:89`、`app/db/session.py:38` 是后者，所以才要 noqa）。tools.py 里惯用的 `except Exception:` + `logger.exception(...)` + `return 文案` **不要加 noqa**。判据永远是当场跑 `ruff check <文件>`，别照抄别处（已在 Codebase Patterns 记录）。
+  - `ruff check --select BLE001` 单独跑会**什么都报不出来**（`--isolated` 也一样），必须跑项目配置下的完整 `ruff check <文件>` 才看得到真实结果——排查规则行为时别用 `--select` 缩小范围。
+  - 记录一个排查方法：想知道某条规则到底什么时候触发，就**在 backend/ 下造一个探针 .py**（放 5 个变体函数）跑 `ruff check ./_probe.py --output-format concise`，看行号定位，比读文档快且准。
+  - **限额闸门要"省钱的关闸"**：超限时**连 `call` 都不执行**（测试里用 `calls == []` 断言），只查库不调模型；否则"限额"只是话术、钱照花。
+  - 记账是旁路：`write_usage` + `db.commit()` 包在 `try/except` 里，失败只告警 + `db.rollback()`，**不能让记账故障毁掉工具结果**（与 `app/api/agent.py` 的 `_log_usage` 同一取舍，但工具层得自己 commit——Agent 主循环可能随后 fatal，不 commit 这笔账就丢了）。
+  - **无归属者（user_id 与 anonymous_id 皆空）不写账**：`count_today_usage_by_owner` 对空身份返回 0（永不超限），`write_usage` 却会写出一条两者皆空的日志，既没法归因又会污染全站总量统计。这类行还有一个副作用：测试 `_purge` 按 `anonymous_id IN (...)` 清不掉，会永久留在开发库（与 US-004 的 public 文档同一类坑）。
+  - 「哪些工具不需要身份」的判据这次又多一个反例：`platform_help`（静态）/`kb_search`/`kb_list`（只含公共语料）之外，**`question_gen` 这类不查个人数据但会调模型的工具也不需要身份**——所以 `_run_tool_llm` 第一参数就显式收 `user_id, anonymous_id`，不套 `_owner_filter`。
+  - 新增 `action_type` 一定要同步 `_ACTION_LABELS`，否则 `usage_stats` 输出的就是英文枚举；这条已写进 Codebase Patterns。
+  - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
 ---

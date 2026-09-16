@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     agent_history_turns: int = (
         10  # 多轮对话带入上下文的最近消息轮数（user+assistant 各一为一轮）
     )
+    # 工具内部自己还要调一次 LLM 的工具（job_match / question_gen / answer_review）
+    # 单独限额：与 daily_agent_limit 混在一起会让实际可用次数莫名腰斩且无法归因
+    # （见 docs/Agent工具设计.md §六）。设 0 即关闭这类工具内部的模型调用。
+    daily_agent_tool_llm_limit: int = 20  # 每人每日「工具内 AI 调用」次数上限
 
     # 知识库上传配额：上传会触发切块+批量向量化（消耗 Ollama 资源），需与提问同等级别的限额
     daily_kb_upload_limit: int = 10  # 每人每日上传文档次数上限（按归属者统计）

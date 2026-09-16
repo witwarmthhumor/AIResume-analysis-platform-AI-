@@ -155,8 +155,21 @@ Router → Service → Model 单向依赖，反向引用会让路由层无法独
 
 ---
 
-## 六、待办口径
+## 六、工具内 LLM 调用的限额与记账（已实现）
 
-- 新增工具若调用 LLM（`job_match` / `answer_review`），**必须计入 `usage_logs`**，否则限流与成本统计会漏。
-- 现有 `daily_agent_limit=30` 是按"单 Agent 单轮"定的；工具内部再调 LLM 会让实际消耗翻倍，**扩到 10 个工具时需重算限额口径**。
+工具内部自己要调模型的三个工具（`job_match` / `question_gen` / `answer_review`）
+**统一走 `_run_tool_llm(db, user_id, anonymous_id, call)`**，它按顺序做三件事：
+
+1. **限额**：查当日 `agent_tool_llm` 次数，达到 `daily_agent_tool_llm_limit`（默认 20）就
+   **不调模型**直接返回话术（`_TOOL_LLM_LIMIT_REPLY`）；`limit=0` 即关闭这类调用。
+2. **执行**：放行后调 `call()`。异常**不在这里吞**——"JD 太短""回答为空""服务欠费"要给的
+   上下文话术各不相同，由各工具自己 `try/except` 组织，保证不向上抛。
+3. **记账**：成功后记一条 `agent_tool_llm` 用量（含 prompt+completion 合计）并提交，
+   这样 Agent 后续崩了这笔消耗也不会丢。记账失败只告警，不连累工具返回结果。
+
+- 与 Agent 主循环的 `daily_agent_limit`(30) **分开计**：单次提问若触发工具内模型调用，
+  实际消耗是主循环的两倍，混在一起无法归因，也会让实际可用次数莫名腰斩。
+- **失败的调用不记账**（重试仍受主循环 `daily_agent_limit` 约束）；
+  识别不到归属者时也不写账（没法归因，免得污染全站总量统计）。
+- 新增工具若调用 LLM，**必须复用 `_run_tool_llm`**，否则限流与成本统计会漏。
 - 新增提示词（`job_match` / `answer_review`）必须递增各自的 `PROMPT_VERSION`，旧结果不复用。
