@@ -753,3 +753,51 @@ def test_kb_search_and_platform_help_are_mutually_exclusive(db_session) -> None:
 
     assert "platform_help" in tools["kb_search"].description
     assert "kb_search" in tools["platform_help"].description
+
+
+# —— 工具描述互斥性（8 个工具统一口径）——
+
+_ALL_TOOLS = (
+    "kb_search",
+    "resume_lookup",
+    "interview_history",
+    "score_trend",
+    "usage_stats",
+    "analysis_read",
+    "kb_list",
+    "platform_help",
+)
+
+
+def _descriptions() -> dict:
+    """描述是静态的，db 传 None 即可（顺带证明取描述不需要数据库）。"""
+    return {t.name: t.description for t in make_tools(None, None, None, ToolContext())}
+
+
+@pytest.mark.parametrize("name", _ALL_TOOLS)
+def test_tool_description_has_three_parts(name: str) -> None:
+    """每个工具都要说清「做什么 / 什么时候用 / 什么时候不用」，且描述不能太短。"""
+    desc = _descriptions()[name]
+
+    assert len(desc) > 50
+    assert "什么时候用" in desc
+    assert "什么时候不用" in desc
+
+
+@pytest.mark.parametrize(
+    ("name", "other"),
+    [
+        ("kb_search", "platform_help"),
+        ("platform_help", "kb_search"),
+        ("resume_lookup", "analysis_read"),
+        ("analysis_read", "resume_lookup"),
+    ],
+)
+def test_confusable_tools_name_each_other(name: str, other: str) -> None:
+    """易撞组合必须互指：只说"我干啥"不够，模型还需要知道"别用我、用谁"。"""
+    assert other in _descriptions()[name]
+
+
+def test_descriptions_cover_every_tool() -> None:
+    """上面的参数化清单要跟 make_tools 的实际返回一致，防止加了工具忘了补描述口径。"""
+    assert set(_descriptions()) == set(_ALL_TOOLS)

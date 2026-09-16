@@ -24,6 +24,8 @@ Started: 2026-09-16
 - 开发库长期有 7 篇预置语料，凡「空库 / 精确条数」类断言都会被它干扰：要么只断言与总数无关的片段（如「仅显示前 20 篇」），要么 monkeypatch 掉查询函数隔离验证。
 - **纯静态工具（如 `platform_help`）用同一套「别名元组 → 文案」路由**：对 topic 与别名都做小写化再判包含，**别名顺序即优先级**（具体主题排前，防泛词抢匹配），空 topic 或全不命中回落总览；这类工具不查库，`db` 传 `None` 也能跑通。
 - 工具 `description` 要三段式（做什么 / 什么时候用 / 什么时候**不**用），易撞的工具互相点名排他（如 `kb_search` ↔ `platform_help`、`resume_lookup` ↔ `analysis_read`）。
+- 描述的可校验写法：统一用**中文冒号小标题**「什么时候用：」「什么时候不用：」当锚点，测试断言 `len(description) > 50` 且两个锚点都在；再加一条「参数化清单 == `make_tools` 实际返回」的测试，新增工具漏写描述会直接红。
+- 改描述属于**纯 docstring 改动**，不影响任何工具行为：断言描述不需要数据库，`make_tools(None, None, None, ToolContext())` 取 `.description` 即可（与 US-005 证明静态工具不查库同一手法）。
 
 ## Log
 
@@ -110,5 +112,24 @@ Started: 2026-09-16
   - 帮助类文案的准确性必须回前端核对**入口层级与可见性**：第一版我写「首页右下角也有悬浮入口」，核对 `App.vue` 才发现 `AgentWidget` 是 `v-if="isAdmin"`（管理端专属），用户端只有左侧导航整页入口。写这类文案前先 grep 导航项与入口的 `v-if` 条件。
   - 文案里的数字/上限从 `settings` 取（如 `settings.max_interview_turns`）而不是写死字面量，否则改配置后文案会撒谎；本项目硬事实来源：上传限 5MB/5 页仅文本 PDF（`app/api/resumes.py` + `config.upload_max_size/_max_pages`）、单场面试 10 轮（`config.max_interview_turns`）、四维评分中文名在 `_SCORE_LABELS`。
   - 断言「命中主题 vs 回落总览」用总览里的**独有标记**（本次用 `_OVERVIEW_MARK = "主要功能："`），比断言整段文案好维护；主题用例用 `@pytest.mark.parametrize` 一次覆盖 9 个主题。
+  - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
+---
+
+## 2026-09-16 15:00 - US-006
+- What was implemented: 工具描述互斥性校准（**纯 docstring 改动，不动任何行为逻辑**）。8 个工具的 docstring 统一改成四段式——「一句摘要（做什么）→ 空行 → `什么时候用：` → `什么时候不用：` → 入参说明」，两个中文冒号小标题作为机器可校验锚点。原本缺「什么时候不用」的三个工具补齐：`resume_lookup`（分析结论 → analysis_read）、`interview_history`（跨场趋势 → score_trend、功能入口 → platform_help）、`usage_stats`（入口说明 → platform_help、条数 → resume_lookup/interview_history）。互指覆盖：kb_search ↔ platform_help、resume_lookup ↔ analysis_read、kb_search ↔ kb_list、score_trend ↔ interview_history、platform_help ↔ 个人数据四件套。
+- Files changed:
+  - `backend/app/services/agent/tools.py`（8 个工具 docstring 重写为四段式；模块 docstring「设计要点」补一条描述规范；函数体一行未动）
+  - `backend/tests/test_agent_tools.py`（新增 13 项：8 项参数化三段式断言、4 项参数化易撞互指、1 项「清单 == make_tools 返回」一致性断言）
+  - `docs/Agent工具设计.md`（§四 描述写作规范补「落地口径」：四段式模板 + 两条守门测试；易撞组合表从 4 对扩到 6 对）
+  - `scripts/ralph/prd.json`（US-006 passes=true）
+- Quality checks: `ruff check .` all passed；`pytest -q` 193 passed（US-005 时 180，本次 +13）；`pytest tests/test_agent_tools.py` 63 passed。全量跑完 kb 表被清空，已 `python -m scripts.seed_kb_preset` 恢复 7 条预置语料。另用脚本打印 8 个工具的 `description`，逐条确认长度 218~357 字符且两段锚点齐全。
+- **Learnings for future iterations:**
+  - **描述要能被测试断言，就得有固定锚点**：自由段落（如原来的「当用户问……时调用」）没法断言，统一用「什么时候用：」「什么时候不用：」两个中文冒号小标题后，测试只写 `in` 判断即可，以后加工具自动被守门覆盖。
+  - 光断言「长度 > 50」会漏掉「加了工具但没补描述」的情况——必须再加一条**集合相等**测试（`set(_descriptions()) == set(_ALL_TOOLS)`），否则新工具悄悄逃过校准。
+  - 取工具描述**不需要数据库**：`make_tools(None, None, None, ToolContext())` 直接读 `.description`，比建 db session 快，也顺带说明描述是静态的（与 US-005「db 传 None 证明静态」同一手法）。
+  - 写「什么时候不用」时最容易漏的是**半公共撞车**：`usage_stats`（本人真实用量数字）vs `platform_help`（"在哪看用量"的入口说明）就是典型，两者字面都含「用量」但语义完全不同；同理 `platform_help` 与四个个人数据工具（静态说明 vs 真实数据）也要划清。
+  - 改 docstring 也会影响 LangChain 的行为契约：`@tool` 默认把**整个 docstring** 当 `description`（本项目没有 Google 风格 `Args:` 段，所以不会被拆分）。写描述时别引入 `Args:` 之类的分段标题，否则描述被截断、入参说明也丢了。
+  - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
+---
   - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
 ---

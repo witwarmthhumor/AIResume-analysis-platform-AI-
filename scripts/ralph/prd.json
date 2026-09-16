@@ -104,8 +104,8 @@
         "ruff check . 通过"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成：8 个工具的 docstring 统一为「摘要 → 什么时候用：→ 什么时候不用：→ 入参说明」四段式，两个中文小标题固定作为机器可校验的锚点；resume_lookup / interview_history / usage_stats 补上了原本缺失的「什么时候不用」，kb_search ↔ platform_help、resume_lookup ↔ analysis_read 两组互相点名。新增 13 项描述守门测试（8 项三段式 + 4 项互指 + 1 项清单与 make_tools 一致性），全量 193 项通过。"
     },
     {
       "id": "US-007",
