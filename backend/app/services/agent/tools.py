@@ -15,6 +15,7 @@
 2. resume_lookup      查当前用户自己的简历（有哪些、正文里有没有提到某关键词）
 3. interview_history  查当前用户自己的模拟面试记录与分维度评分
 4. usage_stats        查当前用户自己的平台用量（近 N 天各动作次数与 token）
+5. analysis_read      读当前用户某份简历的 AI 分析结论（复用 analysis_service 的查询）
 """
 
 from dataclasses import dataclass, field
@@ -29,6 +30,7 @@ from app.core.logging import get_logger
 from app.models.interview import InterviewSession
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
+from app.services.analysis_service import latest_valid_analysis
 from app.services.embedding_service import embed_texts
 from app.services.kb_service import search_chunks
 from app.services.lexical_service import tokenize
@@ -40,6 +42,10 @@ _TOOL_CHUNK_CHARS = 300
 # 列表类工具单次返回条数上限与片段宽度
 _TOOL_LIST_LIMIT = 5
 _TOOL_SNIPPET_WIDTH = 80
+# 分析报告回灌给 LLM 的体积控制：总长上限 + 每类列表条数（预测面试题单独再收窄）
+_TOOL_REPORT_CHARS = 800
+_TOOL_REPORT_ITEMS = 6
+_TOOL_REPORT_QUESTIONS = 5
 
 # 用量动作的中文名（与前端使用日志的徽章映射保持一致）
 _ACTION_LABELS = {
@@ -99,6 +105,16 @@ def _snippet(text: str, keyword: str, width: int = _TOOL_SNIPPET_WIDTH) -> str |
         suffix = "…" if end < len(haystack) else ""
         return f"{prefix}{haystack[start:end].replace(chr(10), ' ')}{suffix}"
     return None
+
+
+def _as_items(value, limit: int) -> list[str]:
+    """把报告里的数组字段拍平成非空字符串列表（模型偶尔会给单个字符串）。"""
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    items = [str(item).strip() for item in value]
+    return [item for item in items if item][:limit]
 
 
 def make_tools(
@@ -296,4 +312,84 @@ def make_tools(
         lines.append(f"合计消耗 {total_tokens} tokens。")
         return "\n".join(lines)
 
-    return [kb_search, resume_lookup, interview_history, usage_stats]
+    @tool
+    def analysis_read(resume_hint: str) -> str:
+        """读取当前用户某份简历的 AI 分析**结论**（目标岗位、岗位匹配、优势、短板、
+        关键词缺口、改进建议、预测面试题）。当用户问"我的分析报告说了什么"
+        "上次分析的结论/评价""我简历的短板是什么"时调用。
+        入参 resume_hint 是简历文件名或其片段；传空字符串表示最近上传的一份。
+        本工具给的是 AI 对简历的**结论**；要看简历**原文**（有没有写过某技能/项目）
+        请用 resume_lookup。平台功能使用问题请用 platform_help，不要用本工具。"""
+        owner = _owner_filter(Resume, user_id, anonymous_id)
+        if owner is None:
+            return "当前会话无法识别用户身份，查不到个人分析报告。请提示用户先登录后再提问。"
+
+        try:
+            rows = (
+                db.scalars(
+                    select(Resume)
+                    .where(Resume.deleted_at.is_(None), owner)
+                    .order_by(Resume.created_at.desc(), Resume.id.desc())
+                )
+                .all()
+            )
+        except Exception:
+            logger.exception("agent analysis_read 简历查询失败")
+            return "分析报告查询暂时出错，请稍后再试。"
+
+        if not rows:
+            return "该用户名下没有已上传的简历。可提示用户到首页上传一份 PDF 简历并做一次 AI 分析后再来提问。"
+
+        # LLM 手上只有文件名（甚至只是记忆里的片段），不是主键，只能按文件名包含匹配
+        hint = (resume_hint or "").strip()
+        if hint:
+            matched = [r for r in rows if hint.lower() in (r.filename or "").lower()]
+            if not matched:
+                names = "、".join(r.filename for r in rows[:_TOOL_LIST_LIMIT])
+                return (
+                    f"未找到文件名包含「{hint}」的简历。该用户名下实际有：{names}。"
+                    "请让用户确认文件名后再问一次。"
+                )
+            target = matched[0]
+        else:
+            target = rows[0]
+
+        try:
+            analysis = latest_valid_analysis(db, target.id)
+        except Exception:
+            logger.exception("agent analysis_read 报告查询失败")
+            return "分析报告查询暂时出错，请稍后再试。"
+
+        report = analysis.result_json if analysis is not None else None
+        if not isinstance(report, dict) or not report:
+            return (
+                f"简历「{target.filename}」还没有分析报告（或报告未通过校验）。"
+                "可提示用户到报告页发起一次 AI 分析后再来提问。"
+            )
+
+        lines = [f"简历「{target.filename}」的 AI 分析结论："]
+        position = str(report.get("target_position") or "").strip()
+        if position:
+            lines.append(f"目标岗位：{position}")
+        match = str(report.get("position_match") or "").strip()
+        if match:
+            lines.append(f"岗位匹配：{match}")
+        for key, label in (
+            ("strengths", "优势"),
+            ("weaknesses", "短板"),
+            ("keyword_gaps", "关键词缺口"),
+            ("suggestions", "改进建议"),
+        ):
+            items = _as_items(report.get(key), _TOOL_REPORT_ITEMS)
+            if items:
+                lines.append(f"{label}：" + "；".join(items))
+        questions = _as_items(report.get("predicted_questions"), _TOOL_REPORT_QUESTIONS)
+        if questions:
+            lines.append("预测面试题：" + "；".join(questions))
+
+        text = "\n".join(lines)
+        if len(text) > _TOOL_REPORT_CHARS:
+            return text[: _TOOL_REPORT_CHARS - 1] + "…"
+        return text
+
+    return [kb_search, resume_lookup, interview_history, usage_stats, analysis_read]

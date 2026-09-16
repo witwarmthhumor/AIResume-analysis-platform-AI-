@@ -16,6 +16,9 @@ Started: 2026-09-16
 - 测试要在 `backend/` 目录下跑（`.env` 相对当前目录读）；新测试用专属标记只清自己造的数据，不要 `DELETE FROM` 全表。
 - ⚠️ 跑全量 pytest 会清空 `kb_chunks` / `kb_documents`（老 `tests/test_rag.py` fixture 行为），跑完需 `python -m scripts.seed_kb_preset` 恢复语料。
 - 前端零图表库、零 UI 框架：可视化一律手写 SVG/CSS；组件内映射表用常量 + 回落原始值（参考 `HistoryView.vue` 的 `actionMap`）。
+- **准入检查只有 `ruff check .`**：`ruff format --check` 对 `tools.py` 等既有文件本来就报警（HEAD 即如此），是前格式化时代留下的。**别顺手整文件格式化**（会造出大量与 story 无关的 diff），按邻近代码风格写即可。
+- 工具在 `services/` 层**不得 import `app/api/`**（项目是 Router → Service → Model 单向依赖）。需要复用接口层查询时，先把它下沉成 service 函数，接口与工具都调那一份，不要复制 SQL。
+- `created_at` 是 `server_default=func.now()`（事务开始时间），**同一事务插入的多行时间戳可能完全相同**——所有「取最近 N 条」查询必须带 `id desc` 兜底排序。
 - ⚠️ 开跑 pytest 前先确认 Docker Desktop 起来了：本项目容器是**已存在但 stopped**，用 `docker start ai-interview-db ai-interview-redis ai-interview-ollama`；`docker compose up -d` 会报 name conflict。DB 没起时 pytest 会**挂住不报错**（连接超时很长），别误判成死循环。
 
 ## Log
@@ -33,4 +36,22 @@ Started: 2026-09-16
   - `api/analyses.py` 里 `select` / `Analysis` / `Session` / `PROMPT_VERSION` 仍被 `list_resume_analyses`、`_to_out`、`_get_owned_resume` 用到，删函数后不要顺手删这些 import。
   - `latest_valid_analysis` 只服务「可复用」语义；v3.5 的版本对比接口是**另写查询、故意不过滤 prompt_version** 的，不要为了复用去放宽这个函数的条件。
   - 工作区里 `frontend/vite.config.ts` 有一处用户未提交的本地改动（后端端口 8000→8001），与本次 story 无关，**未纳入本次提交**。
+---
+
+## 2026-09-16 11:30 - US-002
+- What was implemented: 新增第 5 个工具 `analysis_read(resume_hint)`——读当前用户某份简历的 AI 分析**结论**。身份闭包捕获 → 查本人未软删简历（`created_at desc, id desc`）→ hint 为空取最近一份、非空按文件名不区分大小写包含匹配、不匹配则列出实际文件名 → 复用 `analysis_service.latest_valid_analysis` 取有效报告（valid_json=True + 当前 PROMPT_VERSION）→ 渲染目标岗位/岗位匹配/优势/短板/关键词缺口/改进建议/预测面试题，总长截到 800 字符、预测题最多 5 条。
+- Files changed:
+  - `backend/app/services/agent/tools.py`（新增 `_as_items` 拍平助手、`_TOOL_REPORT_CHARS/_TOOL_REPORT_ITEMS/_TOOL_REPORT_QUESTIONS` 常量、`analysis_read` 工具；`make_tools` 返回列表尾部追加，**kb_search 仍在下标 0**；模块 docstring 工具清单补第 5 项）
+  - `backend/tests/test_agent_tools.py`（清表范围加 `analyses` 表；工具清单断言改 5 个；无身份用例补 analysis_read；新增 10 项 analysis_read 测试）
+  - `docs/Agent工具设计.md`（补一条硬约束：工具在 services 层不得 import app/api）
+  - `scripts/ralph/prd.json`（US-002 passes=true）
+- Quality checks: `ruff check .` all passed；`pytest -q` 153 passed（US-001 时 143，本次 +10）；`ruff format --check` 对本文件**仍然报警但属既有问题**（见下）。全量跑完 kb 表被清空，已 `python -m scripts.seed_kb_preset` 恢复 7 条预置语料。
+- **Learnings for future iterations:**
+  - **`ruff format` 不是这个仓库的准入门槛**：`app/services/agent/tools.py` 在 HEAD 就已被 ruff format 判为「would be reformatted」（至少 6 处，如 `uploaded = ... if ... else ...` 超 88 列、`db.scalars(...).all()` 括号写法）。项目实际检查的是 `ruff check .`（真绿）。**别为了 format 干净去整文件格式化**，会造出一堆与 story 无关的 diff；跟着邻近代码风格写即可。
+  - 复用 API 层逻辑前先看它在哪一层：`latest_valid_analysis` 已在 US-001 下沉到 `analysis_service`，工具直接 import 即可。若下个 story 发现要用的函数还留在 `app/api/`，**先下沉再调用**，不要在工具里复制 SQL（tools 层 import app/api 会破坏 Router → Service → Model 单向依赖）。
+  - 分析报告的权威判据是 `analysis.service.latest_valid_analysis`（valid_json=True + prompt_version==PROMPT_VERSION）；**不要**自己写 `prompt_version` 过滤，也不要放宽它（v3.5 版本对比接口是故意不过滤版本的另写查询）。
+  - `result_json` 是 JSONB，`is None` 判不出来（progress 顶部已记过），渲染前必须 `isinstance(report, dict)` 兜底；本次同时防了「valid_json=false 但 result_json 有内容」的半成品被读出来。
+  - 测试里 `_add_analysis` 必须把 `prompt_version` 写成 `PROMPT_VERSION` 常量而不是字面量 "1"——提示词改版递增后字面量会静默让测试全部走「没有报告」分支。
+  - `created_at` 用的是 `server_default=func.now()`（= 事务开始时间），同一事务插入的多行时间戳可能完全相同，所以「取最近一份」一定要带 `id desc` 兜底（本次已带）。
+  - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
 ---

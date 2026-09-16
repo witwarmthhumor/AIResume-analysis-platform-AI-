@@ -1,8 +1,8 @@
-"""v3.5 Agent 个人数据工具测试：resume_lookup / interview_history / usage_stats。
+"""v3.5 Agent 个人数据工具测试：resume_lookup / interview_history / usage_stats / analysis_read。
 
-只查"当前归属者"自己的数据是这三个工具的核心安全属性，因此重点覆盖：
+只查"当前归属者"自己的数据是这四个工具的核心安全属性，因此重点覆盖：
 - 无身份时明确拒绝（而不是返回空结果让模型脑补）
-- 归属隔离（查不到别人的简历/面试/用量）
+- 归属隔离（查不到别人的简历/面试/用量/分析报告）
 - 正常路径的输出内容与聚合口径
 
 数据库隔离策略：所有测试数据用专属 anonymous_id 标记，只清自己造的数据，
@@ -13,15 +13,17 @@ import pytest
 from sqlalchemy import text
 
 from app.db.session import SessionLocal, engine
+from app.models.analysis import Analysis
 from app.models.interview import InterviewSession
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
 from app.services.agent import ToolContext, make_tools
+from app.services.prompts import PROMPT_VERSION
 
 _OWNER = "agent_tool_test_owner"
 _OTHER = "agent_tool_test_other"
 
-_TABLES = ("resumes", "interview_sessions", "usage_logs")
+_TABLES = ("analyses", "resumes", "interview_sessions", "usage_logs")
 
 
 def _purge() -> None:
@@ -74,18 +76,19 @@ def _add_resume(db, anonymous_id: str, filename: str, raw_text: str) -> Resume:
 # —— 工具集装配 ——
 
 
-def test_make_tools_exposes_four_tools(db_session) -> None:
+def test_make_tools_exposes_five_tools(db_session) -> None:
     tools = make_tools(db_session, None, _OWNER, ToolContext())
     assert [t.name for t in tools] == [
         "kb_search",
         "resume_lookup",
         "interview_history",
         "usage_stats",
+        "analysis_read",
     ]
 
 
 def test_personal_tools_reject_unknown_identity(db_session) -> None:
-    """无法识别身份（无 user_id 也无 anonymous_id）时三个个人工具都要明确拒绝。"""
+    """无法识别身份（无 user_id 也无 anonymous_id）时个人工具都要明确拒绝。"""
     tools = make_tools(db_session, None, None, ToolContext())
 
     def call(name: str, payload: dict) -> str:
@@ -94,6 +97,7 @@ def test_personal_tools_reject_unknown_identity(db_session) -> None:
     assert "无法识别用户身份" in call("resume_lookup", {"query": ""})
     assert "无法识别用户身份" in call("interview_history", {"limit": 3})
     assert "无法识别用户身份" in call("usage_stats", {"days": 7})
+    assert "无法识别用户身份" in call("analysis_read", {"resume_hint": ""})
 
 
 # —— resume_lookup ——
@@ -240,3 +244,168 @@ def test_usage_stats_isolates_other_owner(db_session) -> None:
     out = _tool(db, "usage_stats").invoke({"days": 7})
 
     assert "没有用量记录" in out
+
+
+# —— analysis_read ——
+
+
+def _add_analysis(
+    db,
+    resume_id: int,
+    anonymous_id: str = _OWNER,
+    valid_json: bool = True,
+    **report,
+) -> Analysis:
+    analysis = Analysis(
+        resume_id=resume_id,
+        anonymous_id=anonymous_id,
+        model_name="deepseek-chat",
+        prompt_version=PROMPT_VERSION,
+        result_json=report or {"target_position": "后端工程师"},
+        valid_json=valid_json,
+    )
+    db.add(analysis)
+    db.commit()
+    return analysis
+
+
+def test_analysis_read_empty_for_new_owner(db_session) -> None:
+    out = _tool(db_session, "analysis_read").invoke({"resume_hint": ""})
+    assert "没有已上传的简历" in out
+
+
+def test_analysis_read_reports_missing_report(db_session) -> None:
+    db = db_session
+    _add_resume(db, _OWNER, "我的简历.pdf", "负责服务端接口开发。")
+
+    out = _tool(db, "analysis_read").invoke({"resume_hint": ""})
+
+    assert "还没有分析报告" in out
+
+
+def test_analysis_read_ignores_invalid_report(db_session) -> None:
+    """没通过校验的报告（valid_json=false）不算数，不能让模型读到半成品。"""
+    db = db_session
+    resume = _add_resume(db, _OWNER, "我的简历.pdf", "负责服务端接口开发。")
+    _add_analysis(db, resume.id, valid_json=False, target_position="不该被读到的岗位")
+
+    out = _tool(db, "analysis_read").invoke({"resume_hint": ""})
+
+    assert "还没有分析报告" in out
+    assert "不该被读到的岗位" not in out
+
+
+def test_analysis_read_renders_latest_resume_report(db_session) -> None:
+    """hint 为空取最近上传的一份，输出六块内容。"""
+    db = db_session
+    older = _add_resume(db, _OWNER, "老简历.pdf", "一段旧经历。")
+    _add_analysis(db, older.id, target_position="Java 后端")
+    newer = _add_resume(db, _OWNER, "新简历.pdf", "一段新经历。")
+    _add_analysis(
+        db,
+        newer.id,
+        target_position="RAG 应用开发",
+        position_match="匹配度较高。",
+        strengths=["有 RAG 落地经验"],
+        weaknesses=["缺少分布式经验"],
+        keyword_gaps=["Kafka"],
+        suggestions=["补一段消息队列实践"],
+        predicted_questions=["讲讲你的检索链路"],
+    )
+
+    out = _tool(db, "analysis_read").invoke({"resume_hint": ""})
+
+    assert "新简历.pdf" in out
+    assert "老简历.pdf" not in out
+    assert "RAG 应用开发" in out
+    for label in (
+        "目标岗位",
+        "岗位匹配",
+        "优势",
+        "短板",
+        "关键词缺口",
+        "改进建议",
+        "预测面试题",
+    ):
+        assert label in out
+
+
+def test_analysis_read_matches_hint_by_filename(db_session) -> None:
+    db = db_session
+    frontend = _add_resume(db, _OWNER, "前端简历.pdf", "一段前端经历。")
+    _add_analysis(db, frontend.id, target_position="前端工程师")
+    backend = _add_resume(db, _OWNER, "后端简历.pdf", "一段后端经历。")
+    _add_analysis(db, backend.id, target_position="后端工程师")
+
+    out = _tool(db, "analysis_read").invoke({"resume_hint": "前端"})
+
+    assert "前端简历.pdf" in out
+    assert "后端简历.pdf" not in out
+    assert "前端工程师" in out
+
+
+def test_analysis_read_hint_not_found_lists_actual_names(db_session) -> None:
+    db = db_session
+    _add_resume(db, _OWNER, "我的简历.pdf", "一段经历。")
+
+    out = _tool(db, "analysis_read").invoke({"resume_hint": "不存在的文件名"})
+
+    assert "未找到" in out
+    assert "我的简历.pdf" in out
+
+
+def test_analysis_read_limits_predicted_questions_to_five(db_session) -> None:
+    db = db_session
+    resume = _add_resume(db, _OWNER, "我的简历.pdf", "一段经历。")
+    _add_analysis(
+        db, resume.id, predicted_questions=[f"预测题{i}" for i in range(1, 9)]
+    )
+
+    out = _tool(db, "analysis_read").invoke({"resume_hint": ""})
+
+    assert "预测题5" in out
+    assert "预测题6" not in out
+
+
+def test_analysis_read_truncates_long_report(db_session) -> None:
+    """报告再长也要压到 800 字符内，否则一次调用就挤爆上下文。"""
+    db = db_session
+    resume = _add_resume(db, _OWNER, "我的简历.pdf", "一段经历。")
+    _add_analysis(
+        db,
+        resume.id,
+        strengths=[f"优势{i}" * 40 for i in range(6)],
+        weaknesses=[f"短板{i}" * 40 for i in range(6)],
+        suggestions=[f"建议{i}" * 40 for i in range(6)],
+    )
+
+    out = _tool(db, "analysis_read").invoke({"resume_hint": ""})
+
+    assert len(out) <= 800
+    assert out.endswith("…")
+
+
+def test_analysis_read_isolates_other_owner(db_session) -> None:
+    db = db_session
+    other = _add_resume(db, _OTHER, "别人的简历.pdf", "别人的经历。")
+    _add_analysis(db, other.id, anonymous_id=_OTHER, target_position="别人的岗位")
+
+    out = _tool(db, "analysis_read").invoke({"resume_hint": ""})
+
+    assert "没有已上传的简历" in out
+    assert "别人的岗位" not in out
+
+
+def test_analysis_read_swallows_query_error(db_session, monkeypatch) -> None:
+    """报告查询抛异常时返回兜底话术，不向上抛（抛了整轮 Agent 就崩）。"""
+    db = db_session
+    _add_resume(db, _OWNER, "我的简历.pdf", "一段经历。")
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr("app.services.agent.tools.latest_valid_analysis", _boom)
+
+    out = _tool(db, "analysis_read").invoke({"resume_hint": ""})
+
+    assert "暂时出错" in out
