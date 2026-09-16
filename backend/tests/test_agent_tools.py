@@ -1,5 +1,5 @@
 """v3.5 Agent 工具测试：resume_lookup / interview_history / usage_stats / analysis_read /
-kb_list / platform_help。
+kb_list / platform_help / job_match。
 
 只查"当前归属者"自己的数据是个人数据工具的核心安全属性，因此重点覆盖：
 - 无身份时明确拒绝（而不是返回空结果让模型脑补）
@@ -23,14 +23,16 @@ from app.models.interview import InterviewSession
 from app.models.kb import KBChunk, KBDocument
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
+from app.schemas.agent import JobMatchReport
 from app.services.agent import ToolContext, make_tools
 from app.services.agent.tools import (
+    _TOOL_JD_CHARS,
     _TOOL_LLM_ACTION,
     _TOOL_LLM_LIMIT_REPLY,
     _run_tool_llm,
 )
-from app.services.ai_client import AnalysisResult
-from app.services.prompts import PROMPT_VERSION
+from app.services.ai_client import AIError, AnalysisResult
+from app.services.prompts import JOB_MATCH_SYSTEM_PROMPT, PROMPT_VERSION
 
 _OWNER = "agent_tool_test_owner"
 _OTHER = "agent_tool_test_other"
@@ -102,7 +104,7 @@ def _add_resume(db, anonymous_id: str, filename: str, raw_text: str) -> Resume:
 # —— 工具集装配 ——
 
 
-def test_make_tools_exposes_eight_tools(db_session) -> None:
+def test_make_tools_exposes_nine_tools(db_session) -> None:
     tools = make_tools(db_session, None, _OWNER, ToolContext())
     assert [t.name for t in tools] == [
         "kb_search",
@@ -113,6 +115,7 @@ def test_make_tools_exposes_eight_tools(db_session) -> None:
         "analysis_read",
         "kb_list",
         "platform_help",
+        "job_match",
     ]
 
 
@@ -132,6 +135,7 @@ def test_personal_tools_reject_unknown_identity(db_session) -> None:
     assert "无法识别用户身份" in call("score_trend", {"limit": 5})
     assert "无法识别用户身份" in call("usage_stats", {"days": 7})
     assert "无法识别用户身份" in call("analysis_read", {"resume_hint": ""})
+    assert "无法识别用户身份" in call("job_match", {"jd_text": "招 Java 后端"})
 
 
 # —— resume_lookup ——
@@ -773,6 +777,7 @@ _ALL_TOOLS = (
     "analysis_read",
     "kb_list",
     "platform_help",
+    "job_match",
 )
 
 
@@ -955,3 +960,128 @@ def test_usage_stats_labels_tool_llm_action(db_session) -> None:
     out = _tool(db_session, "usage_stats").invoke({"days": 7})
 
     assert "工具内 AI 调用：1 次，300 tokens" in out
+
+
+# —— job_match（第一个工具内调 LLM 的工具）——
+# 真实调用靠 monkeypatch 掉 tools.chat_json 替身：只验「送进模型的参数」与「渲染出的文本」。
+
+_MATCH_JD = "熟悉 MySQL 索引优化，有 Redis 与 K8s 经验者优先。"
+
+
+def _patch_chat_json(monkeypatch, result: AnalysisResult | None = None, error=None):
+    """替身 chat_json：返回固定报告或抛错，并记录本次调用的参数。"""
+    seen: list[dict] = []
+
+    def _fake(system_prompt, user_prompt, cfg, validator):
+        seen.append(
+            {
+                "system": system_prompt,
+                "user": user_prompt,
+                "validator": validator,
+            }
+        )
+        if error is not None:
+            raise error
+        return result if result is not None else _fake_match_result()
+
+    monkeypatch.setattr("app.services.agent.tools.chat_json", _fake)
+    return seen
+
+
+def _fake_match_result() -> AnalysisResult:
+    return AnalysisResult(
+        report={
+            "match_score": 72,
+            "matched_keywords": ["MySQL", "Redis"],
+            "missing_keywords": ["K8s"],
+            "suggestions": ["补一条容器化项目经历"],
+        },
+        valid=True,
+        model_name="deepseek-chat",
+        tokens_prompt=300,
+        tokens_completion=120,
+        duration_ms=8,
+    )
+
+
+def test_job_match_renders_score_and_keywords(db_session, monkeypatch) -> None:
+    """成功路径：走结构化校验输出，渲染评分/命中/缺失/建议，并记一条工具内用量。"""
+    _add_resume(db_session, _OWNER, "我的简历.pdf", "熟悉 MySQL 索引优化与 Redis 缓存。")
+    seen = _patch_chat_json(monkeypatch)
+
+    out = _tool(db_session, "job_match").invoke({"jd_text": _MATCH_JD})
+
+    assert "整体匹配度：72/100" in out
+    assert "已命中关键词：MySQL、Redis" in out
+    assert "缺失关键词：K8s" in out
+    assert "针对性建议：补一条容器化项目经历" in out
+    # 走 chat_json 的结构化校验路径（校验失败才有重试）
+    assert seen[0]["system"] == JOB_MATCH_SYSTEM_PROMPT
+    # 校验器是 JobMatchReport：校验不过才有 ai_client 的重试
+    validated = seen[0]["validator"](
+        {
+            "match_score": 72,
+            "matched_keywords": ["MySQL"],
+            "missing_keywords": ["K8s"],
+            "suggestions": ["补一条容器化项目经历"],
+        }
+    )
+    assert isinstance(validated, JobMatchReport)
+    assert "我的简历.pdf" in out  # 说明匹配的是哪份简历
+    logs = _tool_llm_logs(db_session)
+    assert len(logs) == 1 and logs[0].tokens_total == 420
+
+
+def test_job_match_truncates_long_jd(db_session, monkeypatch) -> None:
+    """整页粘贴的 JD 要截断后再送模型，并在输出里说明截断了。"""
+    _add_resume(db_session, _OWNER, "我的简历.pdf", "熟悉 MySQL 索引优化。")
+    seen = _patch_chat_json(monkeypatch)
+
+    out = _tool(db_session, "job_match").invoke({"jd_text": "x" * (_TOOL_JD_CHARS + 1000)})
+
+    assert f"已按前 {_TOOL_JD_CHARS} 字符分析" in out
+    assert seen[0]["user"].count("x") == _TOOL_JD_CHARS  # 送入模型的只有前 4000 字
+
+
+def test_job_match_requires_jd(db_session, monkeypatch) -> None:
+    """没贴 JD 就提示补全，且一次模型都不调（省钱的关闸）。"""
+    _add_resume(db_session, _OWNER, "我的简历.pdf", "熟悉 MySQL。")
+    seen = _patch_chat_json(monkeypatch)
+
+    out = _tool(db_session, "job_match").invoke({"jd_text": "   "})
+
+    assert "JD" in out
+    assert seen == []
+
+
+def test_job_match_requires_resume(db_session, monkeypatch) -> None:
+    """名下没有简历时先引导上传，不调模型。"""
+    seen = _patch_chat_json(monkeypatch)
+
+    out = _tool(db_session, "job_match").invoke({"jd_text": _MATCH_JD})
+
+    assert "需要先上传简历" in out
+    assert seen == []
+
+
+def test_job_match_swallows_ai_error(db_session, monkeypatch) -> None:
+    """AI 调用失败（含欠费 402）给可读话术，不向上抛，失败的调用不记账。"""
+    _add_resume(db_session, _OWNER, "我的简历.pdf", "熟悉 MySQL。")
+    _patch_chat_json(monkeypatch, error=AIError("AI 服务暂时不可用，请稍后重试"))
+
+    out = _tool(db_session, "job_match").invoke({"jd_text": _MATCH_JD})
+
+    assert "暂时不可用" in out
+    assert _tool_llm_logs(db_session) == []
+
+
+def test_job_match_blocked_by_tool_llm_limit(db_session, monkeypatch) -> None:
+    """工具内 AI 调用被关掉（limit=0）时回统一上限话术，一次模型都不调。"""
+    _add_resume(db_session, _OWNER, "我的简历.pdf", "熟悉 MySQL。")
+    monkeypatch.setattr(settings, "daily_agent_tool_llm_limit", 0)
+    seen = _patch_chat_json(monkeypatch)
+
+    out = _tool(db_session, "job_match").invoke({"jd_text": _MATCH_JD})
+
+    assert "今日工具内 AI 调用已达上限" in out
+    assert seen == []

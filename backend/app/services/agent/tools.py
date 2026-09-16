@@ -24,6 +24,7 @@
 6. analysis_read      读当前用户某份简历的 AI 分析结论（复用 analysis_service 的查询）
 7. kb_list            列知识库文档清单（标题/块数/状态/来源，不含任何正文）
 8. platform_help      答"本平台自身功能怎么用"（纯静态文案，不查库不调模型）
+9. job_match          拿岗位 JD 与本人简历做匹配分析（工具内调一次 LLM）
 """
 
 from collections.abc import Callable
@@ -40,6 +41,8 @@ from app.core.logging import get_logger
 from app.models.interview import InterviewSession
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
+from app.schemas.agent import JobMatchReport
+from app.services.ai_client import chat_json
 from app.services.analysis_service import latest_valid_analysis
 from app.services.embedding_service import embed_texts
 from app.services.kb_service import (
@@ -48,6 +51,10 @@ from app.services.kb_service import (
     search_chunks,
 )
 from app.services.lexical_service import tokenize
+from app.services.prompts import (
+    JOB_MATCH_SYSTEM_PROMPT,
+    build_job_match_prompt,
+)
 from app.services.usage_service import count_today_usage_by_owner, write_usage
 
 logger = get_logger(__name__)
@@ -67,6 +74,11 @@ _TOOL_REPORT_ITEMS = 6
 _TOOL_REPORT_QUESTIONS = 5
 # 知识库清单最多列出的文档数（与 kb_max_documents_per_owner 同量级）
 _TOOL_KB_LIMIT = 20
+# job_match：JD 与简历正文送入模型的长度上限（用户可能贴一整页 JD），
+# 以及渲染回 LLM 时每类关键词/建议的条数上限
+_TOOL_JD_CHARS = 4000
+_TOOL_MATCH_RESUME_CHARS = 6000
+_TOOL_MATCH_ITEMS = 8
 # 工具内部自带 LLM 调用的记账口径：与 Agent 主循环的 agent/agent_create 分开统计，
 # 上限独立走 settings.daily_agent_tool_llm_limit
 _TOOL_LLM_ACTION = "agent_tool_llm"
@@ -812,6 +824,90 @@ def make_tools(
         入参 topic 为想了解的功能名或一句口语化问题；传空字符串返回平台功能总览。"""
         return _platform_reply(topic)
 
+    @tool
+    def job_match(jd_text: str) -> str:
+        """拿用户贴的岗位 JD（招聘要求）与其简历做匹配分析：整体匹配度评分、
+        简历已命中的关键词、JD 要求但简历缺失的关键词、针对性改简历建议。
+        本工具内部会调用一次 AI，受"工具内 AI 调用"的每日限额约束。
+
+        什么时候用：用户贴了一段岗位 JD / 招聘要求，问"我匹配吗""这个岗位适合我吗"
+        "我还缺什么""按这个 JD 我简历该怎么改"。
+        什么时候不用：只问简历**原文**里有没有写过某技能/项目请用 resume_lookup；
+        要读已有的 AI 分析结论请用 analysis_read（本工具是**现算**的 JD 匹配，不是读旧报告）；
+        用户没贴 JD 或只是聊岗位前景时不要调用本工具。
+        入参 jd_text 为岗位描述原文，超过 4000 字符会截断后分析。"""
+        owner = _owner_filter(Resume, user_id, anonymous_id)
+        if owner is None:
+            return "当前会话无法识别用户身份，无法做岗位匹配。请提示用户先登录后再提问。"
+
+        jd = (jd_text or "").strip()
+        if not jd:
+            return "请让用户把目标岗位的 JD（招聘要求/职位描述）贴进来，我才能做匹配分析。"
+
+        # 用户可能整页粘贴，超长 JD 会撑爆上下文并让费用翻倍——截断后在输出里说明
+        truncated = len(jd) > _TOOL_JD_CHARS
+        if truncated:
+            jd = jd[:_TOOL_JD_CHARS]
+
+        try:
+            resume = db.scalars(
+                select(Resume)
+                .where(Resume.deleted_at.is_(None), owner)
+                .order_by(Resume.created_at.desc(), Resume.id.desc())
+                .limit(1)
+            ).first()
+        except Exception:
+            logger.exception("agent job_match 简历查询失败")
+            return "简历查询暂时出错，请稍后再试。"
+
+        if resume is None:
+            return "需要先上传简历才能做岗位匹配。请提示用户到首页上传一份 PDF 简历后再来提问。"
+
+        body = (resume.raw_text or "")[:_TOOL_MATCH_RESUME_CHARS]
+        if not body.strip():
+            return (
+                f"简历「{resume.filename}」还没有解析出正文，无法做岗位匹配，"
+                "请让用户重新上传一份文本型 PDF 简历。"
+            )
+
+        def _call():
+            return chat_json(
+                JOB_MATCH_SYSTEM_PROMPT,
+                build_job_match_prompt(jd, body),
+                settings,
+                JobMatchReport.model_validate,
+            )
+
+        try:
+            result, reply = _run_tool_llm(db, user_id, anonymous_id, _call)
+        except Exception:
+            logger.exception("agent job_match AI 调用失败")
+            return "岗位匹配的 AI 服务暂时不可用（可能是服务欠费或超时），请稍后再试。"
+        if reply is not None:  # 达到工具内 AI 调用上限
+            return reply
+
+        report = result.report if result is not None else None
+        if not isinstance(report, dict):
+            return "岗位匹配的 AI 返回结果无法解析，请让用户稍后再试一次。"
+
+        lines = [
+            f"简历「{resume.filename}」与该岗位的匹配分析：",
+            f"整体匹配度：{report['match_score']}/100",
+        ]
+        for key, label in (
+            ("matched_keywords", "已命中关键词"),
+            ("missing_keywords", "缺失关键词"),
+        ):
+            items = _as_items(report.get(key), _TOOL_MATCH_ITEMS)
+            if items:
+                lines.append(f"{label}：" + "、".join(items))
+        suggestions = _as_items(report.get("suggestions"), _TOOL_MATCH_ITEMS)
+        if suggestions:
+            lines.append("针对性建议：" + "；".join(suggestions))
+        if truncated:
+            lines.append(f"（JD 超过 {_TOOL_JD_CHARS} 字符，已按前 {_TOOL_JD_CHARS} 字符分析。）")
+        return "\n".join(lines)
+
     return [
         kb_search,
         resume_lookup,
@@ -821,4 +917,5 @@ def make_tools(
         analysis_read,
         kb_list,
         platform_help,
+        job_match,
     ]

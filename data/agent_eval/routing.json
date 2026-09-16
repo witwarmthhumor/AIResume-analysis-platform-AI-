@@ -29,5 +29,9 @@
 
   {"question": "怎么上传简历", "expected_tool": "platform_help"},
   {"question": "模拟面试在哪里开始", "expected_tool": "platform_help"},
-  {"question": "使用日志在哪看", "expected_tool": "platform_help"}
+  {"question": "使用日志在哪看", "expected_tool": "platform_help"},
+
+  {"question": "这家公司要求熟悉 MySQL 和 K8s，我匹配吗", "expected_tool": "job_match"},
+  {"question": "我贴一段招聘 JD，帮我看看我简历还缺哪些关键词", "expected_tool": "job_match"},
+  {"question": "按这个岗位的招聘要求，我的简历该怎么改", "expected_tool": "job_match"}
 ]

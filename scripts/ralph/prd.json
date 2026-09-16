@@ -160,8 +160,8 @@
         "ruff check . 通过"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成：job_match(jd_text) 取本人最新一份简历（按 created_at/id desc 取最近一版），JD 与简历正文分别截到 4000/6000 字（JD 截断会在输出里说明），走 chat_json + JobMatchReport 结构化校验（提示词在 prompts.py，版本号独立为 JOB_MATCH_PROMPT_VERSION，不动 analyses 表口径），LLM 调用统一过 _run_tool_llm（限额 + agent_tool_llm 记账）；无身份/空 JD/无简历/简历无正文四条路径各有话术且不调模型，AI 抛错兜底不向上抛。新增 6 项单测，另因工具数变 9 而给 data/agent_eval/routing.json 补了 3 条 job_match 用例（守门测试要求每工具 ≥3 条）。全量 219 项通过；真机跑通一次真实 DeepSeek 调用，match_score/命中/缺失/建议输出正常。"
     },
     {
       "id": "US-010",

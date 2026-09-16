@@ -32,6 +32,11 @@ Started: 2026-09-16
 - 新增 `action_type` 时记得同步 `tools.py` 的 `_ACTION_LABELS`，否则 `usage_stats` 会把英文枚举直接甩给用户。
 - 写可测脚本（CLI 评测类）的套路：把「一次 LLM 调用」抽成注入的 `ask: (question) -> BaseMessage`，`run(cases, ask)` 只做纯统计；测试里用**替身模型**（只需实现 `bind` / `bind_tools` / `invoke` 三个方法返回 `AIMessage(tool_calls=[...])`）即可离线覆盖。测 `main()` 时 monkeypatch 三件套：`load_cases` / `REPORT_PATH`(tmp_path) / `build_chat_llm`。
 - 路由评测只需**工具 schema**，不要执行工具：`make_tools(None, None, None, ToolContext())` 拿描述 → `build_chat_llm().bind(temperature=0).bind_tools(tools)` → 读 `msg.tool_calls[0]["name"]`；模型直接文字作答时用 `NO_TOOL` 占位计入未命中。
+- ⚠️ 每新增一个工具，`data/agent_eval/routing.json` 必须同步补 3 条用例：`tests/test_eval_agent_routing.py::test_cases_cover_every_tool` 断言「用例数 ≥ 工具数 × 3」，只加工具不加用例全量 pytest 会直接红。
+- 提示词版本是**每套提示词一个常量**、互不相干：`prompts.PROMPT_VERSION`（简历分析，入 analyses 表）、`interview_prompts.INTERVIEW_PROMPT_VERSION`、`prompts.JOB_MATCH_PROMPT_VERSION`。**绝不要为了"新增提示词"去递增 `PROMPT_VERSION`** —— 那会让库里所有旧分析报告按「版本过期」失效。
+- 工具内调 LLM 的工具（`job_match` / `question_gen` / `answer_review`）实现套路：`_run_tool_llm(db, user_id, anonymous_id, lambda: chat_json(SYSTEM_PROMPT, build_xxx_prompt(...), settings, XxxReport.model_validate))`，**整个调用包一层 try/except 兜话术**（`_run_tool_llm` 不吞异常），AI 输出契约放 `app/schemas/agent.py`，提示词放 `app/services/prompts.py`。
+- 测这类工具只需 monkeypatch `app.services.agent.tools.chat_json` 做替身（记录 `system`/`user`/`validator` 三个入参）：成功路径断言渲染文本 + 记账，短路路径（空参数/无数据/超限）断言 `seen == []` 证明一次模型都没调。
+- ⚠️ pydantic 的 `Model.model_validate` 每次取出来都是**新对象**，`is` 比较会失败（`assert X is Y` 报 "model_validate is model_validate"）；要断言"用的是哪个校验器"就**调用它**再 `isinstance(结果, 模型)`。
 
 ## Log
 
@@ -181,5 +186,28 @@ Started: 2026-09-16
   - **无归属者（user_id 与 anonymous_id 皆空）不写账**：`count_today_usage_by_owner` 对空身份返回 0（永不超限），`write_usage` 却会写出一条两者皆空的日志，既没法归因又会污染全站总量统计。这类行还有一个副作用：测试 `_purge` 按 `anonymous_id IN (...)` 清不掉，会永久留在开发库（与 US-004 的 public 文档同一类坑）。
   - 「哪些工具不需要身份」的判据这次又多一个反例：`platform_help`（静态）/`kb_search`/`kb_list`（只含公共语料）之外，**`question_gen` 这类不查个人数据但会调模型的工具也不需要身份**——所以 `_run_tool_llm` 第一参数就显式收 `user_id, anonymous_id`，不套 `_owner_filter`。
   - 新增 `action_type` 一定要同步 `_ACTION_LABELS`，否则 `usage_stats` 输出的就是英文枚举；这条已写进 Codebase Patterns。
+  - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
+---
+
+## 2026-09-16 17:20 - US-009
+- What was implemented: 新增第 9 个工具 `job_match(jd_text)` —— 拿用户贴的岗位 JD 与本人简历做匹配分析（第一个工具内调 LLM 的工具）。链路：身份闭包 → 空 JD 直接要补全（不调模型）→ 取本人最新一份简历（`deleted_at is None` + `created_at desc, id desc` limit 1）→ 无简历/简历无正文给引导话术 → JD 截 4000 字、简历正文截 6000 字 → `chat_json(JOB_MATCH_SYSTEM_PROMPT, build_job_match_prompt(jd, body), settings, JobMatchReport.model_validate)` 走结构化校验与重试，整段经 `_run_tool_llm`（限额 + 记 `agent_tool_llm`）并自己 try/except 兜话术 → 渲染「整体匹配度 N/100 + 已命中关键词 + 缺失关键词 + 针对性建议」，JD 被截断时追加说明。提示词与版本常量放 `app/services/prompts.py`（`JOB_MATCH_PROMPT_VERSION`，与 analyses 表口径的 `PROMPT_VERSION` 独立），输出契约 `JobMatchReport` 放新建的 `app/schemas/agent.py`。
+- Files changed:
+  - `backend/app/services/prompts.py`（新增 `JOB_MATCH_PROMPT_VERSION` / `JOB_MATCH_SYSTEM_PROMPT` / `build_job_match_prompt`，模块 docstring 说明版本为何独立）
+  - `backend/app/schemas/agent.py`（新增：Agent 工具内 LLM 输出的数据合同，首个模型 `JobMatchReport`）
+  - `backend/app/services/agent/tools.py`（新增 `_TOOL_JD_CHARS` / `_TOOL_MATCH_RESUME_CHARS` / `_TOOL_MATCH_ITEMS` 常量与 `job_match` 工具；import `chat_json` / `JobMatchReport` / 提示词三件套；`make_tools` 尾部追加，**kb_search 仍在下标 0**；模块 docstring 工具清单补第 9 项）
+  - `backend/tests/test_agent_tools.py`（清单断言 8→9 并改名、无身份用例补 job_match、`_ALL_TOOLS` 补 job_match；新增 6 项 job_match 测试 + `_patch_chat_json` / `_fake_match_result` 替身）
+  - `data/agent_eval/routing.json`（补 3 条 job_match 问法，24→27 条，守门测试要求每工具 ≥3 条）
+  - `docs/Agent工具设计.md`（§二 job_match 行改为已实现要点；§四易撞组合表补 job_match vs analysis_read / resume_lookup）
+  - `scripts/ralph/progress.txt`（Codebase Patterns 补 5 条）
+  - `scripts/ralph/prd.json`（US-009 passes=true）
+- Quality checks: `ruff check .` all passed；`pytest -q` 219 passed（US-008 时 211，本次 +8）；`pytest tests/test_agent_tools.py` 79 passed。全量跑完 kb 表被清空，已 `python -m scripts.seed_kb_preset` 恢复 7 条预置语料。真机校验：用真实 DeepSeek 调了一次 `chat_json` + `JobMatchReport`，返回 match_score=80、命中/缺失关键词与 6 条建议，提示词与 schema 契约无误。
+- **Learnings for future iterations:**
+  - ⚠️ **新增工具必须同步补路由评测用例**：`tests/test_eval_agent_routing.py::test_cases_cover_every_tool` 断言「用例数 ≥ 工具数 × 3」，我只加工具不加用例时全量 pytest 直接红（24 >= 9*3）。US-010 加 question_gen、US-011 加 answer_review 时都要先补 3 条，否则 CI 绿不了。
+  - **别为了"新增提示词"递增 `PROMPT_VERSION`**：那个常量是 analyses 表的留档口径，一递增库里所有旧分析报告都变"版本过期"，`analysis_read` 会集体返回「还没有分析报告」。本项目每套提示词各有一个版本常量（详见 Codebase Patterns），job_match 用新的 `JOB_MATCH_PROMPT_VERSION`。
+  - **pydantic 的 `Model.model_validate` 不能 `is` 比较**：`assert seen[0]["validator"] is JobMatchReport.model_validate` 会失败（提示 "model_validate is model_validate"——因为每次取属性都是新的 bound 对象）。改成**调用它**并 `isinstance(结果, JobMatchReport)`。
+  - 测"工具内调 LLM"的最省事替身是 monkeypatch `app.services.agent.tools.chat_json`（不是 `app.services.ai_client.chat_json`——tools 是 `from ... import chat_json`，改 monkeypatch 目标要注意导入方式）。替身记录 `system`/`user`/`validator` 三个入参，就能顺手断言"走了哪套提示词""入参截到多少字""用的是哪个校验器"。
+  - 短路路径（空参数 / 无数据 / 超限）最有力的断言是 **`seen == []`**：证明一次模型都没调，比断言返回文案更能防住"限额只是话术、钱照花"的回归。
+  - LangChain `@tool` 的入参由模型现填，`jd_text` 可能传空白串：`(jd or "").strip()` 判空后再决定调不调模型，别直接拿 `if not jd_text`。
+  - 本次**没有**重跑 `scripts/eval_agent_routing`：报告 `data/agent_eval/report.md` 仍是 8 工具 24 条基线（US-012 会做 11 工具 33 条的全量跑与对比）。
   - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
 ---
