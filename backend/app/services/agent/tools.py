@@ -14,8 +14,9 @@
 1. kb_search          查平台技术知识库（RAG 主链路，唯一会回填 citations 的工具）
 2. resume_lookup      查当前用户自己的简历（有哪些、正文里有没有提到某关键词）
 3. interview_history  查当前用户自己的模拟面试记录与分维度评分
-4. usage_stats        查当前用户自己的平台用量（近 N 天各动作次数与 token）
-5. analysis_read      读当前用户某份简历的 AI 分析结论（复用 analysis_service 的查询）
+4. score_trend        查当前用户自己历次模拟面试的分数趋势（逐场对比升降）
+5. usage_stats        查当前用户自己的平台用量（近 N 天各动作次数与 token）
+6. analysis_read      读当前用户某份简历的 AI 分析结论（复用 analysis_service 的查询）
 """
 
 from dataclasses import dataclass, field
@@ -42,6 +43,8 @@ _TOOL_CHUNK_CHARS = 300
 # 列表类工具单次返回条数上限与片段宽度
 _TOOL_LIST_LIMIT = 5
 _TOOL_SNIPPET_WIDTH = 80
+# 趋势类工具最多纳入对比的场次数
+_TOOL_TREND_LIMIT = 10
 # 分析报告回灌给 LLM 的体积控制：总长上限 + 每类列表条数（预测面试题单独再收窄）
 _TOOL_REPORT_CHARS = 800
 _TOOL_REPORT_ITEMS = 6
@@ -115,6 +118,49 @@ def _as_items(value, limit: int) -> list[str]:
         return []
     items = [str(item).strip() for item in value]
     return [item for item in items if item][:limit]
+
+
+def _score_of(report: dict, key: str) -> float | None:
+    """取报告里某个维度的分数，缺失或不是数字返回 None。"""
+    value = report.get(key)
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def _trend_arrow(previous: float | None, current: float | None) -> str:
+    """与上一场同维度对比的升降箭头；任一侧缺分数时不给箭头。"""
+    if previous is None or current is None:
+        return ""
+    if current > previous:
+        return "↑"
+    if current < previous:
+        return "↓"
+    return "→"
+
+
+def _trend_mark(previous: float | None, current: float | None) -> str:
+    """整场相对上一场的升降标记（首场另由调用方标为基准场）。"""
+    if previous is None or current is None:
+        return "缺对比数据"
+    if current > previous:
+        return "上升"
+    if current < previous:
+        return "下降"
+    return "持平"
+
+
+def _trend_overall(report: dict) -> float | None:
+    """整场代表分：优先取整体表现，缺失时用三项维度的均值兜底。"""
+    overall = _score_of(report, "overall")
+    return overall if overall is not None else _mean_score(report)
+
+
+def _mean_score(report: dict) -> float | None:
+    values = [
+        score
+        for key in ("technical_depth", "communication", "project_authenticity")
+        if (score := _score_of(report, key)) is not None
+    ]
+    return round(sum(values) / len(values), 1) if values else None
 
 
 def make_tools(
@@ -275,6 +321,92 @@ def make_tools(
         return "\n".join(parts)
 
     @tool
+    def score_trend(limit: int = 5) -> str:
+        """查询当前用户自己历次模拟面试的分数趋势：按时间正序列出各场次的技术深度、
+        表达结构、项目真实性、整体表现四项分数，并逐场给出相对上一场的上升/下降/持平。
+        当用户问"我进步了吗""面试分数有没有提升""最近表现变好还是变差"时调用。
+        入参 limit 为纳入对比的最近已结束场次数，默认 5，最大 10。
+        本工具给的是**跨场次的趋势对比**；只想看某一场的记录与结束评价请用 interview_history。"""
+        owner = _owner_filter(InterviewSession, user_id, anonymous_id)
+        if owner is None:
+            return "当前会话无法识别用户身份，查不到个人面试记录。请提示用户先登录后再提问。"
+
+        try:
+            want = int(limit or 0)
+            want = 5 if want <= 0 else max(1, min(want, _TOOL_TREND_LIMIT))
+            # 先取最近 N 场（倒序），渲染前再翻成正序——趋势要从早到晚看
+            rows = list(
+                db.scalars(
+                    select(InterviewSession)
+                    .where(owner, InterviewSession.status == "finished")
+                    .order_by(
+                        InterviewSession.created_at.desc(), InterviewSession.id.desc()
+                    )
+                    .limit(want)
+                ).all()
+            )
+        except Exception:
+            logger.exception("agent score_trend 查询失败")
+            return "面试分数趋势查询暂时出错，请稍后再试。"
+
+        # JSONB 列写入 None 会落成 JSON null 字面量，SQL 层的 is_not(None) 过滤不掉
+        sessions = [s for s in rows if isinstance(s.final_report_json, dict)]
+        sessions.reverse()
+        if not sessions:
+            return (
+                "该用户名下暂无已完成的模拟面试，暂时看不出分数趋势。"
+                "可提示用户到首页完成一场模拟面试后再来提问。"
+            )
+
+        head = (
+            f"该用户最近 {len(sessions)} 场已完成模拟面试的分数趋势"
+            "（10 分制，按时间正序）："
+        )
+        lines = [
+            head,
+            "（箭头为与上一场同维度对比：↑上升 ↓下降 →持平）",
+        ]
+        previous: dict | None = None
+        previous_overall: float | None = None
+        first_overall: float | None = None
+        for index, session in enumerate(sessions, start=1):
+            report = session.final_report_json or {}
+            when = session.created_at.strftime("%m-%d") if session.created_at else "未知"
+            if index == 1:
+                mark = "基准场"
+            else:
+                mark = _trend_mark(previous_overall, _trend_overall(report))
+            scores = []
+            for key, label in _SCORE_LABELS.items():
+                value = _score_of(report, key)
+                if value is None:
+                    continue
+                before = _score_of(previous, key) if previous else None
+                scores.append(f"{label} {value:g}{_trend_arrow(before, value)}")
+            overall = _trend_overall(report)
+            if index == 1:
+                first_overall = overall
+            text = " / ".join(scores) or "该场暂无评分数据"
+            lines.append(f"【第 {index} 场 · {mark}】{when}：{text}")
+            previous = report
+            previous_overall = overall
+
+        if len(sessions) == 1:
+            lines.append("目前只有一场已完成的模拟面试，暂时看不出趋势，多练几场后再来看对比。")
+        elif first_overall is not None and previous_overall is not None:
+            delta = previous_overall - first_overall
+            if delta > 0:
+                verdict = f"上升 {delta:g} 分"
+            elif delta < 0:
+                verdict = f"下降 {abs(delta):g} 分"
+            else:
+                verdict = "基本持平"
+            lines.append(
+                f"总结：整体表现从首场 {first_overall:g} 到最近一场 {previous_overall:g}，{verdict}。"
+            )
+        return "\n".join(lines)
+
+    @tool
     def usage_stats(days: int = 7) -> str:
         """查询当前用户自己在本平台的用量统计。当用户问"我用了多少次""消耗了多少
         token""最近用得多不多"时调用。入参 days 为统计天数，默认 7，最大 90。"""
@@ -392,4 +524,11 @@ def make_tools(
             return text[: _TOOL_REPORT_CHARS - 1] + "…"
         return text
 
-    return [kb_search, resume_lookup, interview_history, usage_stats, analysis_read]
+    return [
+        kb_search,
+        resume_lookup,
+        interview_history,
+        score_trend,
+        usage_stats,
+        analysis_read,
+    ]

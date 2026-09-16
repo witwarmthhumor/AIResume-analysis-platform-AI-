@@ -9,6 +9,8 @@
 不动开发库里的其他记录（与 test_rag 清表策略不同，避免误删本地数据）。
 """
 
+from datetime import datetime, timezone
+
 import pytest
 from sqlalchemy import text
 
@@ -76,12 +78,13 @@ def _add_resume(db, anonymous_id: str, filename: str, raw_text: str) -> Resume:
 # —— 工具集装配 ——
 
 
-def test_make_tools_exposes_five_tools(db_session) -> None:
+def test_make_tools_exposes_six_tools(db_session) -> None:
     tools = make_tools(db_session, None, _OWNER, ToolContext())
     assert [t.name for t in tools] == [
         "kb_search",
         "resume_lookup",
         "interview_history",
+        "score_trend",
         "usage_stats",
         "analysis_read",
     ]
@@ -96,6 +99,7 @@ def test_personal_tools_reject_unknown_identity(db_session) -> None:
 
     assert "无法识别用户身份" in call("resume_lookup", {"query": ""})
     assert "无法识别用户身份" in call("interview_history", {"limit": 3})
+    assert "无法识别用户身份" in call("score_trend", {"limit": 5})
     assert "无法识别用户身份" in call("usage_stats", {"days": 7})
     assert "无法识别用户身份" in call("analysis_read", {"resume_hint": ""})
 
@@ -201,6 +205,130 @@ def test_interview_history_isolates_other_owner(db_session) -> None:
     out = _tool(db, "interview_history").invoke({"limit": 3})
 
     assert "暂无模拟面试记录" in out
+
+
+# —— score_trend ——
+
+
+def _add_finished(
+    db,
+    day: int,
+    anonymous_id: str = _OWNER,
+    technical_depth: int = 5,
+    communication: int = 5,
+    project_authenticity: int = 5,
+    overall: int = 5,
+) -> InterviewSession:
+    """造一场已结束且有评分的面试；day 决定时间先后（created_at 显式写，避免同事务同戳）。"""
+    return _add_session(
+        db,
+        anonymous_id,
+        status="finished",
+        stage="wrapup",
+        turn_count=8,
+        created_at=datetime(2026, 1, day, tzinfo=timezone.utc),
+        final_report_json={
+            "technical_depth": technical_depth,
+            "communication": communication,
+            "project_authenticity": project_authenticity,
+            "overall": overall,
+        },
+    )
+
+
+def test_score_trend_marks_up_and_down(db_session) -> None:
+    """逐场与上一场对比：首场基准场，之后给上升/下降标记，末尾给整体总结。"""
+    db = db_session
+    _add_finished(db, day=1, technical_depth=5, communication=5, overall=6)
+    _add_finished(db, day=2, technical_depth=7, communication=6, overall=8)
+    _add_finished(db, day=3, technical_depth=6, communication=6, overall=7)
+
+    out = _tool(db, "score_trend").invoke({"limit": 5})
+
+    assert "基准场" in out
+    assert "上升" in out and "下降" in out
+    assert "技术深度 5" in out and "技术深度 7↑" in out and "技术深度 6↓" in out
+    assert "表达结构 6→" in out  # 与上一场持平给 →
+    assert "整体表现从首场 6 到最近一场 7，上升 1 分" in out
+
+
+def test_score_trend_lists_oldest_first(db_session) -> None:
+    """趋势要从早到晚看：输出里低分场次必须排在前面。"""
+    db = db_session
+    _add_finished(db, day=1, overall=6)
+    _add_finished(db, day=2, overall=8)
+
+    out = _tool(db, "score_trend").invoke({"limit": 5})
+
+    assert out.index("整体表现 6") < out.index("整体表现 8")
+
+
+def test_score_trend_single_session_has_no_trend(db_session) -> None:
+    db = db_session
+    _add_finished(db, day=1, technical_depth=7, overall=7)
+
+    out = _tool(db, "score_trend").invoke({"limit": 5})
+
+    assert "技术深度 7" in out and "整体表现 7" in out
+    assert "只有一场" in out
+    assert "暂时看不出趋势" in out
+
+
+def test_score_trend_empty_for_new_owner(db_session) -> None:
+    out = _tool(db_session, "score_trend").invoke({"limit": 5})
+    assert "暂无已完成的模拟面试" in out
+
+
+def test_score_trend_ignores_unfinished_and_null_report(db_session) -> None:
+    """未结束的场次、报告为 SQL NULL 的场次都不能进趋势。"""
+    db = db_session
+    _add_session(db, _OWNER, status="in_progress", stage="technical", turn_count=3)
+    _add_session(db, _OWNER, status="finished", stage="wrapup", turn_count=8)
+
+    out = _tool(db, "score_trend").invoke({"limit": 5})
+
+    assert "暂无已完成的模拟面试" in out
+
+
+def test_score_trend_ignores_json_null_literal(db_session) -> None:
+    """JSONB 写 None 会落成 JSON null 字面量，SQL 的 is_not(NULL) 过滤不掉它。"""
+    db = db_session
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO interview_sessions"
+                " (resume_id, anonymous_id, status, stage, turn_count, final_report_json)"
+                " VALUES (999999, :a, 'finished', 'wrapup', 8, 'null'::jsonb)"
+            ),
+            {"a": _OWNER},
+        )
+    _add_finished(db, day=1, overall=6)
+
+    out = _tool(db, "score_trend").invoke({"limit": 5})
+
+    assert "最近 1 场" in out
+    assert "null" not in out
+
+
+def test_score_trend_clamps_limit(db_session) -> None:
+    """limit 钳到 1~10；非正数回落默认 5。"""
+    db = db_session
+    for day in range(1, 13):
+        _add_finished(db, day=day, overall=day)
+
+    assert "最近 3 场" in _tool(db, "score_trend").invoke({"limit": 3})
+    assert "最近 5 场" in _tool(db, "score_trend").invoke({"limit": 0})
+    assert "最近 10 场" in _tool(db, "score_trend").invoke({"limit": 999})
+
+
+def test_score_trend_isolates_other_owner(db_session) -> None:
+    db = db_session
+    _add_finished(db, day=1, anonymous_id=_OTHER, overall=9)
+
+    out = _tool(db, "score_trend").invoke({"limit": 5})
+
+    assert "暂无已完成的模拟面试" in out
+    assert "整体表现 9" not in out
 
 
 # —— usage_stats ——

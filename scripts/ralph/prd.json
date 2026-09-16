@@ -52,8 +52,8 @@
         "ruff check . 通过"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成：score_trend 按时间正序列出本人已结束场次（status=finished 且 final_report_json 是 dict）的四维分数，逐场给 基准场/上升/下降/持平 标记 + 每维度 ↑↓→ 箭头，末尾给首末整体分差总结；limit 钳到 1~10（非正数回落 5）；0 场/1 场/他人数据各有明确话术。新增 8 项单测，全量 161 项通过。"
     },
     {
       "id": "US-004",

@@ -126,6 +126,7 @@ Router → Service → Model 单向依赖，反向引用会让路由层无法独
 |---|---|
 | `kb_search` vs `platform_help` | 前者=计算机技术知识，后者=**本平台**怎么用 |
 | `resume_lookup` vs `analysis_read` | 前者=简历**原文**，后者=AI 对简历的**结论** |
+| `interview_history` vs `score_trend` | 前者=**单场**记录与结束评价，后者=**跨场次**的四维分数升降对比 |
 
 ---
 

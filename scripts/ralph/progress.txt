@@ -18,7 +18,7 @@ Started: 2026-09-16
 - 前端零图表库、零 UI 框架：可视化一律手写 SVG/CSS；组件内映射表用常量 + 回落原始值（参考 `HistoryView.vue` 的 `actionMap`）。
 - **准入检查只有 `ruff check .`**：`ruff format --check` 对 `tools.py` 等既有文件本来就报警（HEAD 即如此），是前格式化时代留下的。**别顺手整文件格式化**（会造出大量与 story 无关的 diff），按邻近代码风格写即可。
 - 工具在 `services/` 层**不得 import `app/api/`**（项目是 Router → Service → Model 单向依赖）。需要复用接口层查询时，先把它下沉成 service 函数，接口与工具都调那一份，不要复制 SQL。
-- `created_at` 是 `server_default=func.now()`（事务开始时间），**同一事务插入的多行时间戳可能完全相同**——所有「取最近 N 条」查询必须带 `id desc` 兜底排序。
+- `created_at` 是 `server_default=func.now()`（事务开始时间），**同一事务插入的多行时间戳可能完全相同**——所有「取最近 N 条」查询必须带 `id desc` 兜底排序；测试里要控制先后就**显式传 `created_at=`**（`InterviewSession(created_at=...)` 会覆盖 server_default）。
 - ⚠️ 开跑 pytest 前先确认 Docker Desktop 起来了：本项目容器是**已存在但 stopped**，用 `docker start ai-interview-db ai-interview-redis ai-interview-ollama`；`docker compose up -d` 会报 name conflict。DB 没起时 pytest 会**挂住不报错**（连接超时很长），别误判成死循环。
 
 ## Log
@@ -53,5 +53,22 @@ Started: 2026-09-16
   - `result_json` 是 JSONB，`is None` 判不出来（progress 顶部已记过），渲染前必须 `isinstance(report, dict)` 兜底；本次同时防了「valid_json=false 但 result_json 有内容」的半成品被读出来。
   - 测试里 `_add_analysis` 必须把 `prompt_version` 写成 `PROMPT_VERSION` 常量而不是字面量 "1"——提示词改版递增后字面量会静默让测试全部走「没有报告」分支。
   - `created_at` 用的是 `server_default=func.now()`（= 事务开始时间），同一事务插入的多行时间戳可能完全相同，所以「取最近一份」一定要带 `id desc` 兜底（本次已带）。
+  - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
+---
+
+## 2026-09-16 12:10 - US-003
+- What was implemented: 新增第 6 个工具 `score_trend(limit=5)`——查本人已结束场次的分数趋势。查 `status == "finished"` 的最近 N 场（倒序取后 `reverse()` 成正序）→ 用 `isinstance(final_report_json, dict)` 排掉 SQL NULL 与 JSON null 字面量 → 逐场渲染技术深度/表达结构/项目真实性/整体表现，每维度带相对上一场的 ↑↓→ 箭头，场次标记用 基准场/上升/下降/持平（缺分数时为「缺对比数据」）→ 末尾给首末整体分差总结。limit 钳到 1~10、非正数回落 5；0 场 / 1 场 / 他人数据各有明确话术。
+- Files changed:
+  - `backend/app/services/agent/tools.py`（新增 `_score_of` / `_trend_arrow` / `_trend_mark` / `_trend_overall` / `_mean_score` 五个模块级助手、`_TOOL_TREND_LIMIT = 10` 常量、`score_trend` 工具；`make_tools` 返回列表插在 `interview_history` 之后，**kb_search 仍在下标 0**；模块 docstring 工具清单补第 6 项）
+  - `backend/tests/test_agent_tools.py`（工具清单断言改 6 个；无身份用例补 score_trend；新增 8 项 score_trend 测试，含 JSON `'null'::jsonb` 字面量用例与 limit 钳制三档）
+  - `docs/Agent工具设计.md`（「易撞组合」表补 `interview_history` vs `score_trend` 的划线：单场 vs 跨场次）
+  - `scripts/ralph/prd.json`（US-003 passes=true）
+- Quality checks: `ruff check .` all passed；`pytest -q` 161 passed（US-002 时 153，本次 +8）；`pytest tests/test_agent_tools.py` 31 passed。全量跑完 kb 表被清空，已 `python -m scripts.seed_kb_preset` 恢复 7 条预置语料。
+- **Learnings for future iterations:**
+  - **`ruff check` 会报 `ISC004`**：列表里做多行隐式字符串拼接必须整体加括号（`head = ("a" "b")` 再放进列表），直接写在 `[...]` 里会报错。既有代码里 `"以下是知识库检索到的资料…" + "\n\n".join(parts)` 用的是 `+` 拼接，两种写法都行但别混。
+  - 趋势类工具的排序套路：**先 `order_by(created_at desc, id desc).limit(N)` 取最近 N 条，再 `list.reverse()`** —— 直接 `asc` 排序会取到最老的 N 条，语义就反了。
+  - `final_report_json` 的判空要 `isinstance(x, dict)`：SQLAlchemy 写 Python `None` 进 JSONB 在**某些写入路径**下是 SQL NULL，但历史数据/原始 SQL 写入会落成 `null` 字面量，两种都得排掉。测试里覆盖字面量要用 `text()` 手写 INSERT 传 `'null'::jsonb`。
+  - 造「有先后顺序」的测试数据时显式传 `created_at=datetime(...)`（构造参数会覆盖 `server_default`），不要依赖 `func.now()` 的提交先后 —— 同事务内时间戳可能完全一样。
+  - `_SCORE_LABELS` 里 `overall` 的中文是「**整体表现**」而不是「整体」，写断言时注意别只匹配单字（本次用「整体表现 6」）。
   - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
 ---
