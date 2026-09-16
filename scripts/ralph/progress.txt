@@ -40,6 +40,11 @@ Started: 2026-09-16
 - ⚠️ pydantic 的 `Model.model_validate` 每次取出来都是**新对象**，`is` 比较会失败（`assert X is Y` 报 "model_validate is model_validate"）；要断言"用的是哪个校验器"就**调用它**再 `isinstance(结果, 模型)`。
 - 需要"先检索再喂给模型"的工具，别去 invoke 另一个工具对象：把检索链路抽成模块级公共入口（本项目是 `_kb_retrieve(db, query, user_id, anonymous_id, top_k) -> (命中块, 兜底话术)`），返回话术而非抛异常，让不同调用方自己决定处置（kb_search 要区分向量模型挂了/检索出错，question_gen 一律当"未收录"退回模型出题）。
 - 混合检索（hybrid）路径**不套 `kb_min_similarity`**（设计如此，为救回纯词法命中的术语查询），所以"检索未命中"在真机上几乎不触发——连明显无关的 topic 也会返回低分材料。"未命中"分支只能靠 mock 空结果覆盖，别指望真机复现；输出里标注来源时要意识到这一点。
+- ⚠️ **`backend/app/services/prompts.py` 是全仓库唯一的 CRLF 文件**（其余如 `tools.py` / 测试都是 LF）：Edit 的**多行 old_string 匹配不到**（行尾是 `\r\n`），只能用**单行锚点**替换/插入；插入多行时新行按 `\r\n` 写，别把文件搞成混用行尾。改前先 `python -c "print(open(f,'rb').read().count(b'\r\n'))"` 确认。
+- 新增/改一个工具的**六处同步点**（漏一处就红）：`make_tools` 返回列表（`kb_search` 仍须下标 0）→ 模块 docstring 工具清单 → `tests/test_agent_tools.py` 的 `_ALL_TOOLS` 与 `test_make_tools_exposes_*_tools` → 易撞组合互指（双向点名 + 测试参数对）→ `data/agent_eval/routing.json` 补 3 条用例 → `docs/Agent工具设计.md` §二表格与 §四易撞表。
+- 跨工具复用的评分口径直接遍历 `_SCORE_LABELS`（技术深度/表达结构/项目真实性/整体），只点评单项时 `if key != "overall"` 过滤即可——不要另起一份中文映射，会和模拟面试报告漂移。
+- 工具内调 LLM 的三件套（`job_match` / `question_gen` / `answer_review`）里有两类「不需要身份」：`question_gen`（只查公共语料）与 `answer_review`（题目和回答都是用户当场贴的，不查库）——它们没有 `_owner_filter`，但仍走 `_run_tool_llm` 限额与记账。
+- 测「入参截断」时填充字符要**避开提示词模板里已有的字**：「答」会撞上 `候选人的回答：` 让计数多 1（`2001 != 2000`），换模板里不存在的字（如「好」）或直接照 job_match 用例用 `x`。
 
 ## Log
 
@@ -233,5 +238,26 @@ Started: 2026-09-16
   - **混合检索不套 `kb_min_similarity`（设计如此）**，所以真机上"未命中"分支几乎触发不了——连「量子纠缠挖矿」这种主题都返回了 `algorithm_interview` 的低分块，输出照常标"依据平台知识库出题"。这不是 bug（hybrid 就是为救回纯词法命中），但意味着"未命中"只能靠 mock 空结果覆盖；US-012 若关心这个，得单独评估要不要给工具侧加相关性门槛。
   - 岗位类型这类**跨工具/跨接口复用的中文映射**，提到模块级常量（本次 `_POSITION_LABELS`）比在两处各写一份 dict 好：`interview_history` 与 `question_gen` 的口径天然要一致，写两份迟早漂移。
   - 题目数这种"3~5 道"的硬约束直接写进 pydantic 契约（`min_length=3, max_length=5`）而不是只在提示词里说：`chat_json` 的重试机制会替你兜住模型的偷懒，渲染侧再截一次是双保险（与 `_as_items` 的用法一致）。
+  - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
+---
+
+## 2026-09-16 19:20 - US-011
+- What was implemented: 新增第 11 个工具 `answer_review(question, answer)` —— 点评用户贴的一段面试回答。链路：两个入参都必填（先判 answer 空→「把他自己的回答贴进来」，再判 question 空→「把题目一起发过来」，短路时一次模型都不调）→ 回答截到 2000 字（`_TOOL_ANSWER_CHARS`），截断在输出里说明 → `chat_json(ANSWER_REVIEW_SYSTEM_PROMPT, build_answer_review_prompt(题目, 回答), settings, AnswerReviewReport.model_validate)`，整段经 `_run_tool_llm`（限额 + 记 `agent_tool_llm`）并自己 try/except 兜话术 → 渲染「10 分制三项评分（技术深度/表达结构/项目真实性，共用 `_SCORE_LABELS`、跳过 overall）+ 2~4 条改进建议」。提示词与版本常量 `ANSWER_REVIEW_PROMPT_VERSION` 在 `prompts.py`，输出契约 `AnswerReviewReport`（评分 `ge=1/le=10`、建议 `min_length=2 / max_length=4`）在 `schemas/agent.py`。与 `question_gen` 双向点名（**出题用 question_gen，点评已写好的回答用 answer_review**）。
+- Files changed:
+  - `backend/app/services/prompts.py`（新增 `ANSWER_REVIEW_PROMPT_VERSION` / `ANSWER_REVIEW_SYSTEM_PROMPT` / `build_answer_review_prompt`；模块 docstring 补 answer_review）
+  - `backend/app/schemas/agent.py`（新增 `AnswerReviewReport`）
+  - `backend/app/services/agent/tools.py`（新增 `_TOOL_ANSWER_CHARS` / `_TOOL_ANSWER_SUGGESTIONS` 常量与 `answer_review` 工具；import 补 `AnswerReviewReport` 与提示词三件套；`question_gen` docstring 补"要点评回答请用 answer_review"；`make_tools` 尾部追加，**kb_search 仍在下标 0**；模块 docstring 工具清单补第 11 项）
+  - `backend/tests/test_agent_tools.py`（清单断言 10→11 并改名、`_ALL_TOOLS` 补 answer_review、互指断言补 `question_gen ↔ answer_review`；新增 8 项 answer_review 测试 + `_fake_review_result` 替身）
+  - `data/agent_eval/routing.json`（补 3 条 answer_review 问法，30→33 条，满足 11 工具 ×3 的守门断言）
+  - `docs/Agent工具设计.md`（§二 answer_review 行改为已实现要点；§四易撞表补 `question_gen` vs `answer_review`；§五用例集口径改 11 工具 33 条；§六提示词版本常量补全）
+  - `scripts/ralph/progress.txt`（Codebase Patterns 补 5 条）
+  - `scripts/ralph/prd.json`（US-011 passes=true）
+- Quality checks: `ruff check .` all passed；`pytest -q` 245 passed（US-010 时 235，本次 +10）；`pytest tests/test_agent_tools.py` 105 passed。全量跑完 kb 表被清空，已 `python -m scripts.seed_kb_preset` 恢复 7 条预置语料。真机校验：一次真实 DeepSeek 调用，三项评分（6/5/5）与 4 条具体建议输出正常，schema 契约无误。
+- **Learnings for future iterations:**
+  - ⚠️ **`prompts.py` 是全仓库唯一的 CRLF 文件**：给它做多行 Edit 时 old_string **匹配不上**（行尾 `\r\n`），只能拿单行当锚点插入（已写进 Codebase Patterns）。以后凡是"Edit 报找不到字符串"而肉眼看着明明一样，先怀疑行尾。
+  - **"入参必填"类工具的短路顺序决定话术**：answer_review 先查 answer（没有回答就根本没法点评），再查 question。两个参数都空时给的是 answer 的话术，写测试要按这个顺序断言。
+  - **截断测试的填充字不能撞提示词模板**：第一版用「答」填 2800 字，断言 `count("答") == 2000` 失败（模板里"候选人的回答"也含「答」，实际 2001）。换成模板里不存在的字即可（已写进 Codebase Patterns）。
+  - 复用四维评分时**遍历 `_SCORE_LABELS` 再 `if key != "overall"`**，比新写一份三项中文映射稳——模拟面试报告的口径一改，工具这边自动跟着走。
+  - 本工具**不需要身份**（题目与回答都是用户当场贴的，不查任何个人数据），所以没有 `_owner_filter`；但仍必须走 `_run_tool_llm` 限额与记账——"不查库"不等于"不花钱"。
   - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
 ---

@@ -197,8 +197,8 @@
         "ruff check . 通过"
       ],
       "priority": 11,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成：answer_review(question, answer) 用四维评分口径里的技术深度/表达结构/项目真实性三项（共用 _SCORE_LABELS、10 分制、不评整体）加 2~4 条改进建议点评用户贴的回答；题目与回答都必填，缺哪个给哪个的补全话术且一次模型都不调；回答截到 2000 字并在输出里说明；走 chat_json + AnswerReviewReport 结构化校验（评分 1~10、建议 min 2 / max 4），提示词版本独立为 ANSWER_REVIEW_PROMPT_VERSION，LLM 调用统一过 _run_tool_llm，异常兜话术不向上抛。与 question_gen 在描述里互相点名（出题 vs 点评）。新增 8 项单测 + routing.json 补 3 条用例（30→33，满足 11 工具 ×3），全量 245 项通过；真机跑通一次真实 DeepSeek 调用，三项评分与 4 条建议输出正常。"
     },
     {
       "id": "US-012",

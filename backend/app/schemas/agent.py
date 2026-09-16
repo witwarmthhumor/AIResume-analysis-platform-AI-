@@ -25,3 +25,20 @@ class QuestionGenReport(BaseModel):
         max_length=5,
         description="3~5 道面试题，只给题目不给答案",
     )
+
+
+class AnswerReviewReport(BaseModel):
+    """answer_review 工具必须输出的固定 JSON 结构（对一段回答的点评）。
+
+    三项评分与 interview_prompts 的四维口径同名同量程（10 分制），这里刻意**不评
+    整体表现**——单次回答只作三项点评，整体小结交给模拟面试的结束报告。
+    """
+
+    technical_depth: int = Field(ge=1, le=10, description="技术深度 1~10")
+    communication: int = Field(ge=1, le=10, description="表达结构 1~10")
+    project_authenticity: int = Field(ge=1, le=10, description="项目真实性 1~10")
+    suggestions: list[str] = Field(
+        min_length=2,
+        max_length=4,
+        description="2~4 条具体可操作的改进建议",
+    )

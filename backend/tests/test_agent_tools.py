@@ -1,5 +1,5 @@
 """v3.5 Agent 工具测试：resume_lookup / interview_history / usage_stats / analysis_read /
-kb_list / platform_help / job_match。
+kb_list / platform_help / job_match / question_gen / answer_review。
 
 只查"当前归属者"自己的数据是个人数据工具的核心安全属性，因此重点覆盖：
 - 无身份时明确拒绝（而不是返回空结果让模型脑补）
@@ -24,9 +24,10 @@ from app.models.interview import InterviewSession
 from app.models.kb import KBChunk, KBDocument
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
-from app.schemas.agent import JobMatchReport, QuestionGenReport
+from app.schemas.agent import AnswerReviewReport, JobMatchReport, QuestionGenReport
 from app.services.agent import ToolContext, make_tools
 from app.services.agent.tools import (
+    _TOOL_ANSWER_CHARS,
     _TOOL_JD_CHARS,
     _TOOL_LLM_ACTION,
     _TOOL_LLM_LIMIT_REPLY,
@@ -34,6 +35,7 @@ from app.services.agent.tools import (
 )
 from app.services.ai_client import AIError, AnalysisResult
 from app.services.prompts import (
+    ANSWER_REVIEW_SYSTEM_PROMPT,
     JOB_MATCH_SYSTEM_PROMPT,
     PROMPT_VERSION,
     QUESTION_GEN_SYSTEM_PROMPT,
@@ -109,7 +111,7 @@ def _add_resume(db, anonymous_id: str, filename: str, raw_text: str) -> Resume:
 # —— 工具集装配 ——
 
 
-def test_make_tools_exposes_ten_tools(db_session) -> None:
+def test_make_tools_exposes_eleven_tools(db_session) -> None:
     tools = make_tools(db_session, None, _OWNER, ToolContext())
     assert [t.name for t in tools] == [
         "kb_search",
@@ -122,6 +124,7 @@ def test_make_tools_exposes_ten_tools(db_session) -> None:
         "platform_help",
         "job_match",
         "question_gen",
+        "answer_review",
     ]
 
 
@@ -772,7 +775,7 @@ def test_kb_search_and_platform_help_are_mutually_exclusive(db_session) -> None:
     assert "kb_search" in tools["platform_help"].description
 
 
-# —— 工具描述互斥性（8 个工具统一口径）——
+# —— 工具描述互斥性（11 个工具统一口径）——
 
 _ALL_TOOLS = (
     "kb_search",
@@ -785,6 +788,7 @@ _ALL_TOOLS = (
     "platform_help",
     "job_match",
     "question_gen",
+    "answer_review",
 )
 
 
@@ -812,6 +816,8 @@ def test_tool_description_has_three_parts(name: str) -> None:
         ("analysis_read", "resume_lookup"),
         ("kb_search", "question_gen"),
         ("question_gen", "kb_search"),
+        ("question_gen", "answer_review"),
+        ("answer_review", "question_gen"),
     ],
 )
 def test_confusable_tools_name_each_other(name: str, other: str) -> None:
@@ -1279,3 +1285,153 @@ def test_question_gen_report_requires_three_to_five_questions() -> None:
         QuestionGenReport.model_validate({"questions": ["a", "b"]})
     with pytest.raises(ValidationError):
         QuestionGenReport.model_validate({"questions": ["a"] * 6})
+
+
+# —— answer_review（点评用户贴的一段回答）——
+# 与 job_match 同一套路：monkeypatch 掉 tools.chat_json，只验送进模型的参数与渲染文本。
+# 本工具不查个人数据（题目与回答都是用户当场贴的），无需身份也不需要简历。
+
+_REVIEW_QUESTION = "为什么 MySQL 索引要用 B+ 树？"
+_REVIEW_ANSWER = "因为 B+ 树的叶子节点连成了链表，范围查询快，而且非叶子节点不存数据。"
+
+
+def _fake_review_result() -> AnalysisResult:
+    return AnalysisResult(
+        report={
+            "technical_depth": 7,
+            "communication": 6,
+            "project_authenticity": 5,
+            "suggestions": [
+                "补一句『非叶子节点不存数据，所以单节点能放更多 key、树更矮』",
+                "先给结论再展开，最后补一句适用场景",
+            ],
+        },
+        valid=True,
+        model_name="deepseek-chat",
+        tokens_prompt=280,
+        tokens_completion=150,
+        duration_ms=11,
+    )
+
+
+def test_answer_review_renders_scores_and_suggestions(db_session, monkeypatch) -> None:
+    """成功路径：三项评分 + 改进建议渲染成中文，并记一条工具内用量。"""
+    seen = _patch_chat_json(monkeypatch, result=_fake_review_result())
+
+    out = _tool(db_session, "answer_review").invoke(
+        {"question": _REVIEW_QUESTION, "answer": _REVIEW_ANSWER}
+    )
+
+    assert "技术深度 7/10" in out
+    assert "表达结构 6/10" in out
+    assert "项目真实性 5/10" in out
+    assert "改进建议：" in out and "先给结论再展开" in out
+    assert seen[0]["system"] == ANSWER_REVIEW_SYSTEM_PROMPT
+    # 题目与回答都进了提示词
+    assert _REVIEW_QUESTION in seen[0]["user"]
+    assert _REVIEW_ANSWER in seen[0]["user"]
+    validated = seen[0]["validator"](
+        {
+            "technical_depth": 7,
+            "communication": 6,
+            "project_authenticity": 5,
+            "suggestions": ["a", "b"],
+        }
+    )
+    assert isinstance(validated, AnswerReviewReport)
+    logs = _tool_llm_logs(db_session)
+    assert len(logs) == 1 and logs[0].tokens_total == 430
+
+
+def test_answer_review_truncates_long_answer(db_session, monkeypatch) -> None:
+    """整段自述贴进来要截断后再送模型，并在输出里说明截断了。"""
+    seen = _patch_chat_json(monkeypatch, result=_fake_review_result())
+
+    # 填充字用「好」：提示词模板里没有这个字，计数才等于送进模型的回答长度
+    out = _tool(db_session, "answer_review").invoke(
+        {"question": _REVIEW_QUESTION, "answer": "好" * (_TOOL_ANSWER_CHARS + 800)}
+    )
+
+    assert f"已按前 {_TOOL_ANSWER_CHARS} 字符点评" in out
+    assert seen[0]["user"].count("好") == _TOOL_ANSWER_CHARS
+
+
+def test_answer_review_requires_answer(db_session, monkeypatch) -> None:
+    """只给题目没给回答就提示补全，一次模型都不调。"""
+    seen = _patch_chat_json(monkeypatch)
+
+    out = _tool(db_session, "answer_review").invoke(
+        {"question": _REVIEW_QUESTION, "answer": "   "}
+    )
+
+    assert "回答" in out
+    assert seen == []
+
+
+def test_answer_review_requires_question(db_session, monkeypatch) -> None:
+    """只贴回答没给题目也要补全题目（评分标准依赖题目），一次模型都不调。"""
+    seen = _patch_chat_json(monkeypatch)
+
+    out = _tool(db_session, "answer_review").invoke(
+        {"question": "", "answer": _REVIEW_ANSWER}
+    )
+
+    assert "题目" in out
+    assert seen == []
+
+
+def test_answer_review_swallows_ai_error(db_session, monkeypatch) -> None:
+    """AI 调用失败（含欠费 402）给可读话术，不向上抛，失败的调用不记账。"""
+    _patch_chat_json(monkeypatch, error=AIError("AI 服务暂时不可用，请稍后重试"))
+
+    out = _tool(db_session, "answer_review").invoke(
+        {"question": _REVIEW_QUESTION, "answer": _REVIEW_ANSWER}
+    )
+
+    assert "暂时不可用" in out
+    assert _tool_llm_logs(db_session) == []
+
+
+def test_answer_review_blocked_by_tool_llm_limit(db_session, monkeypatch) -> None:
+    """工具内 AI 调用被关掉（limit=0）时回统一上限话术，一次模型都不调。"""
+    monkeypatch.setattr(settings, "daily_agent_tool_llm_limit", 0)
+    seen = _patch_chat_json(monkeypatch)
+
+    out = _tool(db_session, "answer_review").invoke(
+        {"question": _REVIEW_QUESTION, "answer": _REVIEW_ANSWER}
+    )
+
+    assert "今日工具内 AI 调用已达上限" in out
+    assert seen == []
+
+
+def test_answer_review_report_requires_two_to_four_suggestions() -> None:
+    """建议条数契约：少于 2 条或多于 4 条不通过校验（ai_client 会据此重试）。"""
+    ok = AnswerReviewReport.model_validate(
+        {
+            "technical_depth": 7,
+            "communication": 6,
+            "project_authenticity": 5,
+            "suggestions": ["a", "b"],
+        }
+    )
+    assert len(ok.suggestions) == 2
+
+    with pytest.raises(ValidationError):
+        AnswerReviewReport.model_validate(
+            {
+                "technical_depth": 7,
+                "communication": 6,
+                "project_authenticity": 5,
+                "suggestions": ["a"],
+            }
+        )
+    with pytest.raises(ValidationError):
+        AnswerReviewReport.model_validate(
+            {
+                "technical_depth": 11,  # 超出 10 分制
+                "communication": 6,
+                "project_authenticity": 5,
+                "suggestions": ["a", "b"],
+            }
+        )

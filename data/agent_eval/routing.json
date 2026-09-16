@@ -37,5 +37,9 @@
 
   {"question": "给我出几道 MySQL 索引的面试题", "expected_tool": "question_gen"},
   {"question": "帮我练一下 Redis 缓存，出几道题考考我", "expected_tool": "question_gen"},
-  {"question": "来一组校招难度的 Java 并发面试题", "expected_tool": "question_gen"}
+  {"question": "来一组校招难度的 Java 并发面试题", "expected_tool": "question_gen"},
+
+  {"question": "我这么答行不行：索引失效主要是因为用了函数或者隐式类型转换，所以要避免在列上做运算", "expected_tool": "answer_review"},
+  {"question": "帮我看看我这段回答能得几分：Redis 缓存穿透我一般用布隆过滤器挡一层，空值也缓存一下", "expected_tool": "answer_review"},
+  {"question": "刚才那道题我是这样答的，帮我点评一下哪里还能改", "expected_tool": "answer_review"}
 ]

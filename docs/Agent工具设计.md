@@ -67,7 +67,7 @@
 | `analysis_read` | `analyses._latest_valid_analysis(db, resume_id)`；`AnalysisOut` 结构 | 入参是**简历标识**而 LLM 手上只有文件名 → 需先 `resume_lookup` 或在工具内部按"本人最新一份"兜底；六块内容要**按需截断**（面试题列表最长） |
 | `job_match` | `ai_client.chat_json(system, user, settings, validator)` + `AIReport` 同款校验重试 | ✅ 已实现（US-009）：提示词在 `prompts.py`（`JOB_MATCH_SYSTEM_PROMPT` + `build_job_match_prompt`），版本号**独立**为 `JOB_MATCH_PROMPT_VERSION`（与 analyses 表的 `PROMPT_VERSION` 无关，改它不会让旧分析报告失效）；校验模型 `JobMatchReport` 在 `schemas/agent.py`；JD 原文截到 4000 字并在输出里说明，简历正文截到 6000 字；LLM 调用走 `_run_tool_llm`（限额 + 记账），异常自己吞成话术 |
 | `question_gen` | `interview_prompts` 的 `position_type` 难度逻辑；`kb_service.search_chunks` | ✅ 已实现（US-010）：**先检索平台知识库、再依据命中的语料出题**（不是纯模型生成）——命中的前 3 块截到 300 字送进提示词，输出里标出《出题依据》文档名；检索未命中或检索失败时退回模型自身出题，并在输出里明确标注「以下题目不来自平台知识库」。难度定位走 `_POSITION_LABELS`（intern/fresh/senior，空值与非法值回落"通用"），题目数由 `QuestionGenReport`（3~5）卡住。与 `kb_search` 的分工：**出题用本工具，查答案/讲解用 kb_search**（题目不带答案，描述里互相点名） |
-| `answer_review` | `chat_json` + `build_final_report_system_prompt` 的四维评分 schema | 复用技术深度/表达结构/项目真实性三个维度做单次回答点评；用户贴的回答要限长（如 2000 字） |
+| `answer_review` | `chat_json` + `build_final_report_system_prompt` 的四维评分 schema | ✅ 已实现（US-011）：复用了四维评分里**技术深度/表达结构/项目真实性**三项（共用 `_SCORE_LABELS` 口径，10 分制，**不评整体**——整体小结留给模拟面试的结束报告），再加 2~4 条改进建议；题目与回答都必填（缺哪个就提示补全，一次模型都不调），用户贴的回答截到 2000 字并在输出里说明；提示词/版本常量在 `prompts.py`（`ANSWER_REVIEW_PROMPT_VERSION`），输出契约 `AnswerReviewReport`（建议 `min_length=2 / max_length=4`、评分 `1~10`）在 `schemas/agent.py`；LLM 调用走 `_run_tool_llm`。与 `question_gen` 的分工：**出题用 question_gen，点评已写好的回答用本工具**（描述里互相点名） |
 | `score_trend` | `/api/interviews/scores` 同款查询（本人、finished、有报告） | 接口只给"列表"，工具要做**趋势**：对比首末两场的各维度升降，这是新增计算逻辑 |
 | `kb_list` | `kb_service.list_documents(db, user_id, anonymous_id)` | 只输出标题 + 块数 + 状态 + 归属，**绝不能带 `raw_text`**（那是 kb_search 的职责） |
 | `platform_help` | ⚠️ **无原实现**（唯一"新增能力"而非封装） | 返回静态功能说明，**不查库、不调模型**；实现要点是 **topic 路由**——`_PLATFORM_TOPICS` 用「别名元组 → 文案」做小写包含匹配（别名顺序即优先级，具体主题排前防泛词抢匹配），空 topic 或全不命中回落总览。**描述必须与 `kb_search` 划清界限**——平台功能 vs 计算机技术知识点，否则两个工具会互抢 |
@@ -126,7 +126,7 @@ Router → Service → Model 单向依赖，反向引用会让路由层无法独
 每个工具的 description 必须 > 50 字符且同时含"什么时候用"与"什么时候不用"；
 易撞组合必须在描述里互相点名。新增工具时这两条会直接拦住漏写的描述。
 
-当前 8 个工具的易撞组合与划线方式：
+当前 11 个工具的易撞组合与划线方式：
 
 | 易撞组合 | 划线方式 |
 |---|---|
@@ -139,6 +139,7 @@ Router → Service → Model 单向依赖，反向引用会让路由层无法独
 | `job_match` vs `analysis_read` | 前者=拿用户**贴的 JD 现算**匹配度（工具内调模型），后者=读**已有的**简历分析结论（只查库，不生成新内容） |
 | `job_match` vs `resume_lookup` | 前者=简历与 JD 的对比判断，后者=简历**原文**里有没有写过某技能/项目 |
 | `kb_search` vs `question_gen` | 前者=查知识点的**答案与讲解**（检索出正文片段），后者=**出一组模拟面试题**（只出题、不给答案）；两者互相点名排他 |
+| `question_gen` vs `answer_review` | 前者=**出题**（用户还没答），后者=**点评用户已经写好的一段回答**（题目 + 回答一起给）；两者互相点名排他 |
 
 ---
 
@@ -147,7 +148,8 @@ Router → Service → Model 单向依赖，反向引用会让路由层无法独
 工具从 4 个扩到 8 个、再到 11 个，判断"要不要拆多 Agent"靠的不是感觉，是**路由 top-1 准确率**：
 用户一句问法，模型挑的工具对不对。
 
-- 用例集：`data/agent_eval/routing.json`（`question` + `expected_tool`，8 工具各 3 条口语化问法）
+- 用例集：`data/agent_eval/routing.json`（`question` + `expected_tool`，11 工具各 3 条口语化问法共 33 条；
+  守门测试 `test_cases_cover_every_tool` 强制「用例数 ≥ 工具数 × 3」，加工具不加用例会直接红）
 - 脚本：`backend/scripts/eval_agent_routing.py`（backend/ 目录下 `python -m scripts.eval_agent_routing`）
 - 口径：每题**一次** LLM 调用做选择（temperature 0），只取返回消息里首个 `tool_calls` 的工具名；
   **工具执行体全程不运行**（不查库、不检索），所以脚本不碰任何业务数据
@@ -175,4 +177,6 @@ Router → Service → Model 单向依赖，反向引用会让路由层无法独
 - **失败的调用不记账**（重试仍受主循环 `daily_agent_limit` 约束）；
   识别不到归属者时也不写账（没法归因，免得污染全站总量统计）。
 - 新增工具若调用 LLM，**必须复用 `_run_tool_llm`**，否则限流与成本统计会漏。
-- 新增提示词（`job_match` / `answer_review`）必须递增各自的 `PROMPT_VERSION`，旧结果不复用。
+- 新增提示词（`job_match` / `question_gen` / `answer_review`）必须递增各自的版本常量
+  （`JOB_MATCH_PROMPT_VERSION` / `QUESTION_GEN_PROMPT_VERSION` / `ANSWER_REVIEW_PROMPT_VERSION`），
+  旧结果不复用；**绝不要动 analyses 表口径的 `PROMPT_VERSION`**。

@@ -26,6 +26,7 @@
 8. platform_help      答"本平台自身功能怎么用"（纯静态文案，不查库不调模型）
 9. job_match          拿岗位 JD 与本人简历做匹配分析（工具内调一次 LLM）
 10. question_gen      围绕某主题出一组模拟面试题（先检索平台知识库，再依据语料出题）
+11. answer_review     点评用户贴的一段面试回答（三项打分 + 改进建议）
 """
 
 from collections.abc import Callable
@@ -42,7 +43,7 @@ from app.core.logging import get_logger
 from app.models.interview import InterviewSession
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
-from app.schemas.agent import JobMatchReport, QuestionGenReport
+from app.schemas.agent import AnswerReviewReport, JobMatchReport, QuestionGenReport
 from app.services.ai_client import chat_json
 from app.services.analysis_service import latest_valid_analysis
 from app.services.embedding_service import embed_texts
@@ -53,8 +54,10 @@ from app.services.kb_service import (
 )
 from app.services.lexical_service import tokenize
 from app.services.prompts import (
+    ANSWER_REVIEW_SYSTEM_PROMPT,
     JOB_MATCH_SYSTEM_PROMPT,
     QUESTION_GEN_SYSTEM_PROMPT,
+    build_answer_review_prompt,
     build_job_match_prompt,
     build_question_gen_prompt,
 )
@@ -86,6 +89,9 @@ _TOOL_MATCH_ITEMS = 8
 # 与渲染给模型的题目条数上限
 _TOOL_QUESTION_CHUNKS = 3
 _TOOL_QUESTION_LIMIT = 5
+# answer_review：用户贴的回答与渲染出的建议条数上限（建议条数的下限由 schema 卡 min 2）
+_TOOL_ANSWER_CHARS = 2000
+_TOOL_ANSWER_SUGGESTIONS = 4
 # 工具内部自带 LLM 调用的记账口径：与 Agent 主循环的 agent/agent_create 分开统计，
 # 上限独立走 settings.daily_agent_tool_llm_limit
 _TOOL_LLM_ACTION = "agent_tool_llm"
@@ -957,7 +963,8 @@ def make_tools(
         什么时候用：用户说"给我出几道题""帮我练一下某主题""出几道面试题考考我"——
         要的是**一组新题目**，可指定实习/校招/社招的难度。
         什么时候不用：要查某知识点的**答案与讲解**（原理、用法、对比、排错）请用 kb_search，
-        本工具只出题、不给答案；要的是针对**本人简历**的预测面试题请用 analysis_read；
+        本工具只出题、不给答案；用户已经写好一段回答要**点评**请用 answer_review；
+        要的是针对**本人简历**的预测面试题请用 analysis_read；
         问"模拟面试功能怎么开始"（入口与流程）请用 platform_help。
         入参 topic 为想练习的主题；position_type 取 intern（实习）/ fresh（校招）/
         senior（社招）/ 空字符串，其他值按通用难度处理。"""
@@ -1018,6 +1025,67 @@ def make_tools(
             )
         return "\n".join(lines)
 
+    @tool
+    def answer_review(question: str, answer: str) -> str:
+        """点评用户贴的一段**面试回答**：按技术深度、表达结构、项目真实性三项 10 分制打分，
+        并给出 2~4 条具体改进建议。本工具内部会调用一次 AI，受"工具内 AI 调用"的每日限额约束。
+
+        什么时候用：用户把自己的**回答原文**贴过来（"我这么答行不行""帮我看看这段回答"
+        "我这样答能得几分"）——必须是**已有的一段回答**，题目与回答一起给最准。
+        什么时候不用：要**出一组成题**请用 question_gen；要查某知识点的**标准答案与讲解**
+        请用 kb_search；要读模拟面试**已生成的结束报告**请用 interview_history 或 score_trend。
+        不要拿本工具的评价冒充平台已生成的面试报告。
+        入参 question 为对应的面试题目；answer 为用户自己的回答，超过 2000 字符会截断后点评。"""
+        title = (question or "").strip()
+        body = (answer or "").strip()
+        if not body:
+            return "请让用户把他自己的回答贴进来（题目 + 他的回答），我才能点评。"
+        if not title:
+            return "请让用户把对应的面试题目一起发过来，我才知道该按什么标准点评这段回答。"
+
+        # 用户可能把整段自述或项目经历贴进来，超长回答会撑爆上下文并让费用翻倍
+        truncated = len(body) > _TOOL_ANSWER_CHARS
+        if truncated:
+            body = body[:_TOOL_ANSWER_CHARS]
+
+        def _call():
+            return chat_json(
+                ANSWER_REVIEW_SYSTEM_PROMPT,
+                build_answer_review_prompt(title, body),
+                settings,
+                AnswerReviewReport.model_validate,
+            )
+
+        try:
+            result, reply = _run_tool_llm(db, user_id, anonymous_id, _call)
+        except Exception:
+            logger.exception("agent answer_review AI 调用失败")
+            return "回答点评的 AI 服务暂时不可用（可能是服务欠费或超时），请稍后再试。"
+        if reply is not None:  # 达到工具内 AI 调用上限
+            return reply
+
+        report = result.report if result is not None else None
+        if not isinstance(report, dict):
+            return "回答点评的 AI 返回结果无法解析，请让用户稍后再试一次。"
+
+        # 与面试结束报告共用 _SCORE_LABELS 的口径（10 分制），只取前三项不评整体
+        scores = [
+            f"{label} {report[key]}/10"
+            for key, label in _SCORE_LABELS.items()
+            if key != "overall" and isinstance(report.get(key), (int, float))
+        ]
+        lines = ["该段回答的点评（10 分制）："]
+        if scores:
+            lines.append("评分：" + " / ".join(scores))
+        suggestions = _as_items(report.get("suggestions"), _TOOL_ANSWER_SUGGESTIONS)
+        if suggestions:
+            lines.append("改进建议：" + "；".join(suggestions))
+        if truncated:
+            lines.append(
+                f"（回答超过 {_TOOL_ANSWER_CHARS} 字符，已按前 {_TOOL_ANSWER_CHARS} 字符点评。）"
+            )
+        return "\n".join(lines)
+
     return [
         kb_search,
         resume_lookup,
@@ -1029,4 +1097,5 @@ def make_tools(
         platform_help,
         job_match,
         question_gen,
+        answer_review,
     ]
