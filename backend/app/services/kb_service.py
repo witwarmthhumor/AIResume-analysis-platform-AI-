@@ -9,7 +9,7 @@ owner 隔离：scope=public（预置语料）全站可见；scope=private（用�
 import math
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, delete, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -305,6 +305,22 @@ def list_documents(
             )
             .order_by(KBDocument.created_at.desc(), KBDocument.id.desc())
         )
+    )
+
+
+def count_chunks_by_document(db: Session, document_ids: list[int]) -> dict[int, int]:
+    """批量统计各文档的切块数（一次 group by 查完，避免逐条查的 N+1）。
+
+    文档列表页与 Agent 的 kb_list 工具共用——只数条数，**不取任何切块正文**。
+    """
+    if not document_ids:
+        return {}
+    return dict(
+        db.execute(
+            select(KBChunk.document_id, func.count())
+            .where(KBChunk.document_id.in_(document_ids))
+            .group_by(KBChunk.document_id)
+        ).all()
     )
 
 

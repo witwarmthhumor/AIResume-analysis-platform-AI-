@@ -20,6 +20,8 @@ Started: 2026-09-16
 - 工具在 `services/` 层**不得 import `app/api/`**（项目是 Router → Service → Model 单向依赖）。需要复用接口层查询时，先把它下沉成 service 函数，接口与工具都调那一份，不要复制 SQL。
 - `created_at` 是 `server_default=func.now()`（事务开始时间），**同一事务插入的多行时间戳可能完全相同**——所有「取最近 N 条」查询必须带 `id desc` 兜底排序；测试里要控制先后就**显式传 `created_at=`**（`InterviewSession(created_at=...)` 会覆盖 server_default）。
 - ⚠️ 开跑 pytest 前先确认 Docker Desktop 起来了：本项目容器是**已存在但 stopped**，用 `docker start ai-interview-db ai-interview-redis ai-interview-ollama`；`docker compose up -d` 会报 name conflict。DB 没起时 pytest 会**挂住不报错**（连接超时很长），别误判成死循环。
+- 知识库可见性判据是 `kb_service._visible_clause`（`scope=public` 全站可见 / `private` 仅归属者），工具与接口都复用它；但测试里造的 `scope=public` 文档 `user_id` 与 `anonymous_id` **都是空**（与预置语料同形），按归属者清理清不掉 —— 测试数据要带**标题前缀**，清理时用 `title LIKE '前缀%'` 兜底（`tests/test_agent_tools.py` 的 `_KB_PREFIX`）。
+- 开发库长期有 7 篇预置语料，凡「空库 / 精确条数」类断言都会被它干扰：要么只断言与总数无关的片段（如「仅显示前 20 篇」），要么 monkeypatch 掉查询函数隔离验证。
 
 ## Log
 
@@ -70,5 +72,24 @@ Started: 2026-09-16
   - `final_report_json` 的判空要 `isinstance(x, dict)`：SQLAlchemy 写 Python `None` 进 JSONB 在**某些写入路径**下是 SQL NULL，但历史数据/原始 SQL 写入会落成 `null` 字面量，两种都得排掉。测试里覆盖字面量要用 `text()` 手写 INSERT 传 `'null'::jsonb`。
   - 造「有先后顺序」的测试数据时显式传 `created_at=datetime(...)`（构造参数会覆盖 `server_default`），不要依赖 `func.now()` 的提交先后 —— 同事务内时间戳可能完全一样。
   - `_SCORE_LABELS` 里 `overall` 的中文是「**整体表现**」而不是「整体」，写断言时注意别只匹配单字（本次用「整体表现 6」）。
+  - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
+---
+
+## 2026-09-16 13:05 - US-004
+- What was implemented: 新增第 7 个工具 `kb_list(query)`——列知识库可见文档清单。复用 `kb_service.list_documents`（预置语料 public 全站可见 + 本人 private）取文档，块数走新下沉的 `kb_service.count_chunks_by_document` 一次 group by 查完；只渲染**元信息**（标题《》/来源 平台预置|本人上传/状态 可检索等/块数），**完全不碰 raw_text 与切块正文**；query 非空按标题不区分大小写过滤、未命中回「未找到」；上限 20 篇，超出追加「仅显示前 20 篇」；异常吞掉返回兜底话术。
+- Files changed:
+  - `backend/app/services/kb_service.py`（新增 `count_chunks_by_document(db, document_ids) -> dict[int, int]`；补 `func` import）
+  - `backend/app/api/knowledge_base.py`（列表接口改调该 service 函数，删掉重复的 group by SQL 与不再使用的 `KBChunk` import）
+  - `backend/app/services/agent/tools.py`（新增 `kb_list` 工具、`_TOOL_KB_LIMIT = 20`、`_KB_STATUS_LABELS` / `_KB_SCOPE_LABELS` 两张中文映射表；`kb_service` import 改多行；`make_tools` 返回列表尾部追加，**kb_search 仍在下标 0**；模块 docstring 工具清单补第 7 项）
+  - `backend/tests/test_agent_tools.py`（清理范围加 kb 两表（public 文档按标题前缀 `agentkb_` 清）；工具清单断言改 7 个；新增 7 项 kb_list 测试）
+  - `docs/Agent工具设计.md`（「易撞组合」表补 `kb_search` vs `kb_list` 的划线：内容 vs 清单，且 kb_list 绝不返回正文）
+  - `scripts/ralph/prd.json`（US-004 passes=true）
+- Quality checks: `ruff check .` all passed；`pytest -q` 168 passed（US-003 时 161，本次 +7）；`pytest tests/test_agent_tools.py` 38 passed。全量跑完 kb 表被清空，已 `python -m scripts.seed_kb_preset` 恢复 7 条预置语料，并另跑脚本确认 `kb_list` 对真实预置语料的输出正常、测试残留文档为 0。
+- **Learnings for future iterations:**
+  - `list_documents` 的可见性条件（`_visible_clause`）对**完全无身份**（user_id 与 anonymous_id 皆空）的调用是安全的：只返回 `scope=public`，不泄露任何私有文档。所以 `kb_list` 这个「半公共」工具**不需要**像个人数据工具那样拒绝无身份调用（否则新访客连平台有哪些资料都问不出来）；`kb_search` 同理。判断标准是「返回集是否天然只有公共数据」。
+  - 需要复用接口层 SQL 时**先下沉再调用**：本次把知识库列表接口里的块数 group by 下沉成 `count_chunks_by_document`，接口与工具共用一份。判断依据是 `api/knowledge_base.py` 里有没有同款查询——直接复制到 tools.py 会违反 Router → Service → Model 单向依赖（且两份 SQL 会漂移）。
+  - `ISC004` 本次在**两处**踩到：工具里的多行 f-string 和测试里的多行 SQL 字符串。规律：**只要多行隐式拼接出现在 `[...]` / `(...)` 集合字面量里就报**；解法是先赋给变量（`head = (...)` / `chunk_delete = (...)`）再放进集合。测试里拼 SQL 尤其容易忘。
+  - 测试数据清理的新坑：`scope=public` 的文档归属字段两者皆空，`DELETE ... WHERE anonymous_id IN (...)` 清不掉，会永久留在**开发库**里（本项目测试直连开发库）。凡是造「归属为空」的数据，必须给标题加测试前缀并按前缀清（已在 Codebase Patterns 记录）。
+  - 开发库长期有 7 篇预置语料，「空库」和「精确条数」两类断言会被它干扰：空库分支用 `monkeypatch.setattr("app.services.agent.tools.list_documents", lambda *a, **k: [])` 隔离；计数断言只写与总数无关的片段（如「仅显示前 20 篇」），别写死「共有 25 篇」。
   - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
 ---

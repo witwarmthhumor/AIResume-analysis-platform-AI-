@@ -1,12 +1,13 @@
-"""v3.5 Agent 个人数据工具测试：resume_lookup / interview_history / usage_stats / analysis_read。
+"""v3.5 Agent 个人数据工具测试：resume_lookup / interview_history / usage_stats / analysis_read / kb_list。
 
-只查"当前归属者"自己的数据是这四个工具的核心安全属性，因此重点覆盖：
+只查"当前归属者"自己的数据是这些工具的核心安全属性，因此重点覆盖：
 - 无身份时明确拒绝（而不是返回空结果让模型脑补）
-- 归属隔离（查不到别人的简历/面试/用量/分析报告）
+- 归属隔离（查不到别人的简历/面试/用量/分析报告/知识库上传）
 - 正常路径的输出内容与聚合口径
 
 数据库隔离策略：所有测试数据用专属 anonymous_id 标记，只清自己造的数据，
 不动开发库里的其他记录（与 test_rag 清表策略不同，避免误删本地数据）。
+知识库的 scope=public 测试文档两者皆空（与预置语料同形），只能按标题前缀清理。
 """
 
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ from sqlalchemy import text
 from app.db.session import SessionLocal, engine
 from app.models.analysis import Analysis
 from app.models.interview import InterviewSession
+from app.models.kb import KBChunk, KBDocument
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
 from app.services.agent import ToolContext, make_tools
@@ -24,6 +26,8 @@ from app.services.prompts import PROMPT_VERSION
 
 _OWNER = "agent_tool_test_owner"
 _OTHER = "agent_tool_test_other"
+# 测试知识库文档的标题前缀：public 文档归属为空，只能靠前缀把自己的数据清掉
+_KB_PREFIX = "agentkb_"
 
 _TABLES = ("analyses", "resumes", "interview_sessions", "usage_logs")
 
@@ -35,6 +39,18 @@ def _purge() -> None:
                 text(f"DELETE FROM {table} WHERE anonymous_id IN (:a, :b)"),
                 {"a": _OWNER, "b": _OTHER},
             )
+        params = {"a": _OWNER, "b": _OTHER, "p": f"{_KB_PREFIX}%"}
+        chunk_delete = (
+            "DELETE FROM kb_chunks WHERE document_id IN"
+            " (SELECT id FROM kb_documents"
+            " WHERE anonymous_id IN (:a, :b) OR title LIKE :p)"
+        )
+        doc_delete = (
+            "DELETE FROM kb_documents"
+            " WHERE anonymous_id IN (:a, :b) OR title LIKE :p"
+        )
+        for statement in (chunk_delete, doc_delete):
+            conn.execute(text(statement), params)
 
 
 @pytest.fixture
@@ -78,7 +94,7 @@ def _add_resume(db, anonymous_id: str, filename: str, raw_text: str) -> Resume:
 # —— 工具集装配 ——
 
 
-def test_make_tools_exposes_six_tools(db_session) -> None:
+def test_make_tools_exposes_seven_tools(db_session) -> None:
     tools = make_tools(db_session, None, _OWNER, ToolContext())
     assert [t.name for t in tools] == [
         "kb_search",
@@ -87,6 +103,7 @@ def test_make_tools_exposes_six_tools(db_session) -> None:
         "score_trend",
         "usage_stats",
         "analysis_read",
+        "kb_list",
     ]
 
 
@@ -535,5 +552,132 @@ def test_analysis_read_swallows_query_error(db_session, monkeypatch) -> None:
     monkeypatch.setattr("app.services.agent.tools.latest_valid_analysis", _boom)
 
     out = _tool(db, "analysis_read").invoke({"resume_hint": ""})
+
+    assert "暂时出错" in out
+
+
+# —— kb_list ——
+
+
+def _add_kb_document(
+    db,
+    name: str,
+    scope: str = "private",
+    anonymous_id: str = _OWNER,
+    status: str = "ready",
+    raw_text: str = "文档正文",
+    chunk_texts: tuple[str, ...] = (),
+) -> KBDocument:
+    """造一篇知识库文档（名字统一带 _KB_PREFIX，便于按前缀清理）。"""
+    doc = KBDocument(
+        title=f"{_KB_PREFIX}{name}",
+        anonymous_id=None if scope == "public" else anonymous_id,
+        source_type="preset" if scope == "public" else "uploaded",
+        scope=scope,
+        doc_type="text",
+        raw_text=raw_text,
+        status=status,
+    )
+    db.add(doc)
+    db.commit()
+    for seq, content in enumerate(chunk_texts):
+        db.add(
+            KBChunk(
+                document_id=doc.id,
+                seq=seq,
+                content=content,
+                embedding=[0.0] * 768,
+            )
+        )
+    db.commit()
+    return doc
+
+
+def test_kb_list_shows_public_and_own_documents(db_session) -> None:
+    """预置语料 + 本人上传都要列出来，标题/来源/状态/块数齐全。"""
+    db = db_session
+    _add_kb_document(db, "平台预置语料.md", scope="public", chunk_texts=("块一", "块二"))
+    _add_kb_document(db, "我的资料.md", chunk_texts=("块甲",))
+
+    out = _tool(db, "kb_list").invoke({"query": ""})
+
+    assert f"{_KB_PREFIX}平台预置语料.md" in out
+    assert f"{_KB_PREFIX}我的资料.md" in out
+    assert "平台预置" in out and "本人上传" in out
+    assert "可检索" in out
+    assert "2 个知识块" in out and "1 个知识块" in out
+
+
+def test_kb_list_never_leaks_document_content(db_session) -> None:
+    """清单工具绝不能把 raw_text 或切块正文漏给模型——正文归 kb_search 管。"""
+    db = db_session
+    _add_kb_document(
+        db,
+        "技术笔记.md",
+        raw_text="绝不外泄的原文片段",
+        chunk_texts=("绝不外泄的切块正文",),
+    )
+
+    out = _tool(db, "kb_list").invoke({"query": ""})
+
+    assert f"{_KB_PREFIX}技术笔记.md" in out
+    assert "绝不外泄" not in out
+
+
+def test_kb_list_filters_title_case_insensitively(db_session) -> None:
+    db = db_session
+    _add_kb_document(db, "RAG 面试题.md")
+    _add_kb_document(db, "MySQL 索引.md")
+
+    out = _tool(db, "kb_list").invoke({"query": "rag"})
+
+    assert f"{_KB_PREFIX}RAG 面试题.md" in out
+    assert f"{_KB_PREFIX}MySQL 索引.md" not in out
+
+    assert "未找到" in _tool(db, "kb_list").invoke({"query": "Kafka"})
+
+
+def test_kb_list_caps_at_twenty(db_session) -> None:
+    """超过 20 篇只列前 20，并明确说明有截断。"""
+    db = db_session
+    for index in range(1, 26):
+        _add_kb_document(db, f"文档{index:02d}.md")
+
+    out = _tool(db, "kb_list").invoke({"query": ""})
+
+    assert "仅显示前 20 篇" in out
+    assert f"{_KB_PREFIX}文档25.md" in out  # 最近的在前面
+    assert f"{_KB_PREFIX}文档05.md" not in out  # 第 21 篇起不出现
+
+
+def test_kb_list_empty_library(db_session, monkeypatch) -> None:
+    """开发库里预置语料一直存在，空库分支用 monkeypatch 隔离验证。"""
+    monkeypatch.setattr("app.services.agent.tools.list_documents", lambda *a, **k: [])
+
+    out = _tool(db_session, "kb_list").invoke({"query": ""})
+
+    assert "还没有任何可查看的文档" in out
+
+
+def test_kb_list_isolates_other_owner(db_session) -> None:
+    """别人的私有文档不可见。"""
+    db = db_session
+    _add_kb_document(db, "别人的机密资料.md", anonymous_id=_OTHER, chunk_texts=("机密",))
+
+    out = _tool(db, "kb_list").invoke({"query": ""})
+
+    assert f"{_KB_PREFIX}别人的机密资料.md" not in out
+    assert "机密" not in out
+
+
+def test_kb_list_swallows_query_error(db_session, monkeypatch) -> None:
+    """查询抛异常时返回兜底话术，不向上抛（抛了整轮 Agent 就崩）。"""
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr("app.services.agent.tools.list_documents", _boom)
+
+    out = _tool(db_session, "kb_list").invoke({"query": ""})
 
     assert "暂时出错" in out

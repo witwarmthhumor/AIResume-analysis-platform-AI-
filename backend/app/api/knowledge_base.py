@@ -14,9 +14,10 @@ from app.api.auth_deps import get_optional_current_user
 from app.api.deps import enforce_daily_limit, get_anonymous_id
 from app.core.config import settings
 from app.db.session import get_db
-from app.models.kb import KBChunk, KBDocument
+from app.models.kb import KBDocument
 from app.models.user import User
 from app.services.kb_service import (
+    count_chunks_by_document,
     create_document,
     get_owned_document,
     list_documents,
@@ -62,13 +63,7 @@ def list_kb_documents(
 ) -> list[dict]:
     """可见文档列表（预置语料 + 本人上传），含切块数。"""
     docs = list_documents(db, user.id if user else None, anonymous_id)
-    counts = dict(
-        db.execute(
-            select(KBChunk.document_id, func.count())
-            .where(KBChunk.document_id.in_([d.id for d in docs]))
-            .group_by(KBChunk.document_id)
-        ).all()
-    ) if docs else {}
+    counts = count_chunks_by_document(db, [d.id for d in docs])
     return [_doc_out(d, counts.get(d.id)) for d in docs]
 
 

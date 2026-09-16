@@ -70,8 +70,8 @@
         "ruff check . 通过"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成：kb_list 列预置语料 + 本人上传（标题/来源/状态/块数），只读元信息不碰 raw_text；标题过滤不区分大小写，未命中给「未找到」；上限 20 篇并提示截断；块数统计下沉为 kb_service.count_chunks_by_document（知识库接口与工具共用，不再重复 SQL）。新增 7 项单测，全量 168 项通过。"
     },
     {
       "id": "US-005",

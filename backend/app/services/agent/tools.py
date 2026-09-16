@@ -17,6 +17,7 @@
 4. score_trend        查当前用户自己历次模拟面试的分数趋势（逐场对比升降）
 5. usage_stats        查当前用户自己的平台用量（近 N 天各动作次数与 token）
 6. analysis_read      读当前用户某份简历的 AI 分析结论（复用 analysis_service 的查询）
+7. kb_list            列知识库文档清单（标题/块数/状态/来源，不含任何正文）
 """
 
 from dataclasses import dataclass, field
@@ -33,7 +34,11 @@ from app.models.resume import Resume
 from app.models.usage_log import UsageLog
 from app.services.analysis_service import latest_valid_analysis
 from app.services.embedding_service import embed_texts
-from app.services.kb_service import search_chunks
+from app.services.kb_service import (
+    count_chunks_by_document,
+    list_documents,
+    search_chunks,
+)
 from app.services.lexical_service import tokenize
 
 logger = get_logger(__name__)
@@ -49,6 +54,17 @@ _TOOL_TREND_LIMIT = 10
 _TOOL_REPORT_CHARS = 800
 _TOOL_REPORT_ITEMS = 6
 _TOOL_REPORT_QUESTIONS = 5
+# 知识库清单最多列出的文档数（与 kb_max_documents_per_owner 同量级）
+_TOOL_KB_LIMIT = 20
+
+# 知识库文档的状态与来源中文名（与前端知识库页的徽章口径一致）
+_KB_STATUS_LABELS = {
+    "pending": "待入库",
+    "processing": "入库中",
+    "ready": "可检索",
+    "failed": "入库失败",
+}
+_KB_SCOPE_LABELS = {"public": "平台预置", "private": "本人上传"}
 
 # 用量动作的中文名（与前端使用日志的徽章映射保持一致）
 _ACTION_LABELS = {
@@ -524,6 +540,45 @@ def make_tools(
             return text[: _TOOL_REPORT_CHARS - 1] + "…"
         return text
 
+    @tool
+    def kb_list(query: str) -> str:
+        """列出平台知识库里可见的文档清单（标题、切块数、入库状态、来源）。
+        当用户问"知识库里有哪些资料""平台收录了哪些文档""我能问哪些主题"时调用。
+        入参 query 为按标题过滤的关键词，传空字符串表示列出全部可见文档。
+        本工具只给**文档清单**，不含任何正文；要看某主题下的**具体知识点内容**
+        请用 kb_search，不要用本工具。"""
+        try:
+            docs = list_documents(db, user_id, anonymous_id)
+            counts = count_chunks_by_document(db, [d.id for d in docs])
+        except Exception:
+            logger.exception("agent kb_list 查询失败")
+            return "知识库文档清单查询暂时出错，请稍后再试。"
+
+        if not docs:
+            return "知识库当前还没有任何可查看的文档。可提示用户到知识库页上传资料。"
+
+        keyword = (query or "").strip()
+        if keyword:
+            docs = [d for d in docs if keyword.lower() in (d.title or "").lower()]
+            if not docs:
+                return f"未找到标题包含「{keyword}」的文档。可提示用户换个关键词再问。"
+
+        shown = docs[:_TOOL_KB_LIMIT]
+        head = (
+            f"知识库共有 {len(docs)} 篇可见文档"
+            "（预置语料全站可见，用户上传的文档仅本人可见）："
+        )
+        lines = [head]
+        for doc in shown:
+            status = _KB_STATUS_LABELS.get(doc.status, doc.status)
+            source = _KB_SCOPE_LABELS.get(doc.scope, doc.scope)
+            lines.append(
+                f"- 《{doc.title}》｜{source}｜{status}｜{counts.get(doc.id, 0)} 个知识块"
+            )
+        if len(docs) > _TOOL_KB_LIMIT:
+            lines.append(f"（共 {len(docs)} 篇，以上仅显示前 {_TOOL_KB_LIMIT} 篇）")
+        return "\n".join(lines)
+
     return [
         kb_search,
         resume_lookup,
@@ -531,4 +586,5 @@ def make_tools(
         score_trend,
         usage_stats,
         analysis_read,
+        kb_list,
     ]
