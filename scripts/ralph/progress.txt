@@ -1,0 +1,36 @@
+# Ralph Progress Log
+
+Feature: Agent 工具扩展（4 → 11 个）
+Branch: ralph/agent-tool-expansion
+Started: 2026-09-16
+
+## Codebase Patterns
+
+- 工具层在 `backend/app/services/agent/tools.py`，`make_tools(db, user_id, anonymous_id, ctx)` 是**每请求闭包工厂**，工具实例绑定本次请求的 db 会话与归属者。
+- **`kb_search` 必须始终是 `make_tools` 返回列表的第一个元素** —— `tests/test_agent.py` 与 `tests/test_agent_tools.py` 依赖顺序。
+- 归属过滤统一走 `_owner_filter(model, user_id, anonymous_id)`：登录按 `model.user_id == user_id`，匿名按 `model.user_id.is_(None) & (model.anonymous_id == x)`；识别不到身份要**明确拒绝**而不是返回全部数据。
+- 工具内部**必须吞掉异常**返回自然语言兜底 —— 工具无法返回 HTTP 状态码，抛异常会让整轮 Agent 崩。
+- 工具返回值是给 LLM 读的**自然语言**，必须截断（单块内容 300 字上限的先例）。
+- JSONB 列写入 Python `None` 会落成 JSON `null` **字面量**而非 SQL NULL，`is_not(None)` 过滤不掉，必须再判 `isinstance(value, dict)`。
+- 限额/记账复用 `usage_service.count_today_usage_by_owner(db, action_type, user_id, anonymous_id)` 与 `usage_service.write_usage(...)`，不要新写 SQL。
+- 测试要在 `backend/` 目录下跑（`.env` 相对当前目录读）；新测试用专属标记只清自己造的数据，不要 `DELETE FROM` 全表。
+- ⚠️ 跑全量 pytest 会清空 `kb_chunks` / `kb_documents`（老 `tests/test_rag.py` fixture 行为），跑完需 `python -m scripts.seed_kb_preset` 恢复语料。
+- 前端零图表库、零 UI 框架：可视化一律手写 SVG/CSS；组件内映射表用常量 + 回落原始值（参考 `HistoryView.vue` 的 `actionMap`）。
+- ⚠️ 开跑 pytest 前先确认 Docker Desktop 起来了：本项目容器是**已存在但 stopped**，用 `docker start ai-interview-db ai-interview-redis ai-interview-ollama`；`docker compose up -d` 会报 name conflict。DB 没起时 pytest 会**挂住不报错**（连接超时很长），别误判成死循环。
+
+## Log
+
+## 2026-09-16 10:40 - US-001
+- What was implemented: 把分析报告查询从 API 层下沉到 service 层。`analysis_service.py` 新增公开函数 `latest_valid_analysis(db, resume_id)`（`valid_json is True` + `prompt_version == PROMPT_VERSION` + `created_at desc, id desc` 取首条），`api/analyses.py` 删除私有 `_latest_valid_analysis`，两处调用点（POST analyze 的缓存命中、GET analysis）改为调用 service 函数。
+- Files changed:
+  - `backend/app/services/analysis_service.py`（新增 `latest_valid_analysis`，模块 docstring 补「+ 报告查询」）
+  - `backend/app/api/analyses.py`（删私有函数、改 import 与两个调用点）
+  - `AGENTS.md`（环境现状补一句：容器已存在要用 `docker start`，compose up 会报 name conflict）
+- Quality checks: `ruff check .` all passed；`pytest -q` 143 passed；`pytest tests/test_analyses.py` 9 passed。全量跑完 kb 表被清空，已 `python -m scripts.seed_kb_preset` 恢复 7 条预置语料。
+- **Learnings for future iterations:**
+  - Docker Desktop 不随开机自启，pytest 前必须先 `docker start` 三个容器。DB 连不上时 pytest **静默挂住**（不是报错），第一次跑等了 5 分钟才发现 —— 以后开跑前先 `docker ps` 确认。
+  - 全量 pytest 一定清空 kb 表（已在 Codebase Patterns 记录），跑完立刻 seed 恢复，否则后续 US-004 `kb_list` 的单测会拿到空库。
+  - `api/analyses.py` 里 `select` / `Analysis` / `Session` / `PROMPT_VERSION` 仍被 `list_resume_analyses`、`_to_out`、`_get_owned_resume` 用到，删函数后不要顺手删这些 import。
+  - `latest_valid_analysis` 只服务「可复用」语义；v3.5 的版本对比接口是**另写查询、故意不过滤 prompt_version** 的，不要为了复用去放宽这个函数的条件。
+  - 工作区里 `frontend/vite.config.ts` 有一处用户未提交的本地改动（后端端口 8000→8001），与本次 story 无关，**未纳入本次提交**。
+---

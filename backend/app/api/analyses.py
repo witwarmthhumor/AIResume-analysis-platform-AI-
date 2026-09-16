@@ -18,7 +18,7 @@ from app.models.resume import Resume
 from app.models.user import User
 from app.schemas.analysis import AnalysisOut, AnalysisResultOut, AnalysisVersionsOut
 from app.services.ai_client import AIError, analyze_resume
-from app.services.analysis_service import record_analysis
+from app.services.analysis_service import latest_valid_analysis, record_analysis
 from app.services.prompts import PROMPT_VERSION
 
 router = APIRouter(prefix="/api", tags=["analyses"])
@@ -42,18 +42,6 @@ def _to_out(a: Analysis) -> AnalysisOut:
     )
 
 
-def _latest_valid_analysis(db: Session, resume_id: int) -> Analysis | None:
-    return db.scalar(
-        select(Analysis)
-        .where(
-            Analysis.resume_id == resume_id,
-            Analysis.valid_json.is_(True),  # 无效输出不留着复用，重试才有机会修好
-            Analysis.prompt_version == PROMPT_VERSION,  # 提示词改版后旧报告不再复用
-        )
-        .order_by(Analysis.created_at.desc(), Analysis.id.desc())
-    )
-
-
 @router.post("/resumes/{resume_id}/analyze", response_model=AnalysisResultOut)
 def analyze_resume_endpoint(
     resume_id: int,
@@ -73,7 +61,7 @@ def analyze_resume_endpoint(
     if resume.parse_status != "success" or not resume.raw_text:
         raise HTTPException(400, "该简历未成功解析出文本，无法发起 AI 分析")
 
-    existing = _latest_valid_analysis(db, resume_id)
+    existing = latest_valid_analysis(db, resume_id)
     if existing is not None:
         return AnalysisResultOut(cached=True, analysis=_to_out(existing))
 
@@ -156,7 +144,7 @@ def get_analysis(
 ) -> AnalysisOut:
     """该简历最新的有效分析报告；没有则 404。"""
     _get_owned_resume(db, resume_id, user)
-    analysis = _latest_valid_analysis(db, resume_id)
+    analysis = latest_valid_analysis(db, resume_id)
     if analysis is None:
         raise HTTPException(404, "该简历还没有分析报告")
     return _to_out(analysis)

@@ -1,0 +1,235 @@
+{
+  "project": "AIResume",
+  "branchName": "ralph/agent-tool-expansion",
+  "description": "Agent 工具扩展（4 → 11 个）：先把单 Agent 的工具做到 10+ 并用路由评测量化模型选择准确率，据此判断是否需要拆多 Agent。分两批 —— 批次 1 四个零新增 LLM 调用的工具（analysis_read / score_trend / kb_list / platform_help），批次 2 三个内部调 LLM 的工具（job_match / question_gen / answer_review）。",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "分析查询逻辑下沉到 service 层",
+      "description": "作为开发者，我需要把分析报告查询从 API 层挪到 service 层，这样位于 services 层的 Agent 工具不必反向依赖 app/api/（项目约定 Router → Service → Model 单向依赖）。这是批次 1 的硬前置。",
+      "acceptanceCriteria": [
+        "在 backend/app/services/analysis_service.py 新增公开函数 latest_valid_analysis(db, resume_id)，筛选条件与现有 api/analyses.py 的 _latest_valid_analysis 完全一致：valid_json is True、prompt_version == PROMPT_VERSION、按 created_at desc 与 id desc 取第一条",
+        "backend/app/api/analyses.py 删除私有 _latest_valid_analysis，改为调用新的 service 函数",
+        "backend/tests/test_analyses.py 全部通过（行为无变化）",
+        "ruff check . 通过"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "已完成：latest_valid_analysis 下沉到 services/analysis_service.py，api/analyses.py 改为调用它。143 项测试全通过，ruff 全绿。"
+    },
+    {
+      "id": "US-002",
+      "title": "新增 analysis_read 工具",
+      "description": "作为用户，我想让 AI 客服读出我某份简历的 AI 分析结论，这样我不用自己翻报告页。",
+      "acceptanceCriteria": [
+        "在 backend/app/services/agent/tools.py 新增 analysis_read(resume_hint: str) -> str 并加入 make_tools 返回列表；kb_search 必须仍是列表第一个元素",
+        "无身份（user_id 与 anonymous_id 均为空）时返回包含「无法识别用户身份」的文案，不返回任何数据",
+        "有身份但名下无简历时返回包含「没有已上传的简历」的文案",
+        "有简历但该简历无有效分析报告时返回包含「还没有分析报告」的文案，不编造内容",
+        "resume_hint 为空字符串时取最近上传的一份简历；非空时按文件名包含匹配，无匹配时说明未找到并列出实际文件名",
+        "命中时输出目标岗位、岗位匹配、优势、短板、关键词缺口、改进建议、预测面试题，单次输出总长不超过 800 字符，预测面试题最多 5 条",
+        "查询抛异常时返回自然语言兜底文案，不向上抛异常",
+        "python -m pytest tests/test_agent_tools.py 通过，覆盖上述 6 条分支路径",
+        "ruff check . 通过"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "新增 score_trend 工具",
+      "description": "作为用户，我想知道自己的面试表现是进步还是退步，这样能判断复习有没有效果。",
+      "acceptanceCriteria": [
+        "在 backend/app/services/agent/tools.py 新增 score_trend(limit: int = 5) -> str 并加入 make_tools 返回列表",
+        "只统计本人 status 为 finished 且 final_report_json 为 dict 的场次：JSONB 列写入 Python None 会落成 JSON null 字面量，is_not(None) 过滤不掉，必须用 isinstance(report, dict) 判断排除",
+        "limit 钳制到 1~10，非正数回落默认 5",
+        "按时间正序列出各场次的技术深度、表达结构、项目真实性、整体四项分数",
+        "每场与上一场对比给出上升、下降、持平标记，首场标记为基准场",
+        "场次为 0 时返回包含「暂无已完成的模拟面试」的文案；场次为 1 时返回该场分数并说明只有一场暂时看不出趋势",
+        "他人场次不可见（按归属者过滤：登录按 user_id，匿名按 user_id IS NULL 加 anonymous_id）",
+        "python -m pytest tests/test_agent_tools.py 通过",
+        "ruff check . 通过"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "新增 kb_list 工具",
+      "description": "作为用户，我想知道平台知识库里有哪些资料，这样我才知道能问什么。",
+      "acceptanceCriteria": [
+        "在 backend/app/services/agent/tools.py 新增 kb_list(query: str) -> str 并加入 make_tools 返回列表",
+        "返回预置语料（scope=public）与本人上传（scope=private）的文档：标题、块数、状态、来源",
+        "返回值绝不包含 raw_text 或任何切块正文",
+        "query 非空时按标题做不区分大小写的关键词过滤，无匹配时说明未找到",
+        "最多列出 20 条，超出时说明仅显示前 20 条",
+        "他人私有文档不可见（归属隔离）",
+        "python -m pytest tests/test_agent_tools.py 通过",
+        "ruff check . 通过"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "新增 platform_help 工具",
+      "description": "作为用户，我想问「怎么开始模拟面试」「在哪看用量」，希望 AI 客服直接答，而不是去检索计算机技术知识库。",
+      "acceptanceCriteria": [
+        "在 backend/app/services/agent/tools.py 新增 platform_help(topic: str) -> str 并加入 make_tools 返回列表",
+        "纯静态文案：函数体内不查数据库、不调用 LLM",
+        "至少覆盖 8 个主题：上传简历、AI 分析、模拟面试、在线对话、AI 客服、使用日志、个人中心、数据看板与语料库管理",
+        "topic 为空或未知时返回平台功能总览",
+        "platform_help 的 docstring 明确写出：本平台功能使用问题用本工具，计算机技术知识点用 kb_search",
+        "kb_search 的 docstring 同步补上反向排他句：平台功能使用问题请勿调用本工具",
+        "python -m pytest tests/test_agent_tools.py 通过",
+        "ruff check . 通过"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "工具描述互斥性校准",
+      "description": "作为开发者，我需要每个工具的 description 都能让模型分清什么时候不要用我，避免工具变多后互相抢调用。仅改 docstring，不动任何工具的行为逻辑。",
+      "acceptanceCriteria": [
+        "全部 8 个工具（kb_search / resume_lookup / interview_history / usage_stats / analysis_read / score_trend / kb_list / platform_help）的 docstring 都包含三段信息：做什么、什么时候用、什么时候不用",
+        "kb_search 与 platform_help 的描述互相包含排他说明（技术知识点 vs 平台功能）",
+        "resume_lookup 与 analysis_read 的描述互相划清边界（简历原文 vs 分析结论）",
+        "新增单测断言每个工具的 description 长度大于 50 字符，且 kb_search 与 platform_help 的 description 各自包含排他关键词",
+        "python -m pytest tests/test_agent_tools.py 通过",
+        "ruff check . 通过"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "工具路由评测集与脚本（8 工具口径，离线可完成）",
+      "description": "作为开发者，我需要一份可重复运行的工具路由评测，回答模型面对 8 个工具时选对的比例。本 story 只要求数据集与脚本就绪并用 mock LLM 验证脚本逻辑，真实准确率在 US-012 测。",
+      "acceptanceCriteria": [
+        "新增 data/agent_eval/routing.json，不少于 24 条用例（8 个工具各 3 条问法），字段为 question 与 expected_tool",
+        "问法贴近真实口语，例如「我简历里写过 K8s 吗」对应 resume_lookup、「怎么上传简历」对应 platform_help",
+        "新增 backend/scripts/eval_agent_routing.py：对每题发起一次 LLM 调用做工具选择，工具执行体一律 mock（只关心选了哪个工具，不真正查库）",
+        "脚本输出 top-1 准确率、逐题明细（问题、期望工具、实际工具、是否命中）与混淆矩阵（期望工具 × 实际选中工具），结果写入 data/agent_eval/report.md",
+        "LLM 不可用时（如 402 欠费）脚本以非零退出码明确报错退出，不产出空报告",
+        "新增 backend/tests/test_eval_agent_routing.py：mock LLM 返回值，验证准确率统计、混淆矩阵与逐题明细的输出结构正确",
+        "python -m pytest tests/test_eval_agent_routing.py 通过",
+        "ruff check . 通过"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "工具内 LLM 调用的独立限额与记账",
+      "description": "作为开发者，我需要把工具内部自己调 LLM 的消耗与 Agent 主循环调 LLM 分开统计和限制，否则实际可用次数会莫名腰斩且无法归因。这是批次 2 的前置。",
+      "acceptanceCriteria": [
+        "backend/app/core/config.py 新增 daily_agent_tool_llm_limit: int = 20",
+        "backend/.env.docker.example 同步新增该配置项",
+        "在 backend/app/services/agent/tools.py 中新增统一的工具内 LLM 调用辅助：先判断当日 agent_tool_llm 次数是否超限，超限直接返回提示；未超限则调用并写 usage_logs",
+        "超限时工具返回包含「今日工具内 AI 调用已达上限」的自然语言文案，不抛异常（Agent 主循环必须继续可用）",
+        "计数与写入复用 usage_service.count_today_usage_by_owner 与 usage_service.write_usage，不新写 SQL",
+        "不影响 daily_agent_limit（Agent 主循环提问次数）的判定逻辑",
+        "python -m pytest tests/test_agent_tools.py 通过，覆盖未超限、恰好达上限、超限返回文案且不抛、usage_logs 确实落了一条 agent_tool_llm",
+        "ruff check . 通过"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "新增 job_match 工具",
+      "description": "作为用户，我想贴一段 JD 让 AI 告诉我匹配度如何、缺哪些关键词。",
+      "acceptanceCriteria": [
+        "在 backend/app/services/agent/tools.py 新增 job_match(jd_text: str) -> str 并加入 make_tools 返回列表",
+        "jd_text 超过 4000 字符时截断，并在输出中说明已截断",
+        "jd_text 为空时提示需要提供 JD 内容，不调用 LLM",
+        "本人名下无简历时返回包含「需要先上传简历」的文案，不调用 LLM",
+        "复用 ai_client.chat_json(system_prompt, user_prompt, settings, validator) 走结构化输出与失败重试，输出包含匹配度评分、命中关键词、缺失关键词、针对性建议",
+        "新增该提示词的 PROMPT_VERSION 常量并递增",
+        "工具内 LLM 调用受 daily_agent_tool_llm_limit 约束，并写 action_type 为 agent_tool_llm 的 usage_logs",
+        "LLM 抛错（含余额不足）时返回可读话术，不向上抛异常",
+        "python -m pytest tests/test_agent_tools.py 通过（mock LLM，覆盖成功路径、JD 超长截断、空 JD、无简历、LLM 抛错）",
+        "ruff check . 通过"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "新增 question_gen 工具",
+      "description": "作为用户，我想让 AI 针对某个主题出一组面试题，并且这些题要贴合平台知识库。",
+      "acceptanceCriteria": [
+        "在 backend/app/services/agent/tools.py 新增 question_gen(topic: str, position_type: str) -> str 并加入 make_tools 返回列表",
+        "实现路径：先调用 kb_search 检索平台语料，再依据检索结果出题，不是纯模型生成",
+        "检索未命中时明确说明平台知识库未收录该主题，并退回模型自身出题，同时在输出中标注这部分不来自平台知识库",
+        "position_type 取 intern、fresh、senior 或空字符串，非法值回落通用并体现难度定位",
+        "单次生成 3 到 5 道题",
+        "docstring 与 kb_search 互相划清边界：出题用本工具，查答案用 kb_search",
+        "python -m pytest tests/test_agent_tools.py 通过，覆盖检索命中路径、未命中回退路径、非法 position_type 回落",
+        "ruff check . 通过"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "新增 answer_review 工具",
+      "description": "作为用户，我想贴一段自己的回答让 AI 点评，看看哪里能改进。",
+      "acceptanceCriteria": [
+        "在 backend/app/services/agent/tools.py 新增 answer_review(question: str, answer: str) -> str 并加入 make_tools 返回列表",
+        "answer 超过 2000 字符时截断，并在输出中说明已截断",
+        "question 或 answer 为空时提示需要补全，不调用 LLM",
+        "复用四维评分口径中的技术深度、表达结构、项目真实性三项，并给出 2 到 4 条改进建议",
+        "走 ai_client.chat_json 结构化输出与校验重试",
+        "工具内 LLM 调用受 daily_agent_tool_llm_limit 约束，并写 action_type 为 agent_tool_llm 的 usage_logs",
+        "LLM 抛错时返回话术兜底，不向上抛异常",
+        "python -m pytest tests/test_agent_tools.py 通过（mock LLM，覆盖成功、answer 超长截断、参数缺失、LLM 抛错）",
+        "ruff check . 通过"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "评测集扩充到 11 工具口径并实测准确率",
+      "description": "作为开发者，我需要在上线全部工具后重跑路由评测，确认扩到 11 个工具没有让准确率掉下来。本 story 需要可用的 LLM 通道（DeepSeek 402 欠费期间无法完成）。",
+      "acceptanceCriteria": [
+        "data/agent_eval/routing.json 扩充到不少于 33 条，新增 job_match、question_gen、answer_review 各 3 条问法",
+        "在 LLM 可用环境运行 backend/scripts/eval_agent_routing.py，产出 11 工具口径报告",
+        "11 工具口径 top-1 准确率不低于 85%，且相比 8 工具口径下降不超过 5 个百分点",
+        "若准确率低于 85%，在 docs/Agent工具设计.md 中记录所有误选案例与结论（是否触发该考虑多 Agent 的判断）",
+        "报告写入 data/agent_eval/report.md",
+        "ruff check . 通过"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "前端工具名中文化",
+      "description": "作为用户，我在 AI 客服的工具调用过程里看到 analysis_read 这样的英文标识看不懂。",
+      "acceptanceCriteria": [
+        "frontend/src/components/agent/AgentChatCore.vue 的工具调用过程显示中文名，例如 analysis_read 显示为读取分析报告、kb_search 显示为检索知识库",
+        "映射表集中定义在组件内一处常量，覆盖全部 11 个工具加 unknown_tool 占位",
+        "未在映射表内的工具名原样显示，不显示为空",
+        "npm run build 通过",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

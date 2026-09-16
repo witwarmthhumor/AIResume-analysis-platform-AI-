@@ -1,6 +1,7 @@
-"""分析结果落库服务（P4 服务层下沉）。负责 analyses 落库 + usage_logs 记账。"""
+"""分析结果落库服务（P4 服务层下沉）。负责 analyses 落库 + usage_logs 记账 + 报告查询。"""
 
 from fastapi import Request
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -8,6 +9,27 @@ from app.models.analysis import Analysis
 from app.models.usage_log import UsageLog
 from app.services.ai_client import AIError, AnalysisResult
 from app.services.prompts import PROMPT_VERSION
+
+
+def latest_valid_analysis(db: Session, resume_id: int) -> Analysis | None:
+    """该简历最新一份「可复用」的分析报告；没有返回 None。
+
+    可复用的两条硬条件：`valid_json is True`（输出没通过校验的不留着复用，
+    重试才有机会修好）、`prompt_version == PROMPT_VERSION`（提示词改版后旧报告作废）。
+    排序用 `created_at desc, id desc` 双键，避免同秒写入时顺序不稳。
+
+    注意：这里只管"复用"，版本对比要看历史（含旧 prompt 版本）请直接查库，
+    不要放宽本函数的条件（v3.5 报告页版本对比接口就是另写查询的）。
+    """
+    return db.scalar(
+        select(Analysis)
+        .where(
+            Analysis.resume_id == resume_id,
+            Analysis.valid_json.is_(True),
+            Analysis.prompt_version == PROMPT_VERSION,
+        )
+        .order_by(Analysis.created_at.desc(), Analysis.id.desc())
+    )
 
 
 def record_analysis(
