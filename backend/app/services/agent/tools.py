@@ -25,6 +25,7 @@
 7. kb_list            列知识库文档清单（标题/块数/状态/来源，不含任何正文）
 8. platform_help      答"本平台自身功能怎么用"（纯静态文案，不查库不调模型）
 9. job_match          拿岗位 JD 与本人简历做匹配分析（工具内调一次 LLM）
+10. question_gen      围绕某主题出一组模拟面试题（先检索平台知识库，再依据语料出题）
 """
 
 from collections.abc import Callable
@@ -41,7 +42,7 @@ from app.core.logging import get_logger
 from app.models.interview import InterviewSession
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
-from app.schemas.agent import JobMatchReport
+from app.schemas.agent import JobMatchReport, QuestionGenReport
 from app.services.ai_client import chat_json
 from app.services.analysis_service import latest_valid_analysis
 from app.services.embedding_service import embed_texts
@@ -53,7 +54,9 @@ from app.services.kb_service import (
 from app.services.lexical_service import tokenize
 from app.services.prompts import (
     JOB_MATCH_SYSTEM_PROMPT,
+    QUESTION_GEN_SYSTEM_PROMPT,
     build_job_match_prompt,
+    build_question_gen_prompt,
 )
 from app.services.usage_service import count_today_usage_by_owner, write_usage
 
@@ -79,6 +82,10 @@ _TOOL_KB_LIMIT = 20
 _TOOL_JD_CHARS = 4000
 _TOOL_MATCH_RESUME_CHARS = 6000
 _TOOL_MATCH_ITEMS = 8
+# question_gen：送入模型的平台语料块数（与 kb_search 同样按 _TOOL_CHUNK_CHARS 截块）
+# 与渲染给模型的题目条数上限
+_TOOL_QUESTION_CHUNKS = 3
+_TOOL_QUESTION_LIMIT = 5
 # 工具内部自带 LLM 调用的记账口径：与 Agent 主循环的 agent/agent_create 分开统计，
 # 上限独立走 settings.daily_agent_tool_llm_limit
 _TOOL_LLM_ACTION = "agent_tool_llm"
@@ -95,6 +102,18 @@ _KB_STATUS_LABELS = {
     "failed": "入库失败",
 }
 _KB_SCOPE_LABELS = {"public": "平台预置", "private": "本人上传"}
+# 检索链路两种失败的话术：向量模型挂了与检索本身出错，对模型要分开说清
+_KB_EMBED_ERROR = (
+    "知识库检索服务（向量模型）暂时不可用，请基于你已有的通用知识谨慎回答，"
+    "并说明未检索平台知识库。"
+)
+_KB_SEARCH_ERROR = (
+    "知识库检索暂时出错，请基于你已有的通用知识谨慎回答，并说明未检索平台知识库。"
+)
+
+# 岗位类型 → 中文难度定位（与前端面试页选项、interview_prompts 的口径一致）
+_POSITION_LABELS = {"intern": "实习", "fresh": "校招", "senior": "社招"}
+_POSITION_DEFAULT = "通用"
 
 # 用量动作的中文名（与前端使用日志的徽章映射保持一致）
 _ACTION_LABELS = {
@@ -249,6 +268,41 @@ def _snippet(text: str, keyword: str, width: int = _TOOL_SNIPPET_WIDTH) -> str |
     return None
 
 
+def _kb_retrieve(
+    db: Session,
+    query: str,
+    user_id: int | None,
+    anonymous_id: str | None,
+    top_k: int,
+) -> tuple[list[dict], str]:
+    """知识库检索的公共入口（embedding + 混合检索）：kb_search 与 question_gen 共用。
+
+    返回 (命中块, 兜底话术)：检索正常时话术为空串；任一步失败时命中为空、话术为说明文案。
+    之所以返回话术而不是抛异常——两个调用方的处置不同：kb_search 要把"向量模型不可用"
+    与"检索出错"分开告诉模型，question_gen 则把任何检索失败都当成"未收录"，退回模型出题。
+    """
+    try:
+        vectors = embed_texts([query])
+    except Exception:
+        logger.warning("agent 知识库检索 embedding 失败，走无检索兜底", exc_info=True)
+        return [], _KB_EMBED_ERROR
+
+    try:
+        hits = search_chunks(
+            db,
+            vectors[0],
+            user_id,
+            anonymous_id,
+            top_k=top_k,
+            # v3.5：工具入参原文一并交给检索层，走向量 + BM25 混合检索
+            query_text=query,
+        )
+    except Exception:
+        logger.exception("agent 知识库检索失败")
+        return [], _KB_SEARCH_ERROR
+    return hits, ""
+
+
 def _as_items(value, limit: int) -> list[str]:
     """把报告里的数组字段拍平成非空字符串列表（模型偶尔会给单个字符串）。"""
     if isinstance(value, str):
@@ -399,29 +453,14 @@ def make_tools(
         什么时候用：用户问**计算机技术知识点**——编程语言、Java/JVM/并发、MySQL/Redis、
         计算机网络、操作系统、RAG/AI 应用开发等的原理、用法、对比、排错；必须先检索再作答。
         什么时候不用：问"本平台怎么用"（怎么上传简历、怎么开始模拟面试、在哪看用量、
-        平台有哪些功能）请用 platform_help；只想看知识库有哪些**文档清单**请用 kb_list。
+        平台有哪些功能）请用 platform_help；只想看知识库有哪些**文档清单**请用 kb_list；
+        要**出一组模拟面试题**请用 question_gen（本工具负责查答案与讲解，不负责出题）。
         入参 query 为精简后的检索关键词或问题。"""
-        try:
-            vectors = embed_texts([query])
-        except Exception:
-            logger.warning(
-                "agent kb_search embedding 失败，走无检索兜底", exc_info=True
-            )
-            return "知识库检索服务（向量模型）暂时不可用，请基于你已有的通用知识谨慎回答，并说明未检索平台知识库。"
-
-        try:
-            hits = search_chunks(
-                db,
-                vectors[0],
-                user_id,
-                anonymous_id,
-                top_k=settings.kb_search_top_k,
-                # v3.5：工具入参原文一并交给检索层，走向量 + BM25 混合检索
-                query_text=query,
-            )
-        except Exception:
-            logger.exception("agent kb_search 检索失败")
-            return "知识库检索暂时出错，请基于你已有的通用知识谨慎回答，并说明未检索平台知识库。"
+        hits, error = _kb_retrieve(
+            db, query, user_id, anonymous_id, settings.kb_search_top_k
+        )
+        if error:
+            return error
 
         if not hits:
             # 清空上一轮残留引用，并明确告知 Agent 没命中（避免它编造"知识库说"）
@@ -528,11 +567,12 @@ def make_tools(
             "finished": "已结束",
             "abandoned": "已放弃",
         }
-        position_labels = {"intern": "实习", "fresh": "校招", "senior": "社招"}
         parts = [f"该用户最近 {len(rows)} 场模拟面试："]
         for index, session in enumerate(rows, start=1):
             when = session.created_at.strftime("%Y-%m-%d") if session.created_at else "未知"
-            position = position_labels.get(session.position_type or "", "通用")
+            position = _POSITION_LABELS.get(
+                session.position_type or "", _POSITION_DEFAULT
+            )
             status = status_labels.get(session.status, session.status)
             parts.append(
                 f"【第 {index} 场 · 最近在前】{when} · {position} · {status}"
@@ -908,6 +948,76 @@ def make_tools(
             lines.append(f"（JD 超过 {_TOOL_JD_CHARS} 字符，已按前 {_TOOL_JD_CHARS} 字符分析。）")
         return "\n".join(lines)
 
+    @tool
+    def question_gen(topic: str, position_type: str) -> str:
+        """围绕某个技术主题**出一组模拟面试题**：先检索平台知识库，再依据检索到的语料
+        出题，因此题目会贴合平台已收录的资料。本工具内部会调用一次 AI，
+        受"工具内 AI 调用"的每日限额约束。
+
+        什么时候用：用户说"给我出几道题""帮我练一下某主题""出几道面试题考考我"——
+        要的是**一组新题目**，可指定实习/校招/社招的难度。
+        什么时候不用：要查某知识点的**答案与讲解**（原理、用法、对比、排错）请用 kb_search，
+        本工具只出题、不给答案；要的是针对**本人简历**的预测面试题请用 analysis_read；
+        问"模拟面试功能怎么开始"（入口与流程）请用 platform_help。
+        入参 topic 为想练习的主题；position_type 取 intern（实习）/ fresh（校招）/
+        senior（社招）/ 空字符串，其他值按通用难度处理。"""
+        subject = (topic or "").strip()
+        if not subject:
+            return "请让用户说明想练习哪个主题（例如 MySQL 索引、Redis 缓存、项目深挖），我才能出题。"
+
+        level = _POSITION_LABELS.get(
+            (position_type or "").strip().lower(), _POSITION_DEFAULT
+        )
+
+        hits, error = _kb_retrieve(
+            db, subject, user_id, anonymous_id, settings.kb_search_top_k
+        )
+        used = hits[:_TOOL_QUESTION_CHUNKS]
+        context = "\n\n".join(
+            f"【来源：{h['title']}（第{h['seq']}块）】\n{h['content'][:_TOOL_CHUNK_CHARS]}"
+            for h in used
+        )
+
+        def _call():
+            return chat_json(
+                QUESTION_GEN_SYSTEM_PROMPT,
+                build_question_gen_prompt(subject, level, context),
+                settings,
+                QuestionGenReport.model_validate,
+            )
+
+        try:
+            result, reply = _run_tool_llm(db, user_id, anonymous_id, _call)
+        except Exception:
+            logger.exception("agent question_gen AI 调用失败")
+            return "出题的 AI 服务暂时不可用（可能是服务欠费或超时），请稍后再试。"
+        if reply is not None:  # 达到工具内 AI 调用上限
+            return reply
+
+        report = result.report if result is not None else None
+        questions = (
+            _as_items(report.get("questions"), _TOOL_QUESTION_LIMIT)
+            if isinstance(report, dict)
+            else []
+        )
+        if not questions:
+            return "出题的 AI 返回结果无法解析，请让用户稍后再试一次。"
+
+        if used:
+            head = f"主题「{subject}」的模拟面试题（难度定位：{level}；依据平台知识库出题）："
+        else:
+            # 未收录与检索失败都退回模型出题，必须在输出里说清题目不来自知识库
+            reason = "平台知识库检索暂时不可用" if error else "平台知识库未收录该主题"
+            head = f"{reason}，以下题目不来自平台知识库（难度定位：{level}）："
+        lines = [head]
+        lines.extend(f"{i}. {q}" for i, q in enumerate(questions, start=1))
+        if used:
+            titles = "、".join(dict.fromkeys(f"《{h['title']}》" for h in used))
+            lines.append(
+                f"（出题依据：{titles}。想看这些题怎么答，可以让我检索平台知识库。）"
+            )
+        return "\n".join(lines)
+
     return [
         kb_search,
         resume_lookup,
@@ -918,4 +1028,5 @@ def make_tools(
         kb_list,
         platform_help,
         job_match,
+        question_gen,
     ]

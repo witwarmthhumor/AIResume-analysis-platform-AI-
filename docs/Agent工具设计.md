@@ -66,7 +66,7 @@
 |---|---|---|
 | `analysis_read` | `analyses._latest_valid_analysis(db, resume_id)`；`AnalysisOut` 结构 | 入参是**简历标识**而 LLM 手上只有文件名 → 需先 `resume_lookup` 或在工具内部按"本人最新一份"兜底；六块内容要**按需截断**（面试题列表最长） |
 | `job_match` | `ai_client.chat_json(system, user, settings, validator)` + `AIReport` 同款校验重试 | ✅ 已实现（US-009）：提示词在 `prompts.py`（`JOB_MATCH_SYSTEM_PROMPT` + `build_job_match_prompt`），版本号**独立**为 `JOB_MATCH_PROMPT_VERSION`（与 analyses 表的 `PROMPT_VERSION` 无关，改它不会让旧分析报告失效）；校验模型 `JobMatchReport` 在 `schemas/agent.py`；JD 原文截到 4000 字并在输出里说明，简历正文截到 6000 字；LLM 调用走 `_run_tool_llm`（限额 + 记账），异常自己吞成话术 |
-| `question_gen` | `interview_prompts` 的 `position_type` 难度逻辑、`stage_for_turn` | 复用难度分级；返回题目列表而非单题；要注意与 `kb_search` 的分工——**出题用模型自身能力，查答案是 kb_search** |
+| `question_gen` | `interview_prompts` 的 `position_type` 难度逻辑；`kb_service.search_chunks` | ✅ 已实现（US-010）：**先检索平台知识库、再依据命中的语料出题**（不是纯模型生成）——命中的前 3 块截到 300 字送进提示词，输出里标出《出题依据》文档名；检索未命中或检索失败时退回模型自身出题，并在输出里明确标注「以下题目不来自平台知识库」。难度定位走 `_POSITION_LABELS`（intern/fresh/senior，空值与非法值回落"通用"），题目数由 `QuestionGenReport`（3~5）卡住。与 `kb_search` 的分工：**出题用本工具，查答案/讲解用 kb_search**（题目不带答案，描述里互相点名） |
 | `answer_review` | `chat_json` + `build_final_report_system_prompt` 的四维评分 schema | 复用技术深度/表达结构/项目真实性三个维度做单次回答点评；用户贴的回答要限长（如 2000 字） |
 | `score_trend` | `/api/interviews/scores` 同款查询（本人、finished、有报告） | 接口只给"列表"，工具要做**趋势**：对比首末两场的各维度升降，这是新增计算逻辑 |
 | `kb_list` | `kb_service.list_documents(db, user_id, anonymous_id)` | 只输出标题 + 块数 + 状态 + 归属，**绝不能带 `raw_text`**（那是 kb_search 的职责） |
@@ -138,6 +138,7 @@ Router → Service → Model 单向依赖，反向引用会让路由层无法独
 | `platform_help` vs 个人数据四件套 | 前者=功能怎么用（静态文案，不查库），后者=本人真实数据（resume_lookup / analysis_read / interview_history / usage_stats） |
 | `job_match` vs `analysis_read` | 前者=拿用户**贴的 JD 现算**匹配度（工具内调模型），后者=读**已有的**简历分析结论（只查库，不生成新内容） |
 | `job_match` vs `resume_lookup` | 前者=简历与 JD 的对比判断，后者=简历**原文**里有没有写过某技能/项目 |
+| `kb_search` vs `question_gen` | 前者=查知识点的**答案与讲解**（检索出正文片段），后者=**出一组模拟面试题**（只出题、不给答案）；两者互相点名排他 |
 
 ---
 

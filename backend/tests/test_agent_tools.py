@@ -14,6 +14,7 @@ kb_list / platform_help / job_match。
 from datetime import datetime, timezone
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import select, text
 
 from app.core.config import settings
@@ -23,7 +24,7 @@ from app.models.interview import InterviewSession
 from app.models.kb import KBChunk, KBDocument
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
-from app.schemas.agent import JobMatchReport
+from app.schemas.agent import JobMatchReport, QuestionGenReport
 from app.services.agent import ToolContext, make_tools
 from app.services.agent.tools import (
     _TOOL_JD_CHARS,
@@ -32,7 +33,11 @@ from app.services.agent.tools import (
     _run_tool_llm,
 )
 from app.services.ai_client import AIError, AnalysisResult
-from app.services.prompts import JOB_MATCH_SYSTEM_PROMPT, PROMPT_VERSION
+from app.services.prompts import (
+    JOB_MATCH_SYSTEM_PROMPT,
+    PROMPT_VERSION,
+    QUESTION_GEN_SYSTEM_PROMPT,
+)
 
 _OWNER = "agent_tool_test_owner"
 _OTHER = "agent_tool_test_other"
@@ -104,7 +109,7 @@ def _add_resume(db, anonymous_id: str, filename: str, raw_text: str) -> Resume:
 # —— 工具集装配 ——
 
 
-def test_make_tools_exposes_nine_tools(db_session) -> None:
+def test_make_tools_exposes_ten_tools(db_session) -> None:
     tools = make_tools(db_session, None, _OWNER, ToolContext())
     assert [t.name for t in tools] == [
         "kb_search",
@@ -116,6 +121,7 @@ def test_make_tools_exposes_nine_tools(db_session) -> None:
         "kb_list",
         "platform_help",
         "job_match",
+        "question_gen",
     ]
 
 
@@ -778,6 +784,7 @@ _ALL_TOOLS = (
     "kb_list",
     "platform_help",
     "job_match",
+    "question_gen",
 )
 
 
@@ -803,6 +810,8 @@ def test_tool_description_has_three_parts(name: str) -> None:
         ("platform_help", "kb_search"),
         ("resume_lookup", "analysis_read"),
         ("analysis_read", "resume_lookup"),
+        ("kb_search", "question_gen"),
+        ("question_gen", "kb_search"),
     ],
 )
 def test_confusable_tools_name_each_other(name: str, other: str) -> None:
@@ -1085,3 +1094,188 @@ def test_job_match_blocked_by_tool_llm_limit(db_session, monkeypatch) -> None:
 
     assert "今日工具内 AI 调用已达上限" in out
     assert seen == []
+
+
+# —— question_gen（先检索平台知识库，再依据语料出题）——
+# 两侧都 mock：检索侧替掉 embed_texts / search_chunks，模型侧替掉 chat_json。
+# 只验「送进模型的资料对不对」与「渲染出的题目文本对不对」。
+
+_QUESTION_TOPIC = "MySQL 索引"
+
+
+def _patch_kb_hits(monkeypatch, hits=None, error: Exception | None = None) -> None:
+    """替身知识库检索：命中固定块 / 空结果 / embedding 阶段直接抛错。"""
+
+    if error is not None:
+
+        def _boom(texts):
+            raise error
+
+        monkeypatch.setattr("app.services.agent.tools.embed_texts", _boom)
+    else:
+        monkeypatch.setattr(
+            "app.services.agent.tools.embed_texts", lambda texts: [[0.1] * 8]
+        )
+    monkeypatch.setattr(
+        "app.services.agent.tools.search_chunks",
+        lambda *a, **k: [] if hits is None else hits,
+    )
+
+
+def _kb_hit() -> list[dict]:
+    return [
+        {
+            "document_id": 1,
+            "title": "MySQL 索引.md",
+            "seq": 0,
+            "content": "聚簇索引与二级索引的区别是叶子节点是否存整行数据。",
+            "similarity": 0.83,
+        }
+    ]
+
+
+def _fake_question_result() -> AnalysisResult:
+    return AnalysisResult(
+        report={
+            "questions": [
+                "为什么 MySQL 用 B+ 树而不是 B 树做索引？",
+                "什么情况下索引会失效？",
+                "如何判断一条 SQL 有没有走对索引？",
+            ]
+        },
+        valid=True,
+        model_name="deepseek-chat",
+        tokens_prompt=260,
+        tokens_completion=140,
+        duration_ms=9,
+    )
+
+
+def test_question_gen_grounds_questions_in_kb_hits(db_session, monkeypatch) -> None:
+    """成功路径：检索命中 → 语料送进模型 → 题目按知识库口径渲染，并记一条工具内用量。"""
+    _patch_kb_hits(monkeypatch, hits=_kb_hit())
+    seen = _patch_chat_json(monkeypatch, result=_fake_question_result())
+
+    out = _tool(db_session, "question_gen").invoke(
+        {"topic": _QUESTION_TOPIC, "position_type": "fresh"}
+    )
+
+    assert "依据平台知识库出题" in out
+    assert "难度定位：校招" in out
+    assert "1. 为什么 MySQL 用 B+ 树而不是 B 树做索引？" in out
+    assert "不来自平台知识库" not in out
+    # 检索到的语料确实进了提示词——本工具不是纯模型生成
+    assert "聚簇索引与二级索引的区别" in seen[0]["user"]
+    assert "未收录该主题" not in seen[0]["user"]
+    assert seen[0]["system"] == QUESTION_GEN_SYSTEM_PROMPT
+    validated = seen[0]["validator"]({"questions": ["a", "b", "c"]})
+    assert isinstance(validated, QuestionGenReport)
+    assert "《MySQL 索引.md》" in out  # 出题依据要标出来
+    logs = _tool_llm_logs(db_session)
+    assert len(logs) == 1 and logs[0].tokens_total == 400
+
+
+def test_question_gen_falls_back_when_kb_misses(db_session, monkeypatch) -> None:
+    """检索未命中：明确说未收录 + 标注题目不来自知识库，并让模型据此退回自身知识。"""
+    _patch_kb_hits(monkeypatch, hits=[])
+    seen = _patch_chat_json(monkeypatch, result=_fake_question_result())
+
+    out = _tool(db_session, "question_gen").invoke(
+        {"topic": "量子计算", "position_type": ""}
+    )
+
+    assert "平台知识库未收录该主题" in out
+    assert "以下题目不来自平台知识库" in out
+    assert "难度定位：通用" in out
+    assert "1. 为什么 MySQL" in out  # 题目照样给出
+    assert "未收录该主题" in seen[0]["user"]
+
+
+def test_question_gen_falls_back_when_retrieval_fails(db_session, monkeypatch) -> None:
+    """检索服务挂了（embedding 异常）不当成失败：退回模型出题并标注来源。"""
+    _patch_kb_hits(monkeypatch, error=RuntimeError("ollama down"))
+    seen = _patch_chat_json(monkeypatch, result=_fake_question_result())
+
+    out = _tool(db_session, "question_gen").invoke(
+        {"topic": _QUESTION_TOPIC, "position_type": "intern"}
+    )
+
+    assert "以下题目不来自平台知识库" in out
+    assert "1. 为什么 MySQL" in out
+    assert seen  # 检索挂了也要能出题
+
+
+@pytest.mark.parametrize(
+    ("position_type", "level"),
+    [
+        ("intern", "实习"),
+        ("fresh", "校招"),
+        ("senior", "社招"),
+        ("", "通用"),
+        ("boss", "通用"),  # 非法枚举回落通用
+        ("Senior", "社招"),  # 大小写不敏感
+    ],
+)
+def test_question_gen_maps_position_type(
+    db_session, monkeypatch, position_type: str, level: str
+) -> None:
+    """岗位类型决定难度定位：三个合法值各自生效，空值与非法值回落通用并体现在输出里。"""
+    _patch_kb_hits(monkeypatch, hits=_kb_hit())
+    _patch_chat_json(monkeypatch, result=_fake_question_result())
+
+    out = _tool(db_session, "question_gen").invoke(
+        {"topic": _QUESTION_TOPIC, "position_type": position_type}
+    )
+
+    assert f"难度定位：{level}" in out
+
+
+def test_question_gen_requires_topic(db_session, monkeypatch) -> None:
+    """没说主题就提示补全，一次模型都不调。"""
+    _patch_kb_hits(monkeypatch, hits=_kb_hit())
+    seen = _patch_chat_json(monkeypatch)
+
+    out = _tool(db_session, "question_gen").invoke(
+        {"topic": "   ", "position_type": ""}
+    )
+
+    assert "想练习哪个主题" in out
+    assert seen == []
+
+
+def test_question_gen_swallows_ai_error(db_session, monkeypatch) -> None:
+    """AI 调用失败（含欠费 402）给可读话术，不向上抛，失败的调用不记账。"""
+    _patch_kb_hits(monkeypatch, hits=_kb_hit())
+    _patch_chat_json(monkeypatch, error=AIError("AI 服务暂时不可用，请稍后重试"))
+
+    out = _tool(db_session, "question_gen").invoke(
+        {"topic": _QUESTION_TOPIC, "position_type": ""}
+    )
+
+    assert "暂时不可用" in out
+    assert _tool_llm_logs(db_session) == []
+
+
+def test_question_gen_blocked_by_tool_llm_limit(db_session, monkeypatch) -> None:
+    """工具内 AI 调用被关掉（limit=0）时回统一上限话术，一次模型都不调。"""
+    _patch_kb_hits(monkeypatch, hits=_kb_hit())
+    monkeypatch.setattr(settings, "daily_agent_tool_llm_limit", 0)
+    seen = _patch_chat_json(monkeypatch)
+
+    out = _tool(db_session, "question_gen").invoke(
+        {"topic": _QUESTION_TOPIC, "position_type": ""}
+    )
+
+    assert "今日工具内 AI 调用已达上限" in out
+    assert seen == []
+
+
+def test_question_gen_report_requires_three_to_five_questions() -> None:
+    """题目数契约：少于 3 道或多于 5 道不通过校验（ai_client 会据此重试）。"""
+    ok = QuestionGenReport.model_validate({"questions": ["a", "b", "c"]})
+    assert len(ok.questions) == 3
+
+    with pytest.raises(ValidationError):
+        QuestionGenReport.model_validate({"questions": ["a", "b"]})
+    with pytest.raises(ValidationError):
+        QuestionGenReport.model_validate({"questions": ["a"] * 6})

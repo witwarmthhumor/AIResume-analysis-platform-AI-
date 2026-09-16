@@ -33,5 +33,9 @@
 
   {"question": "这家公司要求熟悉 MySQL 和 K8s，我匹配吗", "expected_tool": "job_match"},
   {"question": "我贴一段招聘 JD，帮我看看我简历还缺哪些关键词", "expected_tool": "job_match"},
-  {"question": "按这个岗位的招聘要求，我的简历该怎么改", "expected_tool": "job_match"}
+  {"question": "按这个岗位的招聘要求，我的简历该怎么改", "expected_tool": "job_match"},
+
+  {"question": "给我出几道 MySQL 索引的面试题", "expected_tool": "question_gen"},
+  {"question": "帮我练一下 Redis 缓存，出几道题考考我", "expected_tool": "question_gen"},
+  {"question": "来一组校招难度的 Java 并发面试题", "expected_tool": "question_gen"}
 ]

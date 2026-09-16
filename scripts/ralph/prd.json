@@ -178,8 +178,8 @@
         "ruff check . 通过"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成：question_gen(topic, position_type) 先 _kb_retrieve 检索平台知识库（前 3 块各截 300 字进提示词），再 chat_json 出题 —— 不是纯模型生成；命中时输出「依据平台知识库出题」+《出题依据》文档名，未命中或检索失败（含 embedding 挂掉）时退回模型出题并标注「以下题目不来自平台知识库」。难度定位走模块级 _POSITION_LABELS（intern/fresh/senior，空值与非法值回落「通用」，输出里始终体现），题目数由 QuestionGenReport（min 3 / max 5）卡住。检索链路下沉为公共入口 _kb_retrieve（返回 (命中, 兜底话术)，kb_search 与 question_gen 共用，两种失败话术分开），岗位类型中文映射提到模块级供 interview_history 复用。kb_search 与 question_gen 的 description 互相点名（查答案 vs 出题）。新增 12 项单测 + routing.json 补 3 条用例，全量 235 项通过；真机跑通两次真实 DeepSeek 调用，出题质量与 KB 依据标注正常。"
     },
     {
       "id": "US-011",

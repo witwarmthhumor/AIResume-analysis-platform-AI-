@@ -36,7 +36,10 @@ Started: 2026-09-16
 - 提示词版本是**每套提示词一个常量**、互不相干：`prompts.PROMPT_VERSION`（简历分析，入 analyses 表）、`interview_prompts.INTERVIEW_PROMPT_VERSION`、`prompts.JOB_MATCH_PROMPT_VERSION`。**绝不要为了"新增提示词"去递增 `PROMPT_VERSION`** —— 那会让库里所有旧分析报告按「版本过期」失效。
 - 工具内调 LLM 的工具（`job_match` / `question_gen` / `answer_review`）实现套路：`_run_tool_llm(db, user_id, anonymous_id, lambda: chat_json(SYSTEM_PROMPT, build_xxx_prompt(...), settings, XxxReport.model_validate))`，**整个调用包一层 try/except 兜话术**（`_run_tool_llm` 不吞异常），AI 输出契约放 `app/schemas/agent.py`，提示词放 `app/services/prompts.py`。
 - 测这类工具只需 monkeypatch `app.services.agent.tools.chat_json` 做替身（记录 `system`/`user`/`validator` 三个入参）：成功路径断言渲染文本 + 记账，短路路径（空参数/无数据/超限）断言 `seen == []` 证明一次模型都没调。
+- ⚠️ **同一文件上的多个 Edit 不要并行发**：实测在同一条消息里对同一文件发两个 Edit，其中一个会静默丢失（工具回报成功但文件没变），直到 ruff/pytest 报 F821 / 断言失败才发现。改同一文件时**逐个串行改**，改完 grep 关键字确认落地。
 - ⚠️ pydantic 的 `Model.model_validate` 每次取出来都是**新对象**，`is` 比较会失败（`assert X is Y` 报 "model_validate is model_validate"）；要断言"用的是哪个校验器"就**调用它**再 `isinstance(结果, 模型)`。
+- 需要"先检索再喂给模型"的工具，别去 invoke 另一个工具对象：把检索链路抽成模块级公共入口（本项目是 `_kb_retrieve(db, query, user_id, anonymous_id, top_k) -> (命中块, 兜底话术)`），返回话术而非抛异常，让不同调用方自己决定处置（kb_search 要区分向量模型挂了/检索出错，question_gen 一律当"未收录"退回模型出题）。
+- 混合检索（hybrid）路径**不套 `kb_min_similarity`**（设计如此，为救回纯词法命中的术语查询），所以"检索未命中"在真机上几乎不触发——连明显无关的 topic 也会返回低分材料。"未命中"分支只能靠 mock 空结果覆盖，别指望真机复现；输出里标注来源时要意识到这一点。
 
 ## Log
 
@@ -209,5 +212,26 @@ Started: 2026-09-16
   - 短路路径（空参数 / 无数据 / 超限）最有力的断言是 **`seen == []`**：证明一次模型都没调，比断言返回文案更能防住"限额只是话术、钱照花"的回归。
   - LangChain `@tool` 的入参由模型现填，`jd_text` 可能传空白串：`(jd or "").strip()` 判空后再决定调不调模型，别直接拿 `if not jd_text`。
   - 本次**没有**重跑 `scripts/eval_agent_routing`：报告 `data/agent_eval/report.md` 仍是 8 工具 24 条基线（US-012 会做 11 工具 33 条的全量跑与对比）。
+  - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
+---
+
+## 2026-09-16 18:20 - US-010
+- What was implemented: 新增第 10 个工具 `question_gen(topic, position_type)` —— 围绕某主题出一组模拟面试题，**先检索平台知识库再依据语料出题**（不是纯模型生成）。链路：空 topic 直接要补全（不调模型）→ 走新的公共检索入口 `_kb_retrieve` 混合检索 → 命中则取前 3 块、每块截 300 字拼成资料送进提示词 → `chat_json(QUESTION_GEN_SYSTEM_PROMPT, build_question_gen_prompt(主题, 难度定位, 资料), settings, QuestionGenReport.model_validate)`，整段经 `_run_tool_llm`（限额 + 记 `agent_tool_llm`）并自己 try/except 兜话术 → 渲染「难度定位 + 3~5 道编号题」，命中时追加《出题依据》文档名与"想看答案可以让我检索知识库"，未命中/检索失败时明确标注「平台知识库未收录该主题（或检索暂时不可用），以下题目不来自平台知识库」。难度定位走新提的模块级 `_POSITION_LABELS`（intern/fresh/senior，空值与非法值回落 `_POSITION_DEFAULT="通用"`，输出里始终体现），`interview_history` 里原本局部的岗位类型映射改为复用同一份。提示词与版本常量 `QUESTION_GEN_PROMPT_VERSION` 在 `prompts.py`，输出契约 `QuestionGenReport`（`min_length=3 / max_length=5`）在 `schemas/agent.py`。
+- Files changed:
+  - `backend/app/services/prompts.py`（新增 `QUESTION_GEN_PROMPT_VERSION` / `QUESTION_GEN_SYSTEM_PROMPT` / `build_question_gen_prompt`；模块 docstring 说明工具提示词版本各自独立）
+  - `backend/app/schemas/agent.py`（新增 `QuestionGenReport`）
+  - `backend/app/services/agent/tools.py`（新增 `_kb_retrieve` 公共检索入口并让 `kb_search` 改调它、`_POSITION_LABELS`/`_POSITION_DEFAULT`/`_KB_EMBED_ERROR`/`_KB_SEARCH_ERROR`/`_TOOL_QUESTION_CHUNKS`/`_TOOL_QUESTION_LIMIT` 常量、`question_gen` 工具；`make_tools` 尾部追加，**kb_search 仍在下标 0**；`kb_search` docstring 补"要出一组模拟面试题请用 question_gen"；模块 docstring 工具清单补第 10 项）
+  - `backend/tests/test_agent_tools.py`（清单断言 9→10 并改名、`_ALL_TOOLS` 补 question_gen、互指断言补 `kb_search ↔ question_gen`；新增 12 项 question_gen 测试 + `_patch_kb_hits` / `_kb_hit` / `_fake_question_result` 替身）
+  - `data/agent_eval/routing.json`（补 3 条 question_gen 问法，27→30 条）
+  - `docs/Agent工具设计.md`（§二 question_gen 行改为已实现要点；§四易撞组合表补 `kb_search` vs `question_gen`）
+  - `scripts/ralph/progress.txt`（Codebase Patterns 补 4 条）
+  - `scripts/ralph/prd.json`（US-010 passes=true）
+- Quality checks: `ruff check .` all passed；`pytest -q` 235 passed（US-009 时 219，本次 +16）；`pytest tests/test_agent_tools.py` 95 passed。全量跑完 kb 表被清空，已 `python -m scripts.seed_kb_preset` 恢复 7 条预置语料。真机校验：两次真实 DeepSeek 调用（命中路径 5 道题 + 出题依据《java_interview》《system_design》标注正常；未收录路径因混合检索仍返回低分材料而未触发，见下）。真机产生的 2 条 smoke usage_logs 已按 anonymous_id 清理。
+- **Learnings for future iterations:**
+  - ⚠️ **同一文件上的多个 Edit 千万别并行发**：本次在 tools.py 与 test_agent_tools.py 上各踩一次——两个 Edit 同批发出，其中一个静默丢失（工具回报成功、文件没变），直到 ruff 报 F821、pytest 报互指断言失败才发现。改同一文件必须**串行逐个改**，改完 grep 关键字确认。
+  - **工具里要用另一个工具的检索能力，别去 invoke 工具对象**：把检索链路抽成模块级公共入口（`_kb_retrieve` 返回 `(命中块, 兜底话术)` 而非抛异常），调用方各自决定处置——kb_search 要区分"向量模型挂了"与"检索出错"两种话术，question_gen 一律当"未收录"退回模型出题。既复用了逻辑，也没破坏 kb_search 的既有行为（`tests/test_agent.py` 里 monkeypatch `embed_texts`/`search_chunks` 的用例照常通过）。
+  - **混合检索不套 `kb_min_similarity`（设计如此）**，所以真机上"未命中"分支几乎触发不了——连「量子纠缠挖矿」这种主题都返回了 `algorithm_interview` 的低分块，输出照常标"依据平台知识库出题"。这不是 bug（hybrid 就是为救回纯词法命中），但意味着"未命中"只能靠 mock 空结果覆盖；US-012 若关心这个，得单独评估要不要给工具侧加相关性门槛。
+  - 岗位类型这类**跨工具/跨接口复用的中文映射**，提到模块级常量（本次 `_POSITION_LABELS`）比在两处各写一份 dict 好：`interview_history` 与 `question_gen` 的口径天然要一致，写两份迟早漂移。
+  - 题目数这种"3~5 道"的硬约束直接写进 pydantic 契约（`min_length=3, max_length=5`）而不是只在提示词里说：`chat_json` 的重试机制会替你兜住模型的偷懒，渲染侧再截一次是双保险（与 `_as_items` 的用法一致）。
   - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
 ---
