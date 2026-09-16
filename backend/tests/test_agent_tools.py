@@ -1,6 +1,7 @@
-"""v3.5 Agent 个人数据工具测试：resume_lookup / interview_history / usage_stats / analysis_read / kb_list。
+"""v3.5 Agent 工具测试：resume_lookup / interview_history / usage_stats / analysis_read /
+kb_list / platform_help。
 
-只查"当前归属者"自己的数据是这些工具的核心安全属性，因此重点覆盖：
+只查"当前归属者"自己的数据是个人数据工具的核心安全属性，因此重点覆盖：
 - 无身份时明确拒绝（而不是返回空结果让模型脑补）
 - 归属隔离（查不到别人的简历/面试/用量/分析报告/知识库上传）
 - 正常路径的输出内容与聚合口径
@@ -94,7 +95,7 @@ def _add_resume(db, anonymous_id: str, filename: str, raw_text: str) -> Resume:
 # —— 工具集装配 ——
 
 
-def test_make_tools_exposes_seven_tools(db_session) -> None:
+def test_make_tools_exposes_eight_tools(db_session) -> None:
     tools = make_tools(db_session, None, _OWNER, ToolContext())
     assert [t.name for t in tools] == [
         "kb_search",
@@ -104,11 +105,16 @@ def test_make_tools_exposes_seven_tools(db_session) -> None:
         "usage_stats",
         "analysis_read",
         "kb_list",
+        "platform_help",
     ]
 
 
 def test_personal_tools_reject_unknown_identity(db_session) -> None:
-    """无法识别身份（无 user_id 也无 anonymous_id）时个人工具都要明确拒绝。"""
+    """无法识别身份（无 user_id 也无 anonymous_id）时个人工具都要明确拒绝。
+
+    kb_search / platform_help 不在此列：前者只返回公共语料，后者是静态文案，
+    都不泄露任何个人数据，新访客也应能用。
+    """
     tools = make_tools(db_session, None, None, ToolContext())
 
     def call(name: str, payload: dict) -> str:
@@ -681,3 +687,69 @@ def test_kb_list_swallows_query_error(db_session, monkeypatch) -> None:
     out = _tool(db_session, "kb_list").invoke({"query": ""})
 
     assert "暂时出错" in out
+
+
+# —— platform_help ——
+
+# 总览文案的独有标记：命中具体主题时**不该**出现，用于区分"命中"与"回落"
+_OVERVIEW_MARK = "主要功能："
+
+
+@pytest.mark.parametrize(
+    ("topic", "marker"),
+    [
+        ("怎么上传简历", "上传简历"),
+        ("AI 分析怎么用", "AI 分析"),
+        ("模拟面试怎么开始", "模拟面试"),
+        ("在线对话是干嘛的", "在线对话"),
+        ("AI 客服能做什么", "AI 客服"),
+        ("在哪看使用日志", "使用日志"),
+        ("个人中心有什么", "个人中心"),
+        ("数据看板在哪", "数据看板"),
+        ("语料库管理怎么上传", "语料库管理"),
+    ],
+)
+def test_platform_help_covers_topics(db_session, topic: str, marker: str) -> None:
+    """八个必需主题 + 语料库管理都要能被口语化问法路由到专属说明。"""
+    out = _tool(db_session, "platform_help").invoke({"topic": topic})
+
+    assert marker in out
+    assert _OVERVIEW_MARK not in out  # 命中了主题就不该回落总览
+
+
+def test_platform_help_falls_back_to_overview(db_session) -> None:
+    """topic 为空、纯空白或完全不相干时回平台功能总览，且总览覆盖全部主题。"""
+    tool = _tool(db_session, "platform_help")
+
+    for topic in ("", "   ", "今天天气怎么样"):
+        out = tool.invoke({"topic": topic})
+        assert _OVERVIEW_MARK in out
+        for name in (
+            "上传简历",
+            "AI 分析",
+            "模拟面试",
+            "在线对话",
+            "AI 客服",
+            "使用日志",
+            "个人中心",
+            "数据看板",
+            "语料库管理",
+        ):
+            assert name in out
+
+
+def test_platform_help_is_static_text() -> None:
+    """纯静态文案：不查库不调模型——db 传 None 也必须正常返回。"""
+    tools = make_tools(None, None, None, ToolContext())
+
+    out = next(t for t in tools if t.name == "platform_help").invoke({"topic": ""})
+
+    assert _OVERVIEW_MARK in out
+
+
+def test_kb_search_and_platform_help_are_mutually_exclusive(db_session) -> None:
+    """两个工具的 description 必须互相点名排他，否则模型会在两者间乱选。"""
+    tools = {t.name: t for t in make_tools(db_session, None, _OWNER, ToolContext())}
+
+    assert "platform_help" in tools["kb_search"].description
+    assert "kb_search" in tools["platform_help"].description

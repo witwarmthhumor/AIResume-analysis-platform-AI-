@@ -70,7 +70,7 @@
 | `answer_review` | `chat_json` + `build_final_report_system_prompt` 的四维评分 schema | 复用技术深度/表达结构/项目真实性三个维度做单次回答点评；用户贴的回答要限长（如 2000 字） |
 | `score_trend` | `/api/interviews/scores` 同款查询（本人、finished、有报告） | 接口只给"列表"，工具要做**趋势**：对比首末两场的各维度升降，这是新增计算逻辑 |
 | `kb_list` | `kb_service.list_documents(db, user_id, anonymous_id)` | 只输出标题 + 块数 + 状态 + 归属，**绝不能带 `raw_text`**（那是 kb_search 的职责） |
-| `platform_help` | ⚠️ **无原实现** | 唯一"新增能力"而非封装；返回静态功能说明。**描述必须与 `kb_search` 划清界限**——平台功能 vs 计算机技术知识点，否则两个工具会互抢 |
+| `platform_help` | ⚠️ **无原实现**（唯一"新增能力"而非封装） | 返回静态功能说明，**不查库、不调模型**；实现要点是 **topic 路由**——`_PLATFORM_TOPICS` 用「别名元组 → 文案」做小写包含匹配（别名顺序即优先级，具体主题排前防泛词抢匹配），空 topic 或全不命中回落总览。**描述必须与 `kb_search` 划清界限**——平台功能 vs 计算机技术知识点，否则两个工具会互抢 |
 
 ---
 

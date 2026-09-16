@@ -88,8 +88,8 @@
         "ruff check . 通过"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成：platform_help(topic) 纯静态文案（函数体不查库不调模型），9 个主题各一段独立文案（个人中心/上传简历/AI 分析/模拟面试/在线对话/AI 客服/使用日志/数据看板/语料库管理）；_PLATFORM_TOPICS 用「别名元组 → 文案」按小写包含匹配路由，别名顺序即优先级（具体主题排前防泛词抢匹配），空 topic 或全不命中回落平台功能总览。kb_search 与 platform_help 的 docstring 互相点名排他。新增 12 项单测（9 项参数化主题 + 总览回落 + 静态无 db + 互斥描述），全量 180 项通过。"
     },
     {
       "id": "US-006",

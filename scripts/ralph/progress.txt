@@ -22,6 +22,8 @@ Started: 2026-09-16
 - ⚠️ 开跑 pytest 前先确认 Docker Desktop 起来了：本项目容器是**已存在但 stopped**，用 `docker start ai-interview-db ai-interview-redis ai-interview-ollama`；`docker compose up -d` 会报 name conflict。DB 没起时 pytest 会**挂住不报错**（连接超时很长），别误判成死循环。
 - 知识库可见性判据是 `kb_service._visible_clause`（`scope=public` 全站可见 / `private` 仅归属者），工具与接口都复用它；但测试里造的 `scope=public` 文档 `user_id` 与 `anonymous_id` **都是空**（与预置语料同形），按归属者清理清不掉 —— 测试数据要带**标题前缀**，清理时用 `title LIKE '前缀%'` 兜底（`tests/test_agent_tools.py` 的 `_KB_PREFIX`）。
 - 开发库长期有 7 篇预置语料，凡「空库 / 精确条数」类断言都会被它干扰：要么只断言与总数无关的片段（如「仅显示前 20 篇」），要么 monkeypatch 掉查询函数隔离验证。
+- **纯静态工具（如 `platform_help`）用同一套「别名元组 → 文案」路由**：对 topic 与别名都做小写化再判包含，**别名顺序即优先级**（具体主题排前，防泛词抢匹配），空 topic 或全不命中回落总览；这类工具不查库，`db` 传 `None` 也能跑通。
+- 工具 `description` 要三段式（做什么 / 什么时候用 / 什么时候**不**用），易撞的工具互相点名排他（如 `kb_search` ↔ `platform_help`、`resume_lookup` ↔ `analysis_read`）。
 
 ## Log
 
@@ -91,5 +93,22 @@ Started: 2026-09-16
   - `ISC004` 本次在**两处**踩到：工具里的多行 f-string 和测试里的多行 SQL 字符串。规律：**只要多行隐式拼接出现在 `[...]` / `(...)` 集合字面量里就报**；解法是先赋给变量（`head = (...)` / `chunk_delete = (...)`）再放进集合。测试里拼 SQL 尤其容易忘。
   - 测试数据清理的新坑：`scope=public` 的文档归属字段两者皆空，`DELETE ... WHERE anonymous_id IN (...)` 清不掉，会永久留在**开发库**里（本项目测试直连开发库）。凡是造「归属为空」的数据，必须给标题加测试前缀并按前缀清（已在 Codebase Patterns 记录）。
   - 开发库长期有 7 篇预置语料，「空库」和「精确条数」两类断言会被它干扰：空库分支用 `monkeypatch.setattr("app.services.agent.tools.list_documents", lambda *a, **k: [])` 隔离；计数断言只写与总数无关的片段（如「仅显示前 20 篇」），别写死「共有 25 篇」。
+  - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
+---
+
+## 2026-09-16 14:25 - US-005
+- What was implemented: 新增第 8 个工具 `platform_help(topic)` —— 答「本平台自身功能怎么用」。整段是**纯静态文案**（函数体不查库、不调模型）：9 个主题各一段独立说明（个人中心 / 上传简历 / AI 分析 / 模拟面试 / 在线对话 / AI 客服 / 使用日志 / 数据看板 / 语料库管理），路由表 `_PLATFORM_TOPICS` 用「别名元组 → 文案」对 topic 做小写包含匹配、**别名顺序即优先级**（具体主题排前，防「客服」这类泛词抢匹配），topic 为空或全不命中回落 `_PLATFORM_OVERVIEW` 功能总览。同时给 `kb_search` docstring 补反向排他句（平台功能问题改用 platform_help），`platform_help` docstring 反向点名 kb_search。
+- Files changed:
+  - `backend/app/services/agent/tools.py`（新增 10 个静态文案常量 `_PLATFORM_OVERVIEW` + 9 个 `_PLATFORM_*`、路由表 `_PLATFORM_TOPICS`、助手 `_platform_reply`、`platform_help` 工具；`make_tools` 返回列表尾部追加，**kb_search 仍在下标 0**；`kb_search` docstring 补排他句；模块 docstring 工具清单补第 8 项）
+  - `backend/tests/test_agent_tools.py`（工具清单断言改 8 个并改名；无身份用例补注释说明 kb_search / platform_help 为何不在此列；新增 12 项 platform_help 测试）
+  - `docs/Agent工具设计.md`（§二 `platform_help` 行补已实现要点：静态文案 + topic 路由 + 别名优先级）
+  - `scripts/ralph/prd.json`（US-005 passes=true）
+- Quality checks: `ruff check .` all passed；`pytest -q` 180 passed（US-004 时 168，本次 +12）；`pytest tests/test_agent_tools.py` 50 passed。全量跑完 kb 表被清空，已 `python -m scripts.seed_kb_preset` 恢复 7 条预置语料。另用真机脚本抽查 6 句口语化问法，路由符合预期。
+- **Learnings for future iterations:**
+  - **证明「纯静态工具不查库」的最省事写法**：`make_tools(None, None, None, ToolContext())` 再 invoke —— `db` 传 `None` 都不炸，就说明函数体确实没碰 db（比 mock 更直接）。反过来说，静态工具里**绝不能**引用闭包的 `db`，否则这个测试会立刻红。
+  - 路由表唯一要操心的是**匹配顺序**：「别名顺序即优先级」，越具体的主题排越前。加别名前先自问「这句话会不会命中更靠前的主题」——比如给「上传简历」加裸「上传」就会抢走「语料库管理」的「上传文档」；同理别加裸「面试」（会抢走个人中心/使用日志里提到面试的问法）。
+  - 帮助类文案的准确性必须回前端核对**入口层级与可见性**：第一版我写「首页右下角也有悬浮入口」，核对 `App.vue` 才发现 `AgentWidget` 是 `v-if="isAdmin"`（管理端专属），用户端只有左侧导航整页入口。写这类文案前先 grep 导航项与入口的 `v-if` 条件。
+  - 文案里的数字/上限从 `settings` 取（如 `settings.max_interview_turns`）而不是写死字面量，否则改配置后文案会撒谎；本项目硬事实来源：上传限 5MB/5 页仅文本 PDF（`app/api/resumes.py` + `config.upload_max_size/_max_pages`）、单场面试 10 轮（`config.max_interview_turns`）、四维评分中文名在 `_SCORE_LABELS`。
+  - 断言「命中主题 vs 回落总览」用总览里的**独有标记**（本次用 `_OVERVIEW_MARK = "主要功能："`），比断言整段文案好维护；主题用例用 `@pytest.mark.parametrize` 一次覆盖 9 个主题。
   - 工作区里 `frontend/vite.config.ts` 的用户本地改动（后端端口 8000→8001）仍在，与本 story 无关，**未纳入本次提交**。
 ---
