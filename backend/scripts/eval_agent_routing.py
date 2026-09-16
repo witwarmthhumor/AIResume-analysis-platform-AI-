@@ -46,6 +46,8 @@ REPORT_PATH = CASES_PATH.parent / "report.md"
 NO_TOOL = "(未调用工具)"
 # 路由评测要可复现：强制温度 0，避免同一份用例集两次跑出两个准确率
 EVAL_TEMPERATURE = 0
+# 参照系：工具从 8 个扩到 11 个之前实测的基线（US-007，2026-09-16，24 题全中）
+BASELINE = {"label": "8 工具口径基线（US-007）", "total": 24, "hit_count": 24}
 
 
 def load_cases(path: Path = CASES_PATH) -> list[dict]:
@@ -143,6 +145,7 @@ def build_report(details: Sequence[dict], cases_path: Path = CASES_PATH) -> str:
     per_tool = _per_tool_stats(details)
     misses = [d for d in details if not d["hit"]]
 
+    delta = (stats["accuracy"] - BASELINE["hit_count"] / BASELINE["total"]) * 100
     lines = [
         "# Agent 工具路由评测报告",
         "",
@@ -155,6 +158,7 @@ def build_report(details: Sequence[dict], cases_path: Path = CASES_PATH) -> str:
         "",
         f"- top-1 准确率：{stats['accuracy_text']}",
         f"- 命中 {stats['hit_count']} 题，误选 {len(misses)} 题",
+        f"- 对比 {BASELINE['label']}（{BASELINE['hit_count']}/{BASELINE['total']}）：{delta:+.1f} 个百分点",
         "",
         "## 分工具命中率",
         "",

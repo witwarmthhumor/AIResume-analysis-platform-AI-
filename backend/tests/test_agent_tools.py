@@ -818,6 +818,8 @@ def test_tool_description_has_three_parts(name: str) -> None:
         ("question_gen", "kb_search"),
         ("question_gen", "answer_review"),
         ("answer_review", "question_gen"),
+        ("kb_search", "answer_review"),
+        ("answer_review", "kb_search"),
     ],
 )
 def test_confusable_tools_name_each_other(name: str, other: str) -> None:

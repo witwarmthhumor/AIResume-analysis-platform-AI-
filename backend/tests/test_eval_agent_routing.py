@@ -129,6 +129,8 @@ def test_build_report_has_all_sections():
     report = ev.build_report(details)
     for section in ("## 汇总", "## 分工具命中率", "## 混淆矩阵", "## 逐题明细", "## 误选清单"):
         assert section in report
+    # 准确率要能对照上一口径的基线，否则看不出扩工具是变好还是变坏
+    assert "基线" in report and "个百分点" in report
     # 汇总与逐题明细都要落到具体题面与工具名上
     assert "1/2 (50.0%)" in report
     assert "platform_help" in report and "kb_search" in report
