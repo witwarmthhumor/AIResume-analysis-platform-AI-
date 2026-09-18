@@ -34,5 +34,6 @@ celery[redis]>=5.4
 
 # 测试
 pytest>=8.0
+pytest-cov>=7.0                # 覆盖率统计（7.8 基线用；门槛另批决策）
 httpx>=0.27                   # FastAPI 测试客户端的底层依赖
 fpdf2>=2.7                    # 测试里现造 PDF 样本（正常/多页/无文字）

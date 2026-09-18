@@ -1,4 +1,4 @@
-# requirements.lock — 环境快照（v3.7·7.3，2026-09-19 生成）
+# requirements.lock — 环境快照（v3.7·7.3，2026-09-19 生成；7.8 装 pytest-cov 后刷新）
 # 来源：pip freeze（backend/.venv 实测通过 260 pytest 的版本组合），供 CI 与环境复现用
 # 用法：pip install -r requirements.lock；日常开发仍用 requirements.txt（宽松下限）
 # 注意：httpx2 是 langsmith>=0.12 的正式依赖（曾误判为可疑包卸载导致 pip check 失败），非垃圾包
@@ -20,6 +20,7 @@ click-didyoumean==0.3.1
 click-plugins==1.1.1.2
 click-repl==0.3.0
 colorama==0.4.6
+coverage==7.16.1
 defusedxml==0.7.1
 distro==1.9.0
 dnspython==2.8.0
@@ -67,6 +68,7 @@ Pygments==2.21.0
 PyJWT==2.13.0
 pypdf==6.16.2
 pytest==9.1.1
+pytest-cov==7.1.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.3
 python-multipart==0.0.32
