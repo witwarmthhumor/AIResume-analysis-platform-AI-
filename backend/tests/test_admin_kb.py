@@ -87,6 +87,11 @@ def test_anonymous_cannot_access_admin_kb() -> None:
 
 
 def test_regular_user_cannot_access_admin_kb() -> None:
+    # 全新库上「首个注册用户」会自动提权 admin（引导管理员的设计，见 app/api/auth.py）——
+    # 先造一个占位用户占掉首位，保证被测的是普通用户；CI 空库上否则必挂
+    TestClient(app).post(
+        "/api/auth/register", json={"email": _email(), "password": "correct-horse-123"}
+    )
     client = TestClient(app)
     client.post(
         "/api/auth/register", json={"email": _email(), "password": "correct-horse-123"}
@@ -105,7 +110,9 @@ def test_admin_lists_all_documents_with_owner() -> None:
     # admin 上传一篇预置
     resp = admin.post(
         "/api/admin/kb/documents",
-        files={"file": ("adminkb-preset.txt", "预置文档内容".encode() * 5, "text/plain")},
+        files={
+            "file": ("adminkb-preset.txt", "预置文档内容".encode() * 5, "text/plain")
+        },
     )
     assert resp.status_code == 201
     preset_id = resp.json()["id"]
@@ -117,7 +124,9 @@ def test_admin_lists_all_documents_with_owner() -> None:
     )
     user_resp = user.post(
         "/api/kb/documents",
-        files={"file": ("adminkb-private.txt", "私人文档内容".encode() * 5, "text/plain")},
+        files={
+            "file": ("adminkb-private.txt", "私人文档内容".encode() * 5, "text/plain")
+        },
     )
     assert user_resp.status_code == 201
 
@@ -141,7 +150,13 @@ def test_admin_can_delete_preset_document() -> None:
 
     resp = admin.post(
         "/api/admin/kb/documents",
-        files={"file": ("adminkb-to-delete.txt", "待删除预置内容".encode() * 5, "text/plain")},
+        files={
+            "file": (
+                "adminkb-to-delete.txt",
+                "待删除预置内容".encode() * 5,
+                "text/plain",
+            )
+        },
     )
     doc_id = resp.json()["id"]
 
@@ -201,10 +216,12 @@ def test_admin_upload_dedup_globally() -> None:
     content = "全局去重测试内容".encode() * 5
 
     first = admin.post(
-        "/api/admin/kb/documents", files={"file": ("adminkb-a.txt", content, "text/plain")}
+        "/api/admin/kb/documents",
+        files={"file": ("adminkb-a.txt", content, "text/plain")},
     )
     second = admin.post(
-        "/api/admin/kb/documents", files={"file": ("adminkb-b.txt", content, "text/plain")}
+        "/api/admin/kb/documents",
+        files={"file": ("adminkb-b.txt", content, "text/plain")},
     )
     assert first.status_code == 201
     assert second.status_code == 201
