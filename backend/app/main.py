@@ -8,12 +8,14 @@ import time
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from redis import Redis
+from sqlalchemy.exc import InterfaceError, OperationalError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import settings
 from app.core.errors import (
     AppError,
     app_error_handler,
+    database_error_handler,
     http_exception_handler,
     unhandled_handler,
     validation_handler,
@@ -45,6 +47,9 @@ register_all_routers(app)  # RouterRegistry 自动注册 app/api 下全部路由
 app.add_exception_handler(AppError, app_error_handler)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_handler)
+# v3.6：数据库连接类异常（建连失败/连接断开）统一 503，不让请求挂起或吐 500 堆栈
+app.add_exception_handler(OperationalError, database_error_handler)
+app.add_exception_handler(InterfaceError, database_error_handler)
 app.add_exception_handler(Exception, unhandled_handler)
 
 

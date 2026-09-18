@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     db_pool_size: int = 10
     db_max_overflow: int = 10
     db_pool_recycle_seconds: int = 1800  # 定期回收，避免连接被服务端断开后仍被复用
+    # v3.6 连接快速失败：DB 不可用时请求要秒级 503，而不是挂起一分钟。
+    # connect_timeout 是 psycopg 驱动参数（建连超时，走 connect_args）；
+    # pool_timeout 是 SQLAlchemy 池获取超时（池耗尽时最多等这么久）
+    db_connect_timeout_seconds: int = 5
+    db_pool_timeout_seconds: int = 10
 
     # 阶段1：简历上传限制与存储（PROJECT-PLAN §1 风险1 对策：只收小体积文本型 PDF）
     upload_max_size: int = 5 * 1024 * 1024  # 5MB

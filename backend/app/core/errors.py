@@ -111,3 +111,26 @@ async def unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
         status_code=500,
         content=_error_body("internal_error", "服务器内部错误"),
     )
+
+
+async def database_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """数据库连接类异常（sqlalchemy OperationalError / InterfaceError）统一转 503。
+
+    只输出固定中文话术：不泄露连接串、用户名、密码或 Python 堆栈；
+    详细原因进服务端日志，由 unhandled 之外的这里单独记录。
+    """
+    from app.core.logging import get_logger  # 延迟导入避免循环依赖
+
+    get_logger(__name__).error(
+        "Database unavailable: %s %s -> %s",
+        request.method,
+        request.url.path,
+        exc.__class__.__name__,
+    )
+    return JSONResponse(
+        status_code=503,
+        content=_error_body(
+            "database_unavailable",
+            "数据库暂时不可用，请稍后重试；若长时间无响应请联系管理员",
+        ),
+    )

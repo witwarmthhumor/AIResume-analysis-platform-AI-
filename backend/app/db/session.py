@@ -16,6 +16,10 @@ engine = create_engine(
     pool_size=settings.db_pool_size,
     max_overflow=settings.db_max_overflow,
     pool_recycle=settings.db_pool_recycle_seconds,
+    # 池耗尽时最多等 db_pool_timeout_seconds，不无限排队（配合全局 503 处理器快速失败）
+    pool_timeout=settings.db_pool_timeout_seconds,
+    # connect_timeout 是 psycopg 驱动参数：数据库不可用时建连最多等 5 秒（默认会挂到系统级超时）
+    connect_args={"connect_timeout": settings.db_connect_timeout_seconds},
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
