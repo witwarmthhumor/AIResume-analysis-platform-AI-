@@ -1,6 +1,7 @@
 """v3.3 使用日志明细接口测试：认证、归属隔离、分页、筛选、倒序。"""
 
 import uuid
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,6 +9,9 @@ from sqlalchemy import text
 
 from app.db.session import engine
 from app.main import app
+
+# 服务器本地时区偏移，如 "+0800" / "+0000"（Postgres 两种写法都收）
+_TZO = datetime.now().astimezone().strftime("%z")
 
 
 def _email() -> str:
@@ -80,7 +84,7 @@ def test_only_returns_own_logs() -> None:
             model_name="qwen-plus",
             tokens=100,
             ip="1.1.1.1",
-            created_at="2026-09-01T10:00:00+08:00",
+            created_at=f"2026-09-01T10:00:00{_TZO}",
         )
         _insert_log(
             conn,
@@ -88,7 +92,7 @@ def test_only_returns_own_logs() -> None:
             action_type="parse",
             tokens=0,
             ip="2.2.2.2",
-            created_at="2026-09-01T11:00:00+08:00",
+            created_at=f"2026-09-01T11:00:00{_TZO}",
         )
 
     data = client_a.get("/api/usage/logs").json()
@@ -114,7 +118,7 @@ def test_pagination() -> None:
                 model_name=None,
                 tokens=i,
                 ip=None,
-                created_at=f"2026-09-01T1{i}:00:00+08:00",
+                created_at=f"2026-09-01T1{i}:00:00{_TZO}",
             )
 
     p1 = client.get("/api/usage/logs?page=1&page_size=2").json()
@@ -136,19 +140,19 @@ def test_order_created_at_desc() -> None:
             conn,
             user_id=uid,
             action_type="parse",
-            created_at="2026-09-01T08:00:00+08:00",
+            created_at=f"2026-09-01T08:00:00{_TZO}",
         )
         _insert_log(
             conn,
             user_id=uid,
             action_type="analysis",
-            created_at="2026-09-02T08:00:00+08:00",
+            created_at=f"2026-09-02T08:00:00{_TZO}",
         )
         _insert_log(
             conn,
             user_id=uid,
             action_type="playground",
-            created_at="2026-09-03T08:00:00+08:00",
+            created_at=f"2026-09-03T08:00:00{_TZO}",
         )
 
     items = client.get("/api/usage/logs").json()["items"]
@@ -166,19 +170,19 @@ def test_filter_action_type() -> None:
             conn,
             user_id=uid,
             action_type="analysis",
-            created_at="2026-09-01T08:00:00+08:00",
+            created_at=f"2026-09-01T08:00:00{_TZO}",
         )
         _insert_log(
             conn,
             user_id=uid,
             action_type="parse",
-            created_at="2026-09-01T09:00:00+08:00",
+            created_at=f"2026-09-01T09:00:00{_TZO}",
         )
         _insert_log(
             conn,
             user_id=uid,
             action_type="analysis",
-            created_at="2026-09-01T10:00:00+08:00",
+            created_at=f"2026-09-01T10:00:00{_TZO}",
         )
 
     data = client.get("/api/usage/logs?action_type=analysis").json()
@@ -196,14 +200,14 @@ def test_filter_model_name_ilike() -> None:
             user_id=uid,
             action_type="analysis",
             model_name="qwen-plus",
-            created_at="2026-09-01T08:00:00+08:00",
+            created_at=f"2026-09-01T08:00:00{_TZO}",
         )
         _insert_log(
             conn,
             user_id=uid,
             action_type="analysis",
             model_name="deepseek-chat",
-            created_at="2026-09-01T09:00:00+08:00",
+            created_at=f"2026-09-01T09:00:00{_TZO}",
         )
 
     data = client.get("/api/usage/logs?model_name=qwen").json()
@@ -221,14 +225,14 @@ def test_filter_ip_exact() -> None:
             user_id=uid,
             action_type="parse",
             ip="127.0.0.1",
-            created_at="2026-09-01T08:00:00+08:00",
+            created_at=f"2026-09-01T08:00:00{_TZO}",
         )
         _insert_log(
             conn,
             user_id=uid,
             action_type="parse",
             ip="192.168.1.1",
-            created_at="2026-09-01T09:00:00+08:00",
+            created_at=f"2026-09-01T09:00:00{_TZO}",
         )
 
     data = client.get("/api/usage/logs?ip_address=127.0.0.1").json()
@@ -246,31 +250,31 @@ def test_filter_date_range_inclusive() -> None:
             conn,
             user_id=uid,
             action_type="parse",
-            created_at="2026-08-31T23:00:00+08:00",
+            created_at=f"2026-08-31T23:00:00{_TZO}",
         )  # 范围外
         _insert_log(
             conn,
             user_id=uid,
             action_type="parse",
-            created_at="2026-09-01T00:30:00+08:00",
+            created_at=f"2026-09-01T00:30:00{_TZO}",
         )  # 开始当天
         _insert_log(
             conn,
             user_id=uid,
             action_type="parse",
-            created_at="2026-09-02T12:00:00+08:00",
+            created_at=f"2026-09-02T12:00:00{_TZO}",
         )  # 范围内
         _insert_log(
             conn,
             user_id=uid,
             action_type="parse",
-            created_at="2026-09-03T23:30:00+08:00",
+            created_at=f"2026-09-03T23:30:00{_TZO}",
         )  # 结束当天
         _insert_log(
             conn,
             user_id=uid,
             action_type="parse",
-            created_at="2026-09-04T01:00:00+08:00",
+            created_at=f"2026-09-04T01:00:00{_TZO}",
         )  # 范围外
 
     data = client.get(
@@ -307,14 +311,14 @@ def test_time_granularity_filter() -> None:
             user_id=uid,
             action_type="parse",
             tokens=1,
-            created_at="2026-09-01T08:00:00+08:00",
+            created_at=f"2026-09-01T08:00:00{_TZO}",
         )
         _insert_log(
             conn,
             user_id=uid,
             action_type="parse",
             tokens=2,
-            created_at="2026-09-01T12:00:00+08:00",
+            created_at=f"2026-09-01T12:00:00{_TZO}",
         )
 
     # 不传时间：整天 → 2 条
