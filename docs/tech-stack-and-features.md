@@ -1,7 +1,7 @@
 # 技术栈与功能点
 
 > 本文档汇总「AI 简历分析 + AI 模拟面试」项目用到的全部技术栈与功能模块，供学习回顾与作品集展示。
-> 最后更新：2026-09-14 · 对应版本 v3.5（混合检索提优 + Agent 多工具 + 复盘雷达图 + 分析版本对比）
+> 最后更新：2026-09-19 · 对应版本 v3.6（11 工具 + 路由评测 + DB 快速失败 + 环境自检）
 
 ---
 
@@ -70,7 +70,7 @@ flowchart LR
 | 技术 | 说明 |
 |---|---|
 | OpenAI 兼容协议 | `AIService` 统一封装，换模型 = 改 `.env` 的 `AI_BASE_URL / AI_MODEL / AI_API_KEY` 三行 |
-| 当前模型 | 通义 qwen-plus（曾用 DeepSeek deepseek-chat 做对比验证） |
+| 当前模型 | DeepSeek deepseek-chat（OpenAI 兼容协议，改 `.env` 三行可切通义 qwen-plus；历史上用通义做过对比验证） |
 | 输出治理 | 固定 JSON 结构 + Pydantic 校验 + 失败自动重试（最多 2 次） |
 | 版本追溯 | 提示词带 `PROMPT_VERSION`，改提示词必须递增，旧报告不复用 |
 | 本地 Embedding | Ollama 跑 `nomic-embed-text`，768 维，OpenAI 兼容 API；切云端只改配置 |
@@ -108,7 +108,7 @@ flowchart LR
 
 | 工具/机制 | 说明 |
 |---|---|
-| pytest | 143 个用例，AI/embedding 全部 mock，不烧真实调用额度 |
+| pytest | 260 个用例（v3.6），AI/embedding 全部 mock，不烧真实调用额度 |
 | 测试护栏 | `conftest.py` 校验 `DATABASE_URL` host，非本地直接终止，防误清远程库 |
 | ruff | lint + format，提交前全绿 |
 | 固定测试简历集 | `test-resumes/` 5 份 PDF，改解析/提示词后必须回归对比 |
@@ -168,17 +168,21 @@ flowchart LR
 - **消息持久化（v3.1）**：流式开始前存用户消息、流式结束后存 assistant 消息（含 `citations` 与 `tokens`）并刷新会话活跃时间；保存失败只记日志，不影响已返回内容。
 - 黄金问答集评测：49 题，`scripts/eval_rag.py` 可复跑（当前基线见模块 10）。
 
-### 模块 6 · AI 客服 Agent（v3.4 → v3.5）
+### 模块 6 · AI 客服 Agent（v3.4 → v3.6）
 
 - **LangChain 0.3 ReAct Agent**：`create_openai_tools_agent` + `AgentExecutor`，单次最大 6 步工具循环，防无限调用。
 - **SSE 全程流式**：事件序 `meta → (action → observation)* → delta* → done`；工具调用过程对用户可见（前端「工具调用过程」可折叠区）。
-- **工具工厂（v3.5 扩到四件套）**：`make_tools(db, user_id, anonymous_id, ctx)` 每请求创建闭包工具，绑定本次请求的 db 会话与归属者；四个工具分别是 `kb_search`（知识库检索，唯一回填 citations 的）/ `resume_lookup`（本人简历，可按关键词在正文里定位片段）/ `interview_history`（本人面试场次与分维度评分）/ `usage_stats`（本人近 N 天各动作次数与 token）；个人数据工具一律按归属者过滤，识别不到身份时明确拒绝而非返回空结果。
+- **工具工厂（v3.6 起共 11 个工具）**：`make_tools(db, user_id, anonymous_id, ctx)` 每请求创建闭包工具，绑定本次请求的 db 会话与归属者；个人数据工具一律按归属者过滤，识别不到身份时明确拒绝而非返回空结果。11 个工具分三类：
+  - **检索/查询类（7 个，不额外调模型）**：`kb_search`（知识库检索，唯一回填 citations 的）/ `resume_lookup`（本人简历，可按关键词在正文里定位片段）/ `interview_history`（本人面试场次与分维度评分）/ `score_trend`（本人评分趋势，对比首末场次升降）/ `usage_stats`（本人近 N 天各动作次数与 token）/ `analysis_read`（读本人某份简历的最新有效分析报告）/ `kb_list`（本人可见的语料清单，不带正文）；
+  - **静态说明类（1 个）**：`platform_help`（平台功能说明，不查库不调模型，按 topic 别名路由）；
+  - **工具内 LLM 类（3 个，经 `_run_tool_llm` 独立限额与记账）**：`job_match`（简历 vs 岗位 JD 匹配度）/ `question_gen`（依据平台语料出模拟面试题）/ `answer_review`（对用户贴的回答做四维点评）。
+- **工具路由实测**：33 题（11 工具 × 3）路由评测 top-1 100%（`scripts/eval_agent_routing.py`，基线 `data/agent_eval/report.md`）；描述按三段式规范写「什么时候用 / 不用」，易撞工具互相点名排他。
 - **工具容错**：工具内部吞掉检索类异常返回自然语言说明，让 Agent 换通用知识兜底。
 - **引用回填**：工具命中的知识库块经 `ToolContext` 收集，随 `done` 事件回传前端展示来源。
 - **过程留档**：工具调用过程写入 `chat_messages.tool_steps`（JSONB），刷新后可回看。
-- **两形态复用**：用户端整页视图 `AgentChatView` + 管理端右下角 56px 气泡浮层 `AgentWidget`，共用 `AgentChatCore` 内核。
+- **两形态复用**：用户端整页视图 `AgentChatView` + 管理端右下角 56px 气泡浮层 `AgentWidget`，共用 `AgentChatCore` 内核（工具名已中文化）。
 - **会话隔离**：与在线对话共用 `chat_sessions / chat_messages`，靠 `session_type='agent'` 区分——两类会话互不出现在对方列表。
-- **独立限流**：`agent` / `agent_create` 两路记账，每日上限 30 次（Agent 单次可能多轮调 LLM，故低于在线对话）。
+- **独立限流**：`agent` / `agent_create` 两路记账，每日上限 30 次；工具内 LLM 类另有 `daily_agent_tool_llm_limit=20` 单独限额（与主循环分开，可归因可关闸）。
 - **未配 Key 快速失败**：`llm_factory` 抛 `ValueError` → API 返回 503 明确话术，不进入流式。
 
 ### 模块 7 · 数据看板 / 使用日志 / 语料库管理（管理端，v3.1~v3.3）
