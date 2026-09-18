@@ -24,7 +24,13 @@ def _email() -> str:
 
 @pytest.fixture(autouse=True)
 def _clean_agent():
-    """按归属清理本文件造的数据（匿名 aid + agent-% 用户），在线对话数据不受影响。"""
+    """按归属清理本文件造的数据（匿名 aid + agent-% 用户），在线对话数据不受影响。
+
+    usage_logs 用 id 快照兜底：本文件的类型隔离用例会创建 chat 会话并产生
+    chat_create 记账，按动作类型过滤会漏；顺序执行下按「测试期间新增」过滤绝对精确。
+    """
+    with engine.begin() as conn:
+        snap = conn.execute(text("SELECT COALESCE(MAX(id), 0) FROM usage_logs")).scalar()
     yield
     aids = [c.value for c in client.cookies.jar if c.name == ANONYMOUS_COOKIE]
     owner_sql = (
@@ -40,13 +46,7 @@ def _clean_agent():
             {"a": aids},
         )
         conn.execute(text(f"DELETE FROM chat_sessions WHERE {owner_sql}"), {"a": aids})
-        conn.execute(
-            text(
-                "DELETE FROM usage_logs WHERE action_type IN ('agent', 'agent_create') "
-                f"AND ({owner_sql})"
-            ),
-            {"a": aids},
-        )
+        conn.execute(text("DELETE FROM usage_logs WHERE id > :s"), {"s": snap})
 
 
 def _fake_events(*_args, **_kwargs):

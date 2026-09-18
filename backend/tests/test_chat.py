@@ -24,7 +24,15 @@ def _email() -> str:
 
 @pytest.fixture(autouse=True)
 def _clean_chat_and_usage():
-    """按归属清理本文件造的数据（匿名 aid + test-% 用户），不影响真实数据。"""
+    """按归属清理本文件造的数据（匿名 aid + test-% 用户），不影响真实数据。
+
+    usage_logs 用 id 快照兜底：匿名 aid 在会话中途可能被服务端轮换，
+    按 aid 追踪会漏；顺序执行下「测试期间新增的行」用 id > 快照过滤绝对精确。
+    """
+    with engine.begin() as conn:
+        snap = conn.execute(
+            text("SELECT COALESCE(MAX(id), 0) FROM usage_logs")
+        ).scalar()
     yield
     aid = client.cookies.get(ANONYMOUS_COOKIE)
     owner_sql = (
@@ -43,13 +51,7 @@ def _clean_chat_and_usage():
             text(f"DELETE FROM chat_sessions WHERE {owner_sql}"),
             {"a": aid},
         )
-        conn.execute(
-            text(
-                "DELETE FROM usage_logs WHERE action_type IN ('playground', 'chat_create') "
-                f"AND ({owner_sql})"
-            ),
-            {"a": aid},
-        )
+        conn.execute(text("DELETE FROM usage_logs WHERE id > :s"), {"s": snap})
 
 
 # —— 会话 CRUD ——
