@@ -339,6 +339,17 @@ def test_logged_in_message_writes_user_id_usage(monkeypatch) -> None:
     )
     try:
         _mock_stream(monkeypatch)
+
+        # 结束评价的 LLM 调用也要替换（CI 无 .env，真 chat_json 会因未配置 502）
+        class _FakeReportResult:
+            report = fake_report()
+            model_name = "fake-model"
+            tokens_prompt = 60
+            tokens_completion = 28
+
+        monkeypatch.setattr(
+            "app.api.interviews.chat_json", lambda *a, **k: _FakeReportResult()
+        )
         # 上传与建会话走登录态
         upload = user_client.post(
             "/api/resumes",

@@ -245,7 +245,15 @@ def _patch_openai(monkeypatch, responses: list):
     return fake_client, state
 
 
+def _use_fake_ai_settings(monkeypatch) -> None:
+    """给 settings 注入假 AI 配置：CI 环境没有 .env，ai_client 的前置检查会直接拒绝。"""
+    monkeypatch.setattr(settings, "ai_api_key", "test-key")
+    monkeypatch.setattr(settings, "ai_base_url", "http://testserver")
+    monkeypatch.setattr(settings, "ai_model", "fake-model")
+
+
 def test_ai_client_retries_invalid_json_then_succeeds(monkeypatch) -> None:
+    _use_fake_ai_settings(monkeypatch)
     from app.services.ai_client import analyze_resume as real_analyze
 
     bad = FakeResp("抱歉，我无法输出 JSON")
@@ -261,6 +269,7 @@ def test_ai_client_retries_invalid_json_then_succeeds(monkeypatch) -> None:
 
 
 def test_ai_client_gives_up_after_three_attempts(monkeypatch) -> None:
+    _use_fake_ai_settings(monkeypatch)
     from app.services.ai_client import analyze_resume as real_analyze
 
     _, state = _patch_openai(monkeypatch, [FakeResp("not json at all")])
@@ -270,6 +279,7 @@ def test_ai_client_gives_up_after_three_attempts(monkeypatch) -> None:
 
 
 def test_ai_client_network_error(monkeypatch) -> None:
+    _use_fake_ai_settings(monkeypatch)
     from app.services.ai_client import analyze_resume as real_analyze
 
     _patch_openai(monkeypatch, [RuntimeError("connection refused")])
