@@ -2,7 +2,7 @@
 
 覆盖：建会话（开场白落库）、SSE 流式回答（meta/delta/done 事件与落库）、
 刷新恢复（GET 会话）、轮次上限、结束评价报告、usage 记账与限流。
-前置：db 容器运行中；每用例结束清相关表和 uploads/。
+前置：db 容器运行中；用后按标记清理本文件造的数据和 uploads/（v3.7 测试隔离改造）。
 """
 
 import json
@@ -54,13 +54,41 @@ def fake_analysis_result() -> AnalysisResult:
 
 @pytest.fixture(autouse=True)
 def _clean_state():
+    """按标记清理本文件造的数据（简历文件名前缀 rt-），真实数据不受影响。"""
     yield
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM interview_messages"))
-        conn.execute(text("DELETE FROM interview_sessions"))
-        conn.execute(text("DELETE FROM analyses"))
-        conn.execute(text("DELETE FROM usage_logs"))
-        conn.execute(text("DELETE FROM resumes"))
+        conn.execute(
+            text(
+                "DELETE FROM interview_messages WHERE session_id IN "
+                "(SELECT id FROM interview_sessions WHERE resume_id IN "
+                "(SELECT id FROM resumes WHERE filename LIKE 'rt-%'))"
+            )
+        )
+        conn.execute(
+            text(
+                "DELETE FROM interview_sessions WHERE resume_id IN "
+                "(SELECT id FROM resumes WHERE filename LIKE 'rt-%')"
+            )
+        )
+        conn.execute(
+            text(
+                "DELETE FROM analyses WHERE resume_id IN "
+                "(SELECT id FROM resumes WHERE filename LIKE 'rt-%')"
+            )
+        )
+        conn.execute(
+            text(
+                "DELETE FROM usage_logs WHERE anonymous_id = ANY(:a) "
+                "OR user_id IN (SELECT id FROM users WHERE email LIKE 'test-%')"
+            ),
+            {"a": _anon_aids()},
+        )
+        conn.execute(text("DELETE FROM resumes WHERE filename LIKE 'rt-%'"))
+
+
+def _anon_aids() -> list[str]:
+    """收集本文件共享 client 的匿名身份，用于清理 usage_logs。"""
+    return [c.value for c in client.cookies.jar if c.name == "anonymous_id"]
     for f in UPLOAD_DIR.iterdir():
         if f.is_file():
             f.unlink()
@@ -69,7 +97,7 @@ def _clean_state():
 def _upload_ok() -> int:
     resp = client.post(
         "/api/resumes",
-        files={"file": ("resume.pdf", make_text_pdf(), "application/pdf")},
+        files={"file": ("rt-interview.pdf", make_text_pdf(), "application/pdf")},
     )
     assert resp.status_code == 201
     return resp.json()["resume"]["id"]
@@ -163,9 +191,17 @@ def test_message_flow_sse_and_persistence(monkeypatch) -> None:
     roles = [m["role"] for m in recovered["messages"]]
     assert roles == ["interviewer", "candidate", "interviewer"]
 
-    with engine.begin() as conn:  # 每条 AI 回复记账
+    with (
+        engine.begin() as conn
+    ):  # 每条 AI 回复记账（按本归属者过滤，语料/他人数据不干扰）
+        aids = [c.value for c in client.cookies.jar if c.name == "anonymous_id"]
         row = conn.execute(
-            text("SELECT action_type, tokens_total FROM usage_logs")
+            text(
+                "SELECT action_type, tokens_total FROM usage_logs "
+                "WHERE anonymous_id = ANY(:a) "
+                "OR user_id IN (SELECT id FROM users WHERE email LIKE 'test-%')"
+            ),
+            {"a": aids},
         ).fetchone()
     assert row.action_type == "interview_message" and row.tokens_total == 165
 
@@ -232,8 +268,16 @@ def test_finish_generates_report_and_closes(monkeypatch) -> None:
     assert len(calls) == 1
 
     with engine.begin() as conn:  # 报告调用也记账
+        aids = [c.value for c in client.cookies.jar if c.name == "anonymous_id"]
         assert (
-            conn.execute(text("SELECT count(*) FROM usage_logs")).scalar() == 2
+            conn.execute(
+                text(
+                    "SELECT count(*) FROM usage_logs WHERE anonymous_id = ANY(:a) "
+                    "OR user_id IN (SELECT id FROM users WHERE email LIKE 'test-%')"
+                ),
+                {"a": aids},
+            ).scalar()
+            == 2
         )  # 1 条消息 + 1 次报告
 
 
@@ -298,7 +342,7 @@ def test_logged_in_message_writes_user_id_usage(monkeypatch) -> None:
         # 上传与建会话走登录态
         upload = user_client.post(
             "/api/resumes",
-            files={"file": ("resume.pdf", make_text_pdf(), "application/pdf")},
+            files={"file": ("rt-interview.pdf", make_text_pdf(), "application/pdf")},
         )
         assert upload.status_code == 201
         resume_id = upload.json()["resume"]["id"]

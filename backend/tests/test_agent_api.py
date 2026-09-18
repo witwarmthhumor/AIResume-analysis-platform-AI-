@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from app.api.deps import ANONYMOUS_COOKIE
 from app.db.session import engine
 from app.main import app
 
@@ -23,12 +24,28 @@ def _email() -> str:
 
 @pytest.fixture(autouse=True)
 def _clean_agent():
+    """按归属清理本文件造的数据（匿名 aid + agent-% 用户），在线对话数据不受影响。"""
     yield
+    aids = [c.value for c in client.cookies.jar if c.name == ANONYMOUS_COOKIE]
+    owner_sql = (
+        "anonymous_id = ANY(:a) OR user_id IN "
+        "(SELECT id FROM users WHERE email LIKE 'agent-%')"
+    )
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM chat_messages"))
-        conn.execute(text("DELETE FROM chat_sessions"))
         conn.execute(
-            text("DELETE FROM usage_logs WHERE action_type IN ('agent','agent_create')")
+            text(
+                "DELETE FROM chat_messages WHERE session_id IN "
+                f"(SELECT id FROM chat_sessions WHERE {owner_sql})"
+            ),
+            {"a": aids},
+        )
+        conn.execute(text(f"DELETE FROM chat_sessions WHERE {owner_sql}"), {"a": aids})
+        conn.execute(
+            text(
+                "DELETE FROM usage_logs WHERE action_type IN ('agent', 'agent_create') "
+                f"AND ({owner_sql})"
+            ),
+            {"a": aids},
         )
 
 

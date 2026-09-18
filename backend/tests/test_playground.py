@@ -13,11 +13,12 @@ from app.services.kb_service import create_document, ingest_kb_document
 client = TestClient(app)
 
 _FAKE_VEC = [0.5] * 768  # 与库里向量同方向 → 相似度 1.0，稳定命中
+_DOC_TITLE = "pgtest-HashMap 原理测试"  # 标记前缀：清理只删本文件造的文档，预置语料不受影响
 
 
 @pytest.fixture(autouse=True)
 def _clean_and_seed(monkeypatch):
-    """清理 kb 表与 playground 用量；mock embedding 为固定向量；预置一条公共文档。"""
+    """mock embedding 为固定向量；预置一条公共文档；用后按标记清理。"""
     monkeypatch.setattr(
         "app.api.playground.embed_texts",
         lambda texts: [_FAKE_VEC] * len(texts),
@@ -30,7 +31,7 @@ def _clean_and_seed(monkeypatch):
     with SessionLocal() as db:
         doc = create_document(
             db,
-            title="测试文档",
+            title=_DOC_TITLE,
             doc_type="text",
             raw_text="HashMap 是数组加链表加红黑树。" * 5,
             user_id=None,
@@ -43,8 +44,13 @@ def _clean_and_seed(monkeypatch):
     yield
 
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM kb_chunks"))
-        conn.execute(text("DELETE FROM kb_documents"))
+        conn.execute(
+            text(
+                "DELETE FROM kb_chunks WHERE document_id IN "
+                "(SELECT id FROM kb_documents WHERE title LIKE 'pgtest-%')"
+            )
+        )
+        conn.execute(text("DELETE FROM kb_documents WHERE title LIKE 'pgtest-%'"))
         conn.execute(text("DELETE FROM usage_logs WHERE action_type = 'playground'"))
 
 
@@ -73,7 +79,7 @@ def test_ask_streams_answer_with_citations(monkeypatch) -> None:
     done = events["done"][0]
     assert done["content"] == "这是回答内容"
     assert len(done["citations"]) > 0
-    assert done["citations"][0]["title"] == "测试文档"
+    assert done["citations"][0]["title"] == _DOC_TITLE
 
 
 def test_ask_returns_error_when_no_citations(monkeypatch) -> None:

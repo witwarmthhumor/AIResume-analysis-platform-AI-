@@ -18,6 +18,9 @@ from app.services.kb_service import (
 _FAKE_VEC = [0.5] * 768
 _QUERY_VEC = [0.51] * 768  # 与 _FAKE_VEC 相似度 ≈ 0.999
 
+# 测试文档标题统一前缀：清理时只删自己造的文档，预置语料（v3.7 起常驻库中）不受影响
+_KB_PREFIX = "ragtest-"
+
 
 @pytest.fixture
 def db_session():
@@ -31,15 +34,24 @@ def db_session():
 
 @pytest.fixture(autouse=True)
 def _clean_kb_tables(monkeypatch):
-    """清理 kb 表 + mock embedding（避免调真实 Ollama）。"""
+    """mock embedding（避免调真实 Ollama）+ 按标记清理本文件造的 kb 数据。"""
     monkeypatch.setattr(
         "app.services.kb_service.embed_texts",
         lambda texts: [_FAKE_VEC] * len(texts),
     )
     yield
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM kb_chunks"))
-        conn.execute(text("DELETE FROM kb_documents"))
+        conn.execute(
+            text(
+                "DELETE FROM kb_chunks WHERE document_id IN "
+                "(SELECT id FROM kb_documents WHERE title LIKE :p)"
+            ),
+            {"p": f"{_KB_PREFIX}%"},
+        )
+        conn.execute(
+            text("DELETE FROM kb_documents WHERE title LIKE :p"),
+            {"p": f"{_KB_PREFIX}%"},
+        )
 
 
 def _make_doc(
@@ -47,7 +59,7 @@ def _make_doc(
 ):
     return create_document(
         db,
-        title=title,
+        title=f"{_KB_PREFIX}{title}",
         doc_type="text",
         raw_text="测试内容。" * 30,
         user_id=user_id,
@@ -201,16 +213,18 @@ def test_hybrid_rescues_term_hit_filtered_by_vector_threshold(db_session) -> Non
     )
     _insert_chunk(db, vec_doc, "Redis 的持久化方式有 RDB 和 AOF 两种。", _FAKE_VEC)
 
-    # 纯向量：lex_doc 相似度 0.036 < 0.65 → 被过滤，只剩 vec_doc
+    # 纯向量：lex_doc 相似度 0.036 < 0.65 → 被阈值过滤
     vector_only = search_chunks(db, _QUERY_VEC, None, "anon", top_k=5)
-    assert {r["title"] for r in vector_only} == {"vec_doc"}
+    assert lex_doc.title not in {r["title"] for r in vector_only}
 
-    # 混合：lex_doc 占词法第 1 名 + 向量第 2 名，RRF 分高于只有向量第 1 名的 vec_doc
+    # 混合：lex_doc 占词法第 1 名，RRF 把它救回并排第一。
+    # 语料在场时命中块可能更多（预置的 database_index 同样含"聚簇索引"内容），
+    # 因此只断言「救回 + 排序」这两个核心属性，不做结果全集相等断言。
     hybrid = search_chunks(
         db, _QUERY_VEC, None, "anon", top_k=5, query_text="聚簇索引是什么"
     )
-    assert hybrid[0]["title"] == "lex_doc"
-    assert {"lex_doc", "vec_doc"} == {r["title"] for r in hybrid}
+    assert hybrid[0]["title"] == lex_doc.title
+    assert vec_doc.title in {r["title"] for r in hybrid}
     # 混合结果带归因字段（调试用）
     assert "rrf_score" in hybrid[0] and "lexical_score" in hybrid[0]
 
@@ -235,7 +249,7 @@ def test_hybrid_keeps_owner_isolation(db_session) -> None:
     db = db_session
     other_doc = create_document(
         db,
-        title="other_private",
+        title=f"{_KB_PREFIX}other_private",
         doc_type="text",
         raw_text="聚簇索引相关私有资料。" * 20,
         user_id=2,
@@ -251,4 +265,5 @@ def test_hybrid_keeps_owner_isolation(db_session) -> None:
     hybrid = search_chunks(
         db, _QUERY_VEC, 1, None, top_k=5, query_text="聚簇索引是什么"
     )
-    assert hybrid == []
+    # 语料在场时混合检索可能命中公共文档，但**别人的私有文档**绝不可见——这才是本测试保护的属性
+    assert all(r["title"] != other_doc.title for r in hybrid)

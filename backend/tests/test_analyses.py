@@ -3,7 +3,7 @@
 分两层 mock：
 - 路由层：替换 app.api.analyses.analyze_resume，测接口行为（去重/限流/落库/留痕）；
 - 封装层：替换 ai_client.OpenAI 为假客户端，测 JSON 校验与重试逻辑。
-前置：db 容器运行中；每用例结束清 analyses / usage_logs / resumes 表和 uploads/。
+前置：db 容器运行中；用后按标记清理本文件造的数据和 uploads/（v3.7 测试隔离改造）。
 """
 
 import json
@@ -56,11 +56,21 @@ def fake_analysis_result() -> AnalysisResult:
 
 @pytest.fixture(autouse=True)
 def _clean_state():
+    """按标记清理本文件造的数据（简历文件名前缀 rt- + 匿名 aid），真实数据不受影响。"""
     yield
+    # cookie 罐里可能有多个同名 anonymous_id（用例会手工伪造），逐个收集后统一清理
+    aids = [c.value for c in client.cookies.jar if c.name == "anonymous_id"]
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM analyses"))
-        conn.execute(text("DELETE FROM usage_logs"))
-        conn.execute(text("DELETE FROM resumes"))
+        conn.execute(
+            text(
+                "DELETE FROM analyses WHERE resume_id IN "
+                "(SELECT id FROM resumes WHERE filename LIKE 'rt-%')"
+            )
+        )
+        conn.execute(
+            text("DELETE FROM usage_logs WHERE anonymous_id = ANY(:a)"), {"a": aids}
+        )
+        conn.execute(text("DELETE FROM resumes WHERE filename LIKE 'rt-%'"))
     for f in UPLOAD_DIR.iterdir():
         if f.is_file():
             f.unlink()
@@ -69,7 +79,7 @@ def _clean_state():
 def _upload_ok() -> int:
     resp = client.post(
         "/api/resumes",
-        files={"file": ("resume.pdf", make_text_pdf(), "application/pdf")},
+        files={"file": ("rt-analysis.pdf", make_text_pdf(), "application/pdf")},
     )
     assert resp.status_code == 201
     return resp.json()["resume"]["id"]
@@ -105,7 +115,15 @@ def test_analyze_success_and_usage_logged(monkeypatch) -> None:
     assert out["tokens_prompt"] == 100 and out["tokens_completion"] == 200
 
     with engine.begin() as conn:
-        assert conn.execute(text("SELECT count(*) FROM analyses")).scalar() == 1
+        assert (
+            conn.execute(
+                text(
+                    "SELECT count(*) FROM analyses WHERE resume_id IN "
+                    "(SELECT id FROM resumes WHERE filename LIKE 'rt-%')"
+                )
+            ).scalar()
+            == 1
+        )
         row = conn.execute(
             text(
                 "SELECT tokens_total, action_type FROM usage_logs "
@@ -132,7 +150,15 @@ def test_analyze_cached_second_call(monkeypatch) -> None:
     assert second.json()["analysis"]["id"] == first.json()["analysis"]["id"]
     assert len(calls) == 1  # 命中去重，AI 只被调了一次
     with engine.begin() as conn:
-        assert conn.execute(text("SELECT count(*) FROM analyses")).scalar() == 1
+        assert (
+            conn.execute(
+                text(
+                    "SELECT count(*) FROM analyses WHERE resume_id IN "
+                    "(SELECT id FROM resumes WHERE filename LIKE 'rt-%')"
+                )
+            ).scalar()
+            == 1
+        )
 
 
 def test_analyze_400_when_not_parsed() -> None:
@@ -153,8 +179,15 @@ def test_analyze_502_and_tombstone_on_ai_error(monkeypatch) -> None:
     assert resp.status_code == 502
     assert "重试" in resp.json()["message"]
     with engine.begin() as conn:  # 失败也留痕（valid_json=false）+ 记账
+        aids = [c.value for c in client.cookies.jar if c.name == "anonymous_id"]
         assert conn.execute(text("SELECT valid_json FROM analyses")).scalar() is False
-        assert conn.execute(text("SELECT count(*) FROM usage_logs")).scalar() == 1
+        assert (
+            conn.execute(
+                text("SELECT count(*) FROM usage_logs WHERE anonymous_id = ANY(:a)"),
+                {"a": aids},
+            ).scalar()
+            == 1
+        )
 
 
 def test_daily_limit_429(monkeypatch) -> None:

@@ -33,15 +33,22 @@ def _register_client() -> tuple[TestClient, int]:
 
 @pytest.fixture(autouse=True)
 def _clean_me():
+    """按归属清理本文件造的数据（me-% 用户名下），其他用户数据不受影响。"""
     yield
     with engine.begin() as conn:
-        for tbl in (
-            "usage_logs",
-            "analyses",
-            "interview_sessions",
-            "resumes",
-        ):
-            conn.execute(text(f"DELETE FROM {tbl}"))
+        conn.execute(
+            text(
+                "DELETE FROM usage_logs WHERE user_id IN "
+                "(SELECT id FROM users WHERE email LIKE 'me-%')"
+            )
+        )
+        for tbl in ("analyses", "interview_sessions", "resumes"):
+            conn.execute(
+                text(
+                    f"DELETE FROM {tbl} WHERE user_id IN "
+                    "(SELECT id FROM users WHERE email LIKE 'me-%')"
+                )
+            )
         conn.execute(text("DELETE FROM users WHERE email LIKE 'me-%'"))
 
 

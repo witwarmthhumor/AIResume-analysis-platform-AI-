@@ -1,7 +1,7 @@
 """阶段1 接口测试：上传校验、解析、hash 去重、列表与详情。
 
 前置：docker compose 的 db 容器在本机运行（与 test_health 同约定）。
-PDF 样本全部用 fpdf2 现造，不依赖外部文件；每个用例结束后清库清 uploads/。
+PDF 样本全部用 fpdf2 现造，不依赖外部文件；用后按文件名标记清理（v3.7 测试隔离改造）。
 """
 
 import pytest
@@ -34,7 +34,7 @@ def make_blank_pdf(page_count: int = 2) -> bytes:
     return bytes(pdf.output())
 
 
-def upload(data: bytes, filename: str = "resume.pdf"):
+def upload(data: bytes, filename: str = "rt-resume.pdf"):
     return client.post(
         "/api/resumes", files={"file": (filename, data, "application/pdf")}
     )
@@ -42,10 +42,10 @@ def upload(data: bytes, filename: str = "resume.pdf"):
 
 @pytest.fixture(autouse=True)
 def _clean_state():
-    """每个用例跑完后清掉 resumes 表和 uploads/ 里的文件，用例互不干扰。"""
+    """按标记清理本文件造的简历（文件名前缀 rt-）和 uploads/ 里的文件，真实数据不受影响。"""
     yield
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM resumes"))
+        conn.execute(text("DELETE FROM resumes WHERE filename LIKE 'rt-%'"))
     for f in UPLOAD_DIR.iterdir():
         if f.is_file():
             f.unlink()
@@ -73,7 +73,7 @@ def test_non_pdf_rejected_415() -> None:
     resp = upload(b"PK\x03\x04 zip content", "resume.zip")
     assert resp.status_code == 415
 
-    resp2 = upload(b"plain text, not a pdf at all", "resume.pdf")
+    resp2 = upload(b"plain text, not a pdf at all", "rt-resume.pdf")
     assert resp2.status_code == 415
 
     assert client.get("/api/resumes").json() == []
@@ -114,7 +114,7 @@ def test_corrupt_pdf_saved_as_failed() -> None:
 def test_duplicate_upload_returns_existing_record() -> None:
     data = make_text_pdf(["Dedup sample resume with enough text content."])
     first = upload(data)
-    second = upload(data, filename="renamed_copy.pdf")  # 改名不影响：去重看内容 hash
+    second = upload(data, filename="rt-renamed_copy.pdf")  # 改名不影响：去重看内容 hash
     assert first.json()["duplicate"] is False
     assert second.json()["duplicate"] is True
     assert first.json()["resume"]["id"] == second.json()["resume"]["id"]
@@ -147,7 +147,7 @@ def test_soft_delete_hides_resume() -> None:
     # 同文件可重新上传（删除后不阻塞 hash 去重）
     resp2 = client.post(
         "/api/resumes",
-        files={"file": ("resume.pdf", data, "application/pdf")},
+        files={"file": ("rt-resume.pdf", data, "application/pdf")},
     )
     assert resp2.status_code == 201
     assert resp2.json()["duplicate"] is False

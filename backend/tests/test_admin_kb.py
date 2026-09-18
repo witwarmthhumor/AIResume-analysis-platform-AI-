@@ -50,11 +50,23 @@ def _fake_ingest(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _clean_tables():
+    """按标记清理本文件造的数据（文件名前缀 adminkb-），预置语料与真实数据不受影响。"""
     yield
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM kb_chunks"))
-        conn.execute(text("DELETE FROM kb_documents"))
-        conn.execute(text("DELETE FROM usage_logs WHERE action_type = 'kb_upload'"))
+        conn.execute(
+            text(
+                "DELETE FROM kb_chunks WHERE document_id IN "
+                "(SELECT id FROM kb_documents WHERE title LIKE 'adminkb-%')"
+            )
+        )
+        conn.execute(text("DELETE FROM kb_documents WHERE title LIKE 'adminkb-%'"))
+        # 本文件的 kb_upload 记账全部来自 test-% 注册用户（admin/普通用户上传）
+        conn.execute(
+            text(
+                "DELETE FROM usage_logs WHERE action_type = 'kb_upload' "
+                "AND user_id IN (SELECT id FROM users WHERE email LIKE 'test-%@example.com')"
+            )
+        )
         conn.execute(text("DELETE FROM users WHERE email LIKE 'test-%@example.com'"))
 
 
@@ -93,7 +105,7 @@ def test_admin_lists_all_documents_with_owner() -> None:
     # admin 上传一篇预置
     resp = admin.post(
         "/api/admin/kb/documents",
-        files={"file": ("preset.txt", "预置文档内容".encode() * 5, "text/plain")},
+        files={"file": ("adminkb-preset.txt", "预置文档内容".encode() * 5, "text/plain")},
     )
     assert resp.status_code == 201
     preset_id = resp.json()["id"]
@@ -105,7 +117,7 @@ def test_admin_lists_all_documents_with_owner() -> None:
     )
     user_resp = user.post(
         "/api/kb/documents",
-        files={"file": ("private.txt", "私人文档内容".encode() * 5, "text/plain")},
+        files={"file": ("adminkb-private.txt", "私人文档内容".encode() * 5, "text/plain")},
     )
     assert user_resp.status_code == 201
 
@@ -129,7 +141,7 @@ def test_admin_can_delete_preset_document() -> None:
 
     resp = admin.post(
         "/api/admin/kb/documents",
-        files={"file": ("to-delete.txt", "待删除预置内容".encode() * 5, "text/plain")},
+        files={"file": ("adminkb-to-delete.txt", "待删除预置内容".encode() * 5, "text/plain")},
     )
     doc_id = resp.json()["id"]
 
@@ -162,7 +174,7 @@ def test_admin_upload_becomes_preset_public() -> None:
         "/api/admin/kb/documents",
         files={
             "file": (
-                "admin-preset.txt",
+                "adminkb-admin-preset.txt",
                 "管理员上传的预置内容".encode() * 5,
                 "text/plain",
             )
@@ -189,10 +201,10 @@ def test_admin_upload_dedup_globally() -> None:
     content = "全局去重测试内容".encode() * 5
 
     first = admin.post(
-        "/api/admin/kb/documents", files={"file": ("a.txt", content, "text/plain")}
+        "/api/admin/kb/documents", files={"file": ("adminkb-a.txt", content, "text/plain")}
     )
     second = admin.post(
-        "/api/admin/kb/documents", files={"file": ("b.txt", content, "text/plain")}
+        "/api/admin/kb/documents", files={"file": ("adminkb-b.txt", content, "text/plain")}
     )
     assert first.status_code == 201
     assert second.status_code == 201

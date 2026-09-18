@@ -34,14 +34,20 @@ def _fake_ingest(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _clean_tables():
+    """按标记清理本文件造的 kb 数据（文件名前缀 kbup-），预置语料不受影响。"""
     yield
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM kb_chunks"))
-        conn.execute(text("DELETE FROM kb_documents"))
+        conn.execute(
+            text(
+                "DELETE FROM kb_chunks WHERE document_id IN "
+                "(SELECT id FROM kb_documents WHERE title LIKE 'kbup-%')"
+            )
+        )
+        conn.execute(text("DELETE FROM kb_documents WHERE title LIKE 'kbup-%'"))
         conn.execute(text("DELETE FROM usage_logs WHERE action_type = 'kb_upload'"))
 
 
-def _upload(client: TestClient, content: str, filename: str = "note.txt"):
+def _upload(client: TestClient, content: str, filename: str = "kbup-note.txt"):
     return client.post(
         "/api/kb/documents",
         files={"file": (filename, content.encode("utf-8"), "text/plain")},
@@ -65,10 +71,10 @@ def test_anonymous_dedup_isolated_between_users():
 
     # 各自列表里恰好看到自己那一份（按测试文件名过滤，忽略预置语料）
     mine_a = [
-        d for d in alice.get("/api/kb/documents").json() if d["title"] == "note.txt"
+        d for d in alice.get("/api/kb/documents").json() if d["title"] == "kbup-note.txt"
     ]
     mine_b = [
-        d for d in bob.get("/api/kb/documents").json() if d["title"] == "note.txt"
+        d for d in bob.get("/api/kb/documents").json() if d["title"] == "kbup-note.txt"
     ]
     assert len(mine_a) == 1
     assert len(mine_b) == 1
@@ -91,6 +97,6 @@ def test_upload_daily_limit():
     user = TestClient(app)
     limit = settings.daily_kb_upload_limit
     for i in range(limit):
-        resp = _upload(user, f"第 {i} 篇文档的内容。" * 5, f"doc-{i}.txt")
+        resp = _upload(user, f"第 {i} 篇文档的内容。" * 5, f"kbup-doc-{i}.txt")
         assert resp.status_code == 201, f"第 {i + 1} 次上传不应被拦"
-    assert _upload(user, "超限的文档内容。" * 5, "over.txt").status_code == 429
+    assert _upload(user, "超限的文档内容。" * 5, "kbup-over.txt").status_code == 429

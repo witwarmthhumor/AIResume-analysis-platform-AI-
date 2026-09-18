@@ -6,12 +6,16 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from app.api.deps import ANONYMOUS_COOKIE
 from app.db.session import engine
 from app.main import app
 
 client = TestClient(app)
 
 _FAKE_VEC = [0.5] * 768
+
+# 本文件造的 kb 文档统一标题前缀，清理只删自己的，预置语料不受影响
+_DOC_PREFIX = "chattest-"
 
 
 def _email() -> str:
@@ -20,13 +24,32 @@ def _email() -> str:
 
 @pytest.fixture(autouse=True)
 def _clean_chat_and_usage():
-    """每个用例前后清理 chat 表与 playground / chat_create 用量。"""
+    """按归属清理本文件造的数据（匿名 aid + test-% 用户），不影响真实数据。"""
     yield
+    aid = client.cookies.get(ANONYMOUS_COOKIE)
+    owner_sql = (
+        "anonymous_id = :a OR user_id IN "
+        "(SELECT id FROM users WHERE email LIKE 'test-%')"
+    )
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM chat_messages"))
-        conn.execute(text("DELETE FROM chat_sessions"))
-        conn.execute(text("DELETE FROM usage_logs WHERE action_type = 'playground'"))
-        conn.execute(text("DELETE FROM usage_logs WHERE action_type = 'chat_create'"))
+        conn.execute(
+            text(
+                "DELETE FROM chat_messages WHERE session_id IN "
+                f"(SELECT id FROM chat_sessions WHERE {owner_sql})"
+            ),
+            {"a": aid},
+        )
+        conn.execute(
+            text(f"DELETE FROM chat_sessions WHERE {owner_sql}"),
+            {"a": aid},
+        )
+        conn.execute(
+            text(
+                "DELETE FROM usage_logs WHERE action_type IN ('playground', 'chat_create') "
+                f"AND ({owner_sql})"
+            ),
+            {"a": aid},
+        )
 
 
 # —— 会话 CRUD ——
@@ -178,7 +201,7 @@ def test_ask_with_session_id_persists_messages(monkeypatch) -> None:
     with SessionLocal() as db:
         doc = create_document(
             db,
-            title="测试文档",
+            title=f"{_DOC_PREFIX}HashMap 原理测试",
             doc_type="text",
             raw_text="HashMap 是数组加链表加红黑树。" * 5,
             user_id=None,
@@ -218,10 +241,19 @@ def test_ask_with_session_id_persists_messages(monkeypatch) -> None:
     updated = next(s for s in listing if s["id"] == sid)
     assert updated["title"] == "HashMap 原理是什么"
 
-    # 清理预置文档
+    # 清理本用例造的文档
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM kb_chunks"))
-        conn.execute(text("DELETE FROM kb_documents"))
+        conn.execute(
+            text(
+                "DELETE FROM kb_chunks WHERE document_id IN "
+                "(SELECT id FROM kb_documents WHERE title LIKE :p)"
+            ),
+            {"p": f"{_DOC_PREFIX}%"},
+        )
+        conn.execute(
+            text("DELETE FROM kb_documents WHERE title LIKE :p"),
+            {"p": f"{_DOC_PREFIX}%"},
+        )
 
 
 def test_ask_without_session_id_does_not_persist(monkeypatch) -> None:
@@ -241,7 +273,7 @@ def test_ask_without_session_id_does_not_persist(monkeypatch) -> None:
     with SessionLocal() as db:
         doc = create_document(
             db,
-            title="测试文档",
+            title=f"{_DOC_PREFIX}HashMap 原理测试",
             doc_type="text",
             raw_text="HashMap 是数组加链表加红黑树。" * 5,
             user_id=None,
@@ -258,14 +290,30 @@ def test_ask_without_session_id_does_not_persist(monkeypatch) -> None:
     resp = client.post("/api/playground/ask", json={"content": "HashMap"})
     assert resp.status_code == 200
 
-    # chat_messages 表应为空（fixture 清理后无其他写入）
+    # 本匿名身份名下不应有任何消息（不带 session_id 提问不落库）
+    aid = client.cookies.get(ANONYMOUS_COOKIE)
     with engine.begin() as conn:
-        count = conn.execute(text("SELECT COUNT(*) FROM chat_messages")).scalar()
+        count = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM chat_messages WHERE session_id IN "
+                "(SELECT id FROM chat_sessions WHERE anonymous_id = :a)"
+            ),
+            {"a": aid},
+        ).scalar()
     assert count == 0
 
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM kb_chunks"))
-        conn.execute(text("DELETE FROM kb_documents"))
+        conn.execute(
+            text(
+                "DELETE FROM kb_chunks WHERE document_id IN "
+                "(SELECT id FROM kb_documents WHERE title LIKE :p)"
+            ),
+            {"p": f"{_DOC_PREFIX}%"},
+        )
+        conn.execute(
+            text("DELETE FROM kb_documents WHERE title LIKE :p"),
+            {"p": f"{_DOC_PREFIX}%"},
+        )
 
 
 def test_ask_with_invalid_session_id_404(monkeypatch) -> None:
@@ -290,9 +338,14 @@ def test_create_session_rate_limited(monkeypatch) -> None:
         assert client.post("/api/chat/sessions", json={}).status_code == 200
     assert client.post("/api/chat/sessions", json={}).status_code == 429
 
-    # 记账落库：chat_create 共 3 条（成功路径才记账）
+    # 记账落库：本归属者 chat_create 共 3 条（成功路径才记账）
+    aid = client.cookies.get(ANONYMOUS_COOKIE)
     with engine.begin() as conn:
         count = conn.execute(
-            text("SELECT COUNT(*) FROM usage_logs WHERE action_type = 'chat_create'")
+            text(
+                "SELECT COUNT(*) FROM usage_logs "
+                "WHERE action_type = 'chat_create' AND anonymous_id = :a"
+            ),
+            {"a": aid},
         ).scalar()
     assert count == 3

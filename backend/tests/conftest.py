@@ -1,8 +1,8 @@
 """pytest 全局护栏。
 
-测试 fixture 会真实清空 kb_documents / kb_chunks / usage_logs 等表，
-所以测试库连接必须是本机——一旦 DATABASE_URL 指向远程或生产库，
-跑一次 pytest 就等于清库。这里在会话启动前拦截，直接终止。
+v3.7 测试隔离改造后，fixture 只按标记清理各文件自造的数据（预置语料与真实数据
+不受影响）。本护栏作为最后一道防线保留：一旦 DATABASE_URL 指向远程或生产库，
+任何清理语句都可能变成清库事故，在会话启动前直接拦截终止。
 """
 
 import pytest
