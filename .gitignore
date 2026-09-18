@@ -25,6 +25,7 @@ uploads/
 Thumbs.db
 
 # 本地 AI 协作/工具与过程稿（仅本地保留，不入库；方案A 撤下）
+.workbuddy/
 .agents/
 AGENTS.md
 AI-COLLABORATION.md
@@ -36,3 +37,6 @@ docs/实施计划-*
 docs/效果图-*
 docs/layout-preview.html
 docs/LangChain引入方案-*
+
+# Ralph 运行态文件（当前分支指针，每次运行覆盖；ralph 工具与进度记录本体保留入库）
+scripts/ralph/.last-branch
