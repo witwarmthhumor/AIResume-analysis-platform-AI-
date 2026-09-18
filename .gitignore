@@ -26,6 +26,7 @@ Thumbs.db
 
 # 本地 AI 协作/工具与过程稿（仅本地保留，不入库；方案A 撤下）
 .workbuddy/
+.zcode/
 .agents/
 AGENTS.md
 AI-COLLABORATION.md
