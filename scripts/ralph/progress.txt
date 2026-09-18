@@ -51,8 +51,23 @@ Started: 2026-09-18
 - 离线验证单个 Vue 组件渲染的可行套路（无需浏览器）：`node` + `@vue/compiler-sfc`（`parse` → `compileScript`（**不要** inlineTemplate）→ `compileTemplate`）拼成一个临时 `.mjs` 写进组件同目录（相对 import 才不会断），再用 `createSSRApp` + `renderToString` 渲染。`compileScript` 必须**不带** `inlineTemplate`，否则 setup 返回的是 render 函数、拿不到绑定。
 - 想改组件内部状态做渲染验证：`<script setup>` 的绑定**不允许**从 mixin/beforeCreate 外部改（Vue 会 warn 并抛 "trap returned falsish"）。正确姿势是包一层组件 `setup(props, ctx) { const b = Comp.setup(props, ctx); b.messages.value = [...]; return b }` —— 绑定对象是 ref 集合，直接改 `.value`。
 - 描述校准的有效句式：「用户只用口语描述了岗位要求（例：这家公司要求熟悉 MySQL 和 K8s）**也算 JD**」「不要因为用户贴的回答里提到某个技术名词就去 kb_search」「问的是**收录范围**而非**操作入口**」——把判别标准而不是工具名写给模型，比堆砌"请用 X"有效。
+- ⚠️ uvicorn `--reload`（watchfiles）在 Windows 上会**漏检后续改动**：实测 config.py 触发一次 reload 后，session/errors/main 的改动全部没被重载。改后端代码后要么 grep 日志确认 "Reloading"，要么干脆不带 --reload 手动重启；杀后端必须 `netstat -ano` 找真实监听 PID 再 `taskkill //F //T`——nohup 记的 `$!` 是 MSYS 包装进程 PID，杀它杀不到 python，会留下占 8000 的僵尸进程（且新 uvicorn 还能再绑一次 8000，netstat 出两条 LISTENING）。
+- 本地 `DATABASE_URL` 主机写 **127.0.0.1 而非 localhost**：Docker 停容器时端口是"黑洞"（vpnkit 代理还收连接），libpq 对 localhost 双栈会 ::1 和 127.0.0.1 **各超时一次**（connect_timeout=5 实测 10.4s 才失败），单栈一次 5s。US-006 实测 503 耗时从 60s+ 降到 5.3s 的最后一步就是改这里。
+- `connect_args` **不会**体现在 `dialect.create_connect_args` 的返回里（建连时才合并进 cparams）：要验证参数真传到了驱动，用假 `dbapi.connect`（monkeypatch 后捕获 kwargs）+ NullPool 一次性引擎，别去内省 dialect。
+- DB 连接类异常的全局 503 处理器在 `app/core/errors.py` 的 `database_error_handler`（OperationalError/InterfaceError → `database_unavailable`），注册在 `app/main.py` 既有处理器区；新增基础设施类异常处理器加同一处，**不要在路由内 try/except**。
+- check_env 的检查函数套路：每个 `check_*` 返回 `CheckResult`，内部 `except Exception` 转 FAIL **不上抛**；BLE001 免死金牌是 `logger.warning(..., exc_info=True)`——**带了 exc_info 就千万别再加 `# noqa: BLE001`**（RUF100 判多余，US-007 实测两次）；测试全用 `plan` 参数注入替身函数名，真实环境验证人工跑一次脚本即可。
 
 
 ## Log
 
-（Ralph 每次迭代完成后在此追加：做了什么、遇到什么、下次注意什么）
+### 2026-09-18 · 收口止血（v3.6 发布一致性）9/9 story 全部完成
+
+- **US-001 合并**：工作区改动先 stash（prd/progress/规划/vite 四文件在 main 与 ralph 间有差异，脏工作区切不过去），`main` fast-forward 到 6424543，pop 恢复。合并前把 vite 8001 游离 diff 存档到 `archive/2026-09-18-vite-8001-workaround.patch`。合并后全量 pytest 247 passed + ruff 通过 + seed_kb_preset 恢复语料。
+- **US-002 端口**：`git restore frontend/vite.config.ts` 还原 8000（8001 是从未提交的临时改法），实测直连/代理 /health、npm build、浏览器打开首页（后端日志确认浏览器请求走了 5173→8000 代理）。AGENTS.md「首页三个徽标」验证描述是阶段 0 遗留，v3.4 双端改造后已不存在，顺手修正。
+- **US-003/004 gitignore 与产出入库**：`.workbuddy/`、`scripts/ralph/.last-branch` 入忽略；docs/架构全景×2、tasks/ 两份 PRD、ralph.sh/watch.sh/CLAUDE.md/archive/ 提交（0ada22d + 8e35527），工作区首次全净。提交前扫了敏感信息：架构全景 HTML 命中的 "API_KEY" 只是 .env 三行配置的说明文字，无泄露。
+- **US-005 tag**：v3.5→2e45707、v3.6→当时 HEAD（8e35527）。⚠️ 偏差记录：验收「`git show v3.6 --stat` 含 services/agent/tools.py 或 eval_agent_routing.py」**按字面不可满足**——git show 只显示 tag 所指单个提交的 diff，而收口提交只含文档/工具文件；改用等价意图检查 `git diff v3.5 v3.6 --stat`（含 agent/tools.py +882 与 eval_agent_routing.py +252），通过。
+- **US-006 DB 快速失败**：代码三处（config 两个超时配置、session.py engine 参数、errors.py database_error_handler + main.py 注册）+ 6 例单测。真机实测两轮：先发现 --reload 漏检改动（挂起复现，差点误判修复无效），手动重启后 localhost 双栈 10.4s → 改 .env 为 127.0.0.1 后 **5.3s 返回 503**；docker start 后 0.36s 恢复 201。恢复语料后 253 passed。
+- **US-007 自检脚本**：check_env.py 九项检查 + 7 例单测；实测健康环境 9/9 退出码 0，还当场抓出 ollama 闲置后 unhealthy（restart 恢复——「容器闲置假死」的活案例）。ruff 三连修：PLW1510 补 check=False、RUF100 删多余 noqa、测试 raising=False。
+- **US-008 文档**：README 加「启动前自检」小节（含输出示例与退出码说明）；AGENTS.md 启动命令区/已知清单/验证行三处更新；README/AGENTS 无 8001 残留。
+- **US-009 收口**：规划.md 第 1 批 1.1/1.3/1.4/1.5 标 ✅（1.2 推远端按 PRD 明确不做，保持原状）；PROGRESS.md 记 v3.6 段；最终 253 pytest 全绿 + ruff + npm build。
+- 下次注意：① 改后端代码别依赖 --reload；② 全量 pytest 后必跑 seed_kb_preset（本轮两次）；③ 写 PRD 验收标准前先想清楚 git 命令的真实语义（show/diff 的区别），避免字面上不可能满足的条目。

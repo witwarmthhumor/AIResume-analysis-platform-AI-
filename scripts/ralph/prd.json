@@ -50,7 +50,7 @@
         "ruff check . 通过"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -67,7 +67,7 @@
         "ruff check . 通过"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -85,7 +85,7 @@
         "ruff check . 通过"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -104,7 +104,7 @@
         "ruff check . 通过"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -124,7 +124,7 @@
         "ruff check . 通过"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -139,7 +139,7 @@
         "ruff check . 通过"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -157,7 +157,7 @@
         "git log --oneline -8 能看出本次收口批次"
       ],
       "priority": 9,
-      "passes": false,
+      "passes": true,
       "notes": ""
     }
   ]
