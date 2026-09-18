@@ -89,6 +89,29 @@ npm run dev
 
 本地页面：[http://localhost:5173](http://localhost:5173)
 
+## 启动前自检
+
+一条命令看清所有前置条件（Docker / 三容器 / 数据库与迁移 / Redis / 端口 / 探针 / 语料 / AI 通道），任一失败不中断，全部跑完后给汇总，失败项直接附可复制的修复命令：
+
+```bash
+cd backend
+.venv\Scripts\python -m scripts.check_env             # 全量检查（AI 项消耗一次 1 token 级请求）
+.venv\Scripts\python -m scripts.check_env --skip-ai   # 跳过 AI 通道检查，不消耗额度
+```
+
+输出示例（节选）：
+
+```
+-- Docker 与容器 --
+  [OK] Docker daemon：可用（Server 29.7.2）
+  [FAIL] 三容器健康（db/redis/ollama）：未达 healthy：ai-interview-db（exited）
+        → 修复: docker start ai-interview-db ai-interview-redis ai-interview-ollama
+
+== 汇总：通过 8 项 / 失败 1 项 ==
+```
+
+退出码：全部通过为 0，存在失败为 1（可被 CI 或外层脚本判定）。容器闲置会自行退出（假死），建议每次启动项目前先跑一遍自检。
+
 > AI 客服与知识库问答依赖 Ollama 提供 embedding，首次启动需拉模型：`docker exec ai-interview-ollama ollama pull nomic-embed-text`。预置语料入库与 RAG 评测见下节。
 
 ## 隐私与安全
