@@ -1,5 +1,7 @@
 # AI 简历分析 + AI 模拟面试
 
+[![CI](https://github.com/witwarmthhumor/AIResume-analysis-platform-AI-/actions/workflows/ci.yml/badge.svg)](https://github.com/witwarmthhumor/AIResume-analysis-platform-AI-/actions/workflows/ci.yml)
+
 面向求职者的简历智能分析与文字模拟面试工具，定位为个人学习与求职作品集项目。
 
 ## 当前功能

@@ -1,0 +1,80 @@
+# CI（v3.7·7.7）：push 到 main / PR 时自动跑
+#   后端：pip install -r requirements.lock（版本快照）→ ruff → alembic 迁移 → pytest
+#   前端：npm ci → npm run build
+# 说明：测试里 AI/embedding 全部 mock（不需要 Ollama 服务）；数据库用 pgvector 官方镜像，
+#       凭据与 backend/.env 默认值（ai/ai/ai_interview）对齐，conftest 的本机护栏可直连。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ai
+          POSTGRES_PASSWORD: ai
+          POSTGRES_DB: ai_interview
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ai"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: 安装依赖（requirements.lock 版本快照）
+        run: pip install -r requirements.lock
+
+      - name: ruff 检查
+        run: python -m ruff check .
+
+      - name: 数据库迁移到 head
+        run: python -m alembic upgrade head
+
+      - name: pytest 全量（260+ 用例）
+        run: python -m pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 构建
+        run: npm run build
