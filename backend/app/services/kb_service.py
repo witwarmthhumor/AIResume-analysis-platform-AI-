@@ -71,7 +71,9 @@ def ingest_kb_document(
             f"向量维度不符：模型返回 {mismatch} 维，数据表为 {dim} 维。"
             "更换 embedding 模型需先做表结构迁移并对已有语料重新入库"
         )
-        logger.error("ingest 维度不符 document_id=%s got=%s want=%s", document.id, mismatch, dim)
+        logger.error(
+            "ingest 维度不符 document_id=%s got=%s want=%s", document.id, mismatch, dim
+        )
         document.status = "failed"
         document.parse_error = message
         db.commit()
@@ -220,7 +222,9 @@ def search_chunks_hybrid(
 
     bm25 = Bm25Index([(chunk.id, chunk.content) for chunk, _title in all_rows])
     lexical_hits = bm25.search(query_text, candidate_n)
-    lexical_rank = {cid: rank for rank, (cid, _score) in enumerate(lexical_hits, start=1)}
+    lexical_rank = {
+        cid: rank for rank, (cid, _score) in enumerate(lexical_hits, start=1)
+    }
     lexical_score = {cid: score for cid, score in lexical_hits}
 
     # —— RRF 融合 ——
@@ -240,7 +244,13 @@ def search_chunks_hybrid(
             similarity_map[chunk_id] = similarity
 
         fused.append(
-            (score, similarity, lexical_score.get(chunk_id, 0.0), chunk_id, *chunk_map[chunk_id])
+            (
+                score,
+                similarity,
+                lexical_score.get(chunk_id, 0.0),
+                chunk_id,
+                *chunk_map[chunk_id],
+            )
         )
 
     fused.sort(key=lambda item: item[0], reverse=True)
@@ -263,6 +273,7 @@ def search_chunks_hybrid(
 
 
 # —— 文档 CRUD（上传/列表/删除，owner 隔离）——
+
 
 def create_document(
     db: Session,

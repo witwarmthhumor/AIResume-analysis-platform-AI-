@@ -212,7 +212,9 @@ def list_interview_scores(
         items.append(
             {
                 "id": session.id,
-                "created_at": session.created_at.isoformat() if session.created_at else None,
+                "created_at": session.created_at.isoformat()
+                if session.created_at
+                else None,
                 "position_type": session.position_type,
                 "turn_count": session.turn_count,
                 "summary": report.get("summary"),

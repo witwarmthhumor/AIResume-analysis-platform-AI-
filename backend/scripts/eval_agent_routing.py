@@ -40,7 +40,9 @@ from app.services.agent import (
     make_tools,
 )
 
-CASES_PATH = Path(__file__).resolve().parents[1].parent / "data" / "agent_eval" / "routing.json"
+CASES_PATH = (
+    Path(__file__).resolve().parents[1].parent / "data" / "agent_eval" / "routing.json"
+)
 REPORT_PATH = CASES_PATH.parent / "report.md"
 # 模型没走工具、直接文字作答时的占位（计入未命中）
 NO_TOOL = "(未调用工具)"
@@ -65,9 +67,7 @@ def pick_tool(message: BaseMessage) -> str:
     return str(calls[0]["name"]) if calls else NO_TOOL
 
 
-def run(
-    cases: Sequence[dict], ask: Callable[[str], BaseMessage]
-) -> list[dict]:
+def run(cases: Sequence[dict], ask: Callable[[str], BaseMessage]) -> list[dict]:
     """逐题发起一次选择调用，产出逐题明细。
 
     ask 是"问一句 → 一条模型消息"的函数，脚本本体和测试各自注入实现。
@@ -179,7 +179,9 @@ def build_report(details: Sequence[dict], cases_path: Path = CASES_PATH) -> str:
     ]
     for expected, row in matrix.items():
         cells = [str(row.get(name, 0)) if row.get(name) else "-" for name in columns]
-        lines.append(f"| {expected} | " + " | ".join(cells) + f" | {sum(row.values())} |")
+        lines.append(
+            f"| {expected} | " + " | ".join(cells) + f" | {sum(row.values())} |"
+        )
 
     lines += [
         "",
@@ -197,7 +199,9 @@ def build_report(details: Sequence[dict], cases_path: Path = CASES_PATH) -> str:
     lines += ["", "## 误选清单", ""]
     if misses:
         for d in misses:
-            lines.append(f"- 「{d['question']}」期望 {d['expected']}，实际 {d['actual']}")
+            lines.append(
+                f"- 「{d['question']}」期望 {d['expected']}，实际 {d['actual']}"
+            )
     else:
         lines.append("- 无（全部命中）")
 

@@ -1,0 +1,10 @@
+# Git 提交钩子：提交前自动跑 ruff 检查与格式校验，防格式漂移复发（v3.7·7.2）。
+# 启用方式（一次性）：pip install pre-commit && pre-commit install
+# 手动全量跑一遍：pre-commit run --all-files
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.5 # 与 backend/requirements.txt 的 ruff 版本保持一致，升级时同步改这里
+    hooks:
+      - id: ruff-check # lint：规则错误直接拦下提交（可用 --fix 自动修，这里不自动改）
+        args: [--force-exclude]
+      - id: ruff-format # 格式：与 `ruff format --check` 同口径

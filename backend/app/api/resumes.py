@@ -50,7 +50,9 @@ async def upload_resume(
     # 上传拦截：类型（扩展名 + 文件头双校验）与页数在此校验，大小已在读前预检/读后兜底——都不落库
     if not filename.lower().endswith(".pdf") or not data.startswith(PDF_MAGIC):
         raise HTTPException(415, "只支持 PDF 文件，请上传 PDF 格式的简历")
-    if len(data) > settings.upload_max_size:  # 兜底：无 Content-Length 时 size 可能为 None
+    if (
+        len(data) > settings.upload_max_size
+    ):  # 兜底：无 Content-Length 时 size 可能为 None
         raise HTTPException(413, f"文件超过 {max_mb}MB 限制，请压缩后重新上传")
 
     file_hash = hashlib.sha256(data).hexdigest()

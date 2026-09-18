@@ -41,7 +41,9 @@ _RAG_SYSTEM_PROMPT = (
 
 class AskIn(BaseModel):
     content: str = Field(min_length=1, max_length=2000)
-    session_id: int | None = Field(default=None, description="在线对话会话 ID，传入则持久化消息")
+    session_id: int | None = Field(
+        default=None, description="在线对话会话 ID，传入则持久化消息"
+    )
 
 
 def _get_owned_session(
@@ -69,9 +71,7 @@ def ask(
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
 ) -> StreamingResponse:
     """用户提问 → 向量检索 → RAG 流式回答。有 session_id 时持久化消息。"""
-    enforce_daily_limit(
-        db, anonymous_id, settings.daily_playground_limit, "playground"
-    )
+    enforce_daily_limit(db, anonymous_id, settings.daily_playground_limit, "playground")
 
     # v3.1：校验会话归属（有 session_id 时）
     session: ChatSession | None = None
@@ -123,7 +123,9 @@ def ask(
             logger.warning("playground 保存用户消息失败", exc_info=True)
             db.rollback()
 
-    def _save_assistant_message(full_text: str, citations: list, tokens_total: int) -> None:
+    def _save_assistant_message(
+        full_text: str, citations: list, tokens_total: int
+    ) -> None:
         """流结束后保存 AI 消息（含引用来源），失败只记日志不影响已返回内容。"""
         if session is None:
             return
@@ -198,7 +200,10 @@ def ask(
 
     messages = [
         {"role": "system", "content": _RAG_SYSTEM_PROMPT},
-        {"role": "user", "content": f"知识库内容：\n{context}\n\n用户问题：{body.content}"},
+        {
+            "role": "user",
+            "content": f"知识库内容：\n{context}\n\n用户问题：{body.content}",
+        },
     ]
 
     # v3.1：流式开始前保存用户消息

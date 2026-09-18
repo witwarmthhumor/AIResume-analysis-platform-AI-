@@ -41,8 +41,12 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_chat_messages")),
     )
-    op.create_index(op.f("ix_chat_messages_created_at"), "chat_messages", ["created_at"])
-    op.create_index(op.f("ix_chat_messages_session_id"), "chat_messages", ["session_id"])
+    op.create_index(
+        op.f("ix_chat_messages_created_at"), "chat_messages", ["created_at"]
+    )
+    op.create_index(
+        op.f("ix_chat_messages_session_id"), "chat_messages", ["session_id"]
+    )
 
     # —— chat_sessions ——
     op.create_table(
@@ -66,9 +70,15 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_chat_sessions")),
     )
-    op.create_index(op.f("ix_chat_sessions_anonymous_id"), "chat_sessions", ["anonymous_id"])
-    op.create_index(op.f("ix_chat_sessions_created_at"), "chat_sessions", ["created_at"])
-    op.create_index(op.f("ix_chat_sessions_updated_at"), "chat_sessions", ["updated_at"])
+    op.create_index(
+        op.f("ix_chat_sessions_anonymous_id"), "chat_sessions", ["anonymous_id"]
+    )
+    op.create_index(
+        op.f("ix_chat_sessions_created_at"), "chat_sessions", ["created_at"]
+    )
+    op.create_index(
+        op.f("ix_chat_sessions_updated_at"), "chat_sessions", ["updated_at"]
+    )
     op.create_index(op.f("ix_chat_sessions_user_id"), "chat_sessions", ["user_id"])
 
     # —— 补全 kb 表缺失的 created_at 索引（历史遗留）——

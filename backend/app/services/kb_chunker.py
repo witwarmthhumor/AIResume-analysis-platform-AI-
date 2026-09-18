@@ -59,6 +59,4 @@ def chunk_text(
     if current.strip():
         chunks.append(current)
 
-    return [
-        {"text": c, "token_count": approximate_tokens(c)} for c in chunks
-    ]
+    return [{"text": c, "token_count": approximate_tokens(c)} for c in chunks]

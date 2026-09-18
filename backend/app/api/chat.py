@@ -29,7 +29,9 @@ def _owner_filter(user: User | None, anonymous_id: str):
     return ChatSession.anonymous_id == anonymous_id
 
 
-def _get_owned_session(db: Session, session_id: int, user: User | None, anonymous_id: str) -> ChatSession:
+def _get_owned_session(
+    db: Session, session_id: int, user: User | None, anonymous_id: str
+) -> ChatSession:
     """取会话并校验归属，不存在或无权限 → 404（不泄露存在性）。"""
     session = db.get(ChatSession, session_id)
     if session is None or session.deleted_at is not None:

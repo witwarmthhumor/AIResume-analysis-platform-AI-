@@ -64,8 +64,12 @@ def test_anonymous_dedup_isolated_between_users():
     assert resp_b.json()["id"] != resp_a.json()["id"]
 
     # 各自列表里恰好看到自己那一份（按测试文件名过滤，忽略预置语料）
-    mine_a = [d for d in alice.get("/api/kb/documents").json() if d["title"] == "note.txt"]
-    mine_b = [d for d in bob.get("/api/kb/documents").json() if d["title"] == "note.txt"]
+    mine_a = [
+        d for d in alice.get("/api/kb/documents").json() if d["title"] == "note.txt"
+    ]
+    mine_b = [
+        d for d in bob.get("/api/kb/documents").json() if d["title"] == "note.txt"
+    ]
     assert len(mine_a) == 1
     assert len(mine_b) == 1
     assert mine_b[0]["id"] != mine_a[0]["id"]

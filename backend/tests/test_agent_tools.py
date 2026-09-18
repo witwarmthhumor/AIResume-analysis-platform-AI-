@@ -63,8 +63,7 @@ def _purge() -> None:
             " WHERE anonymous_id IN (:a, :b) OR title LIKE :p)"
         )
         doc_delete = (
-            "DELETE FROM kb_documents"
-            " WHERE anonymous_id IN (:a, :b) OR title LIKE :p"
+            "DELETE FROM kb_documents WHERE anonymous_id IN (:a, :b) OR title LIKE :p"
         )
         for statement in (chunk_delete, doc_delete):
             conn.execute(text(statement), params)
@@ -622,7 +621,9 @@ def _add_kb_document(
 def test_kb_list_shows_public_and_own_documents(db_session) -> None:
     """预置语料 + 本人上传都要列出来，标题/来源/状态/块数齐全。"""
     db = db_session
-    _add_kb_document(db, "平台预置语料.md", scope="public", chunk_texts=("块一", "块二"))
+    _add_kb_document(
+        db, "平台预置语料.md", scope="public", chunk_texts=("块一", "块二")
+    )
     _add_kb_document(db, "我的资料.md", chunk_texts=("块甲",))
 
     out = _tool(db, "kb_list").invoke({"query": ""})
@@ -688,7 +689,9 @@ def test_kb_list_empty_library(db_session, monkeypatch) -> None:
 def test_kb_list_isolates_other_owner(db_session) -> None:
     """别人的私有文档不可见。"""
     db = db_session
-    _add_kb_document(db, "别人的机密资料.md", anonymous_id=_OTHER, chunk_texts=("机密",))
+    _add_kb_document(
+        db, "别人的机密资料.md", anonymous_id=_OTHER, chunk_texts=("机密",)
+    )
 
     out = _tool(db, "kb_list").invoke({"query": ""})
 
@@ -935,9 +938,7 @@ def test_run_tool_llm_swallows_limit_query_error(db_session, monkeypatch) -> Non
     def _boom(*args, **kwargs):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr(
-        "app.services.agent.tools.count_today_usage_by_owner", _boom
-    )
+    monkeypatch.setattr("app.services.agent.tools.count_today_usage_by_owner", _boom)
 
     result, reply = _run_tool_llm(db_session, None, _OWNER, _fake_result)
 
@@ -1023,7 +1024,9 @@ def _fake_match_result() -> AnalysisResult:
 
 def test_job_match_renders_score_and_keywords(db_session, monkeypatch) -> None:
     """成功路径：走结构化校验输出，渲染评分/命中/缺失/建议，并记一条工具内用量。"""
-    _add_resume(db_session, _OWNER, "我的简历.pdf", "熟悉 MySQL 索引优化与 Redis 缓存。")
+    _add_resume(
+        db_session, _OWNER, "我的简历.pdf", "熟悉 MySQL 索引优化与 Redis 缓存。"
+    )
     seen = _patch_chat_json(monkeypatch)
 
     out = _tool(db_session, "job_match").invoke({"jd_text": _MATCH_JD})
@@ -1054,7 +1057,9 @@ def test_job_match_truncates_long_jd(db_session, monkeypatch) -> None:
     _add_resume(db_session, _OWNER, "我的简历.pdf", "熟悉 MySQL 索引优化。")
     seen = _patch_chat_json(monkeypatch)
 
-    out = _tool(db_session, "job_match").invoke({"jd_text": "x" * (_TOOL_JD_CHARS + 1000)})
+    out = _tool(db_session, "job_match").invoke(
+        {"jd_text": "x" * (_TOOL_JD_CHARS + 1000)}
+    )
 
     assert f"已按前 {_TOOL_JD_CHARS} 字符分析" in out
     assert seen[0]["user"].count("x") == _TOOL_JD_CHARS  # 送入模型的只有前 4000 字

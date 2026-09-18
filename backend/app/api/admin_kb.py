@@ -26,7 +26,9 @@ _TEXT_EXTENSIONS = {"txt", "md", "markdown"}
 _MAX_SIZE = 5 * 1024 * 1024  # 与普通上传一致，5MB
 
 
-def _doc_out(doc: KBDocument, chunk_count: int | None = None, owner_email: str | None = None) -> dict:
+def _doc_out(
+    doc: KBDocument, chunk_count: int | None = None, owner_email: str | None = None
+) -> dict:
     return {
         "id": doc.id,
         "title": doc.title,
@@ -56,18 +58,24 @@ def list_all_documents(
         )
     )
     # 块数：一条 GROUP BY
-    counts = dict(
-        db.execute(
-            select(KBChunk.document_id, func.count())
-            .where(KBChunk.document_id.in_([d.id for d in docs]))
-            .group_by(KBChunk.document_id)
-        ).all()
-    ) if docs else {}
+    counts = (
+        dict(
+            db.execute(
+                select(KBChunk.document_id, func.count())
+                .where(KBChunk.document_id.in_([d.id for d in docs]))
+                .group_by(KBChunk.document_id)
+            ).all()
+        )
+        if docs
+        else {}
+    )
     # owner 邮箱：user_id 非空的查 users
     user_ids = [d.user_id for d in docs if d.user_id is not None]
-    emails = dict(
-        db.execute(select(User.id, User.email).where(User.id.in_(user_ids))).all()
-    ) if user_ids else {}
+    emails = (
+        dict(db.execute(select(User.id, User.email).where(User.id.in_(user_ids))).all())
+        if user_ids
+        else {}
+    )
 
     result = []
     for d in docs:

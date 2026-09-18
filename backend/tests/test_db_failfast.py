@@ -26,10 +26,13 @@ def _break_db(monkeypatch, exc: Exception) -> None:
     monkeypatch.setattr("app.db.session.SessionLocal", _raise)
 
 
-@pytest.mark.parametrize("exc", [
-    OperationalError("SELECT 1", {}, ConnectionRefusedError()),
-    InterfaceError("connection closed", {}, ConnectionResetError()),
-])
+@pytest.mark.parametrize(
+    "exc",
+    [
+        OperationalError("SELECT 1", {}, ConnectionRefusedError()),
+        InterfaceError("connection closed", {}, ConnectionResetError()),
+    ],
+)
 def test_db_down_returns_503_with_unified_body(client, monkeypatch, exc):
     """连接类异常（OperationalError/InterfaceError）统一 503 + database_unavailable。"""
     _break_db(monkeypatch, exc)
@@ -51,7 +54,7 @@ def test_503_message_leaks_no_secrets(client, monkeypatch):
         "localhost:5432",
         settings.database_url.split("@")[-1],  # 库名部分也不该出现
         "Traceback",
-        "File \"",
+        'File "',
     ):
         assert secret not in text, f"503 响应泄露了敏感内容：{secret}"
 

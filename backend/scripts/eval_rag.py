@@ -53,7 +53,12 @@ def _load_bank() -> list[dict]:
             )
         ).all()
     return [
-        {"id": c.id, "content": c.content or "", "embedding": c.embedding, "title": title}
+        {
+            "id": c.id,
+            "content": c.content or "",
+            "embedding": c.embedding,
+            "title": title,
+        }
         for c, title in rows
     ]
 
@@ -65,9 +70,13 @@ def _vector_order(query_vec: list[float], bank: list[dict]) -> list[int]:
     return [i for _score, i in scored]
 
 
-def _hybrid_order(query: str, query_vec: list[float], bank: list[dict], bm25: Bm25Index) -> list[int]:
+def _hybrid_order(
+    query: str, query_vec: list[float], bank: list[dict], bm25: Bm25Index
+) -> list[int]:
     """向量 + BM25 两路各自排名 → RRF 融合，返回 bank 下标序列（降序）。"""
-    vector_rank = {idx: rank for rank, idx in enumerate(_vector_order(query_vec, bank), start=1)}
+    vector_rank = {
+        idx: rank for rank, idx in enumerate(_vector_order(query_vec, bank), start=1)
+    }
     lexical = bm25.search(query, len(bank))  # [(下标, bm25 分)]
     lexical_rank = {idx: rank for rank, (idx, _s) in enumerate(lexical, start=1)}
 
@@ -98,7 +107,10 @@ def run(bank: list[dict]) -> dict[str, list[dict]]:
         for mode, order in orders.items():
             top_idx = order[:TOP_K]
             top = [
-                {"title": bank[i]["title"], "score": round(_cosine(vec, bank[i]["embedding"]), 4)}
+                {
+                    "title": bank[i]["title"],
+                    "score": round(_cosine(vec, bank[i]["embedding"]), 4),
+                }
                 for i in top_idx
             ]
             results[mode].append(

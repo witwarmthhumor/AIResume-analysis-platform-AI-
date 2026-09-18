@@ -42,7 +42,12 @@ def upgrade() -> None:
         sa.Column("embedding_model", sa.String(length=100), nullable=True),
         sa.Column("embedding_dim", sa.Integer(), nullable=True),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_kb_documents")),
     )
     op.create_index("ix_kb_documents_user_id", "kb_documents", ["user_id"])
@@ -66,7 +71,12 @@ def upgrade() -> None:
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("token_count", sa.Integer(), nullable=True),
         sa.Column("embedding", Vector(dim=768), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_kb_chunks")),
     )
     op.create_index("ix_kb_chunks_document_id", "kb_chunks", ["document_id"])

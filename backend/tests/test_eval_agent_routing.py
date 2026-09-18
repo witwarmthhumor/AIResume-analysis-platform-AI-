@@ -123,11 +123,27 @@ def test_confusion_matrix_column_includes_unexpected_tool():
 
 def test_build_report_has_all_sections():
     details = [
-        {"question": "怎么上传简历", "expected": "platform_help", "actual": "platform_help", "hit": True},
-        {"question": "TCP 握手", "expected": "kb_search", "actual": "platform_help", "hit": False},
+        {
+            "question": "怎么上传简历",
+            "expected": "platform_help",
+            "actual": "platform_help",
+            "hit": True,
+        },
+        {
+            "question": "TCP 握手",
+            "expected": "kb_search",
+            "actual": "platform_help",
+            "hit": False,
+        },
     ]
     report = ev.build_report(details)
-    for section in ("## 汇总", "## 分工具命中率", "## 混淆矩阵", "## 逐题明细", "## 误选清单"):
+    for section in (
+        "## 汇总",
+        "## 分工具命中率",
+        "## 混淆矩阵",
+        "## 逐题明细",
+        "## 误选清单",
+    ):
         assert section in report
     # 准确率要能对照上一口径的基线，否则看不出扩工具是变好还是变坏
     assert "基线" in report and "个百分点" in report
@@ -167,13 +183,17 @@ def test_main_writes_report(monkeypatch, tmp_path, _three_cases):
     assert "## 混淆矩阵" in text
 
 
-def test_main_aborts_without_report_when_llm_unavailable(monkeypatch, tmp_path, _three_cases):
+def test_main_aborts_without_report_when_llm_unavailable(
+    monkeypatch, tmp_path, _three_cases
+):
     report_path = tmp_path / "report.md"
     monkeypatch.setattr(ev, "REPORT_PATH", report_path)
     monkeypatch.setattr(
         ev,
         "build_chat_llm",
-        lambda *_a, **_k: _FakeSelector([], error=RuntimeError("402 insufficient balance")),
+        lambda *_a, **_k: _FakeSelector(
+            [], error=RuntimeError("402 insufficient balance")
+        ),
     )
     with pytest.raises(SystemExit) as excinfo:
         ev.main()
@@ -186,7 +206,9 @@ def test_main_aborts_when_ai_not_configured(monkeypatch, tmp_path, _three_cases)
     monkeypatch.setattr(ev, "REPORT_PATH", report_path)
 
     def _not_configured(*_a, **_k):
-        raise ValueError("AI 服务未配置，请在 backend/.env 填写 AI_BASE_URL 与 AI_API_KEY")
+        raise ValueError(
+            "AI 服务未配置，请在 backend/.env 填写 AI_BASE_URL 与 AI_API_KEY"
+        )
 
     monkeypatch.setattr(ev, "build_chat_llm", _not_configured)
     with pytest.raises(SystemExit) as excinfo:

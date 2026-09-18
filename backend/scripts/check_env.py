@@ -148,7 +148,10 @@ def check_containers() -> CheckResult:
             fix=START_CONTAINERS_CMD,
         )
     return CheckResult(
-        "Docker 与容器", "三容器健康（db/redis/ollama）", OK, "db/redis/ollama 均 healthy"
+        "Docker 与容器",
+        "三容器健康（db/redis/ollama）",
+        OK,
+        "db/redis/ollama 均 healthy",
     )
 
 
@@ -190,7 +193,10 @@ def check_redis() -> CheckResult:
         Redis.from_url(settings.redis_url, socket_connect_timeout=2).ping()
     except Exception:  # noqa: BLE001  检查器必须吞掉一切异常转为 FAIL 结论
         return CheckResult(
-            "Redis", "Redis 可达", FAIL, f"{settings.redis_url.split('@')[-1]} 连不上",
+            "Redis",
+            "Redis 可达",
+            FAIL,
+            f"{settings.redis_url.split('@')[-1]} 连不上",
             fix="docker start ai-interview-redis",
         )
     return CheckResult("Redis", "Redis 可达", OK, "PING 通")
@@ -209,7 +215,11 @@ def check_port_frontend() -> CheckResult:
     """⑥ 前端端口 5173：未监听判 FAIL。Vite 可能只绑 IPv6 ::1，用 localhost 探测。"""
     if not _port_open("localhost", 5173):
         return CheckResult(
-            "端口与探针", "前端端口 5173", FAIL, "没有进程在监听", fix=START_FRONTEND_CMD
+            "端口与探针",
+            "前端端口 5173",
+            FAIL,
+            "没有进程在监听",
+            fix=START_FRONTEND_CMD,
         )
     return CheckResult("端口与探针", "前端端口 5173", OK, "已监听")
 
@@ -218,7 +228,10 @@ def check_health_endpoints() -> CheckResult:
     """⑦ /health 与 /health/ready 探针。后端未监听时报告但不崩溃。"""
     if not _port_open("localhost", 8000):
         return CheckResult(
-            "端口与探针", "/health 与 /health/ready", FAIL, "后端未监听，探针不可用",
+            "端口与探针",
+            "/health 与 /health/ready",
+            FAIL,
+            "后端未监听，探针不可用",
             fix=START_BACKEND_CMD,
         )
     try:
@@ -253,12 +266,18 @@ def check_kb_corpus() -> CheckResult:
             count = conn.execute(text("SELECT count(*) FROM kb_chunks")).scalar_one()
     except Exception:  # noqa: BLE001  检查器必须吞掉一切异常转为 FAIL 结论
         return CheckResult(
-            "语料", "kb_chunks 条数", FAIL, "查询失败（表不存在或数据库不可达）",
+            "语料",
+            "kb_chunks 条数",
+            FAIL,
+            "查询失败（表不存在或数据库不可达）",
             fix="cd backend && .venv\\Scripts\\python -m alembic upgrade head",
         )
     if count == 0:
         return CheckResult(
-            "语料", "kb_chunks 条数", FAIL, "知识库为空（RAG/客服将无从作答）",
+            "语料",
+            "kb_chunks 条数",
+            FAIL,
+            "知识库为空（RAG/客服将无从作答）",
             fix="cd backend && .venv\\Scripts\\python -m scripts.seed_kb_preset",
         )
     return CheckResult("语料", "kb_chunks 条数", OK, f"{count} 块")
@@ -279,7 +298,10 @@ def check_ai_channel() -> CheckResult:
         llm.invoke("回复：ok")
     except ValueError:
         return CheckResult(
-            "AI 通道", "AI 通道可用", FAIL, "AI_BASE_URL / AI_API_KEY 未配置",
+            "AI 通道",
+            "AI 通道可用",
+            FAIL,
+            "AI_BASE_URL / AI_API_KEY 未配置",
             fix="在 backend/.env 填 AI_BASE_URL、AI_MODEL、AI_API_KEY",
         )
     except Exception as exc:  # noqa: BLE001  检查器必须吞掉一切异常转为 FAIL 结论
@@ -301,20 +323,26 @@ def run_checks(skip_ai: bool = False, plan: list[tuple[str, str]] | None = None)
     for section, fname in plan or CHECK_PLAN:
         if skip_ai and fname == "check_ai_channel":
             results.append(
-                CheckResult(section, "AI 通道可用", SKIP, "已按 --skip-ai 跳过，不消耗额度")
+                CheckResult(
+                    section, "AI 通道可用", SKIP, "已按 --skip-ai 跳过，不消耗额度"
+                )
             )
             continue
         fn = globals()[fname]
         try:
             results.append(fn())
-        except Exception:  # 兜底：单项崩溃也要给出统一 FAIL，保证检查能跑完（带堆栈记日志）
+        except (
+            Exception
+        ):  # 兜底：单项崩溃也要给出统一 FAIL，保证检查能跑完（带堆栈记日志）
             import logging
 
             logging.getLogger(__name__).warning(
                 "check %s crashed", fname, exc_info=True
             )
             results.append(
-                CheckResult(section, fname, FAIL, "检查器自身异常", fix="查看脚本报错输出")
+                CheckResult(
+                    section, fname, FAIL, "检查器自身异常", fix="查看脚本报错输出"
+                )
             )
     return results
 

@@ -29,8 +29,13 @@ def _clean_and_seed(monkeypatch):
 
     with SessionLocal() as db:
         doc = create_document(
-            db, title="测试文档", doc_type="text", raw_text="HashMap 是数组加链表加红黑树。" * 5,
-            user_id=None, anonymous_id=None, source_type="preset",
+            db,
+            title="测试文档",
+            doc_type="text",
+            raw_text="HashMap 是数组加链表加红黑树。" * 5,
+            user_id=None,
+            anonymous_id=None,
+            source_type="preset",
         )
         ok, _ = ingest_kb_document(db, doc)
         assert ok
@@ -40,9 +45,7 @@ def _clean_and_seed(monkeypatch):
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM kb_chunks"))
         conn.execute(text("DELETE FROM kb_documents"))
-        conn.execute(
-            text("DELETE FROM usage_logs WHERE action_type = 'playground'")
-        )
+        conn.execute(text("DELETE FROM usage_logs WHERE action_type = 'playground'"))
 
 
 def test_ask_streams_answer_with_citations(monkeypatch) -> None:

@@ -16,15 +16,21 @@ def _email() -> str:
 
 def _register(client: TestClient) -> str:
     addr = _email()
-    client.post("/api/auth/register", json={"email": addr, "password": "correct-horse-123"})
+    client.post(
+        "/api/auth/register", json={"email": addr, "password": "correct-horse-123"}
+    )
     return addr
 
 
 def _user_id(conn, email: str) -> int:
-    return conn.execute(text("SELECT id FROM users WHERE email = :e"), {"e": email}).scalar()
+    return conn.execute(
+        text("SELECT id FROM users WHERE email = :e"), {"e": email}
+    ).scalar()
 
 
-def _insert_log(conn, *, user_id, action_type, model_name=None, tokens=0, ip=None, created_at) -> None:
+def _insert_log(
+    conn, *, user_id, action_type, model_name=None, tokens=0, ip=None, created_at
+) -> None:
     conn.execute(
         text(
             """INSERT INTO usage_logs
@@ -46,7 +52,11 @@ def _insert_log(conn, *, user_id, action_type, model_name=None, tokens=0, ip=Non
 def _clean():
     yield
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM usage_logs WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'test-usage-%')"))
+        conn.execute(
+            text(
+                "DELETE FROM usage_logs WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'test-usage-%')"
+            )
+        )
         conn.execute(text("DELETE FROM users WHERE email LIKE 'test-usage-%'"))
 
 
@@ -63,10 +73,23 @@ def test_only_returns_own_logs() -> None:
     with engine.begin() as conn:
         id_a = _user_id(conn, addr_a)
         id_b = _user_id(conn, addr_b)
-        _insert_log(conn, user_id=id_a, action_type="analysis", model_name="qwen-plus",
-                    tokens=100, ip="1.1.1.1", created_at="2026-09-01T10:00:00+08:00")
-        _insert_log(conn, user_id=id_b, action_type="parse", tokens=0,
-                    ip="2.2.2.2", created_at="2026-09-01T11:00:00+08:00")
+        _insert_log(
+            conn,
+            user_id=id_a,
+            action_type="analysis",
+            model_name="qwen-plus",
+            tokens=100,
+            ip="1.1.1.1",
+            created_at="2026-09-01T10:00:00+08:00",
+        )
+        _insert_log(
+            conn,
+            user_id=id_b,
+            action_type="parse",
+            tokens=0,
+            ip="2.2.2.2",
+            created_at="2026-09-01T11:00:00+08:00",
+        )
 
     data = client_a.get("/api/usage/logs").json()
     assert data["total"] == 1
@@ -84,8 +107,15 @@ def test_pagination() -> None:
     with engine.begin() as conn:
         uid = _user_id(conn, addr)
         for i in range(3):
-            _insert_log(conn, user_id=uid, action_type="playground", model_name=None,
-                        tokens=i, ip=None, created_at=f"2026-09-01T1{i}:00:00+08:00")
+            _insert_log(
+                conn,
+                user_id=uid,
+                action_type="playground",
+                model_name=None,
+                tokens=i,
+                ip=None,
+                created_at=f"2026-09-01T1{i}:00:00+08:00",
+            )
 
     p1 = client.get("/api/usage/logs?page=1&page_size=2").json()
     assert p1["total"] == 3
@@ -102,12 +132,24 @@ def test_order_created_at_desc() -> None:
     addr = _register(client)
     with engine.begin() as conn:
         uid = _user_id(conn, addr)
-        _insert_log(conn, user_id=uid, action_type="parse",
-                    created_at="2026-09-01T08:00:00+08:00")
-        _insert_log(conn, user_id=uid, action_type="analysis",
-                    created_at="2026-09-02T08:00:00+08:00")
-        _insert_log(conn, user_id=uid, action_type="playground",
-                    created_at="2026-09-03T08:00:00+08:00")
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="parse",
+            created_at="2026-09-01T08:00:00+08:00",
+        )
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="analysis",
+            created_at="2026-09-02T08:00:00+08:00",
+        )
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="playground",
+            created_at="2026-09-03T08:00:00+08:00",
+        )
 
     items = client.get("/api/usage/logs").json()["items"]
     actions = [it["action_type"] for it in items]
@@ -120,12 +162,24 @@ def test_filter_action_type() -> None:
     addr = _register(client)
     with engine.begin() as conn:
         uid = _user_id(conn, addr)
-        _insert_log(conn, user_id=uid, action_type="analysis",
-                    created_at="2026-09-01T08:00:00+08:00")
-        _insert_log(conn, user_id=uid, action_type="parse",
-                    created_at="2026-09-01T09:00:00+08:00")
-        _insert_log(conn, user_id=uid, action_type="analysis",
-                    created_at="2026-09-01T10:00:00+08:00")
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="analysis",
+            created_at="2026-09-01T08:00:00+08:00",
+        )
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="parse",
+            created_at="2026-09-01T09:00:00+08:00",
+        )
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="analysis",
+            created_at="2026-09-01T10:00:00+08:00",
+        )
 
     data = client.get("/api/usage/logs?action_type=analysis").json()
     assert data["total"] == 2
@@ -137,10 +191,20 @@ def test_filter_model_name_ilike() -> None:
     addr = _register(client)
     with engine.begin() as conn:
         uid = _user_id(conn, addr)
-        _insert_log(conn, user_id=uid, action_type="analysis", model_name="qwen-plus",
-                    created_at="2026-09-01T08:00:00+08:00")
-        _insert_log(conn, user_id=uid, action_type="analysis", model_name="deepseek-chat",
-                    created_at="2026-09-01T09:00:00+08:00")
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="analysis",
+            model_name="qwen-plus",
+            created_at="2026-09-01T08:00:00+08:00",
+        )
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="analysis",
+            model_name="deepseek-chat",
+            created_at="2026-09-01T09:00:00+08:00",
+        )
 
     data = client.get("/api/usage/logs?model_name=qwen").json()
     assert data["total"] == 1
@@ -152,10 +216,20 @@ def test_filter_ip_exact() -> None:
     addr = _register(client)
     with engine.begin() as conn:
         uid = _user_id(conn, addr)
-        _insert_log(conn, user_id=uid, action_type="parse", ip="127.0.0.1",
-                    created_at="2026-09-01T08:00:00+08:00")
-        _insert_log(conn, user_id=uid, action_type="parse", ip="192.168.1.1",
-                    created_at="2026-09-01T09:00:00+08:00")
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="parse",
+            ip="127.0.0.1",
+            created_at="2026-09-01T08:00:00+08:00",
+        )
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="parse",
+            ip="192.168.1.1",
+            created_at="2026-09-01T09:00:00+08:00",
+        )
 
     data = client.get("/api/usage/logs?ip_address=127.0.0.1").json()
     assert data["total"] == 1
@@ -168,18 +242,40 @@ def test_filter_date_range_inclusive() -> None:
     addr = _register(client)
     with engine.begin() as conn:
         uid = _user_id(conn, addr)
-        _insert_log(conn, user_id=uid, action_type="parse",
-                    created_at="2026-08-31T23:00:00+08:00")  # 范围外
-        _insert_log(conn, user_id=uid, action_type="parse",
-                    created_at="2026-09-01T00:30:00+08:00")  # 开始当天
-        _insert_log(conn, user_id=uid, action_type="parse",
-                    created_at="2026-09-02T12:00:00+08:00")  # 范围内
-        _insert_log(conn, user_id=uid, action_type="parse",
-                    created_at="2026-09-03T23:30:00+08:00")  # 结束当天
-        _insert_log(conn, user_id=uid, action_type="parse",
-                    created_at="2026-09-04T01:00:00+08:00")  # 范围外
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="parse",
+            created_at="2026-08-31T23:00:00+08:00",
+        )  # 范围外
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="parse",
+            created_at="2026-09-01T00:30:00+08:00",
+        )  # 开始当天
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="parse",
+            created_at="2026-09-02T12:00:00+08:00",
+        )  # 范围内
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="parse",
+            created_at="2026-09-03T23:30:00+08:00",
+        )  # 结束当天
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="parse",
+            created_at="2026-09-04T01:00:00+08:00",
+        )  # 范围外
 
-    data = client.get("/api/usage/logs?start_date=2026-09-01&end_date=2026-09-03").json()
+    data = client.get(
+        "/api/usage/logs?start_date=2026-09-01&end_date=2026-09-03"
+    ).json()
     assert data["total"] == 3
 
 
@@ -206,13 +302,25 @@ def test_time_granularity_filter() -> None:
     with engine.begin() as conn:
         uid = _user_id(conn, addr)
         # 同一天：08:00 和 12:00 各一条
-        _insert_log(conn, user_id=uid, action_type="parse", tokens=1,
-                    created_at="2026-09-01T08:00:00+08:00")
-        _insert_log(conn, user_id=uid, action_type="parse", tokens=2,
-                    created_at="2026-09-01T12:00:00+08:00")
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="parse",
+            tokens=1,
+            created_at="2026-09-01T08:00:00+08:00",
+        )
+        _insert_log(
+            conn,
+            user_id=uid,
+            action_type="parse",
+            tokens=2,
+            created_at="2026-09-01T12:00:00+08:00",
+        )
 
     # 不传时间：整天 → 2 条
-    all_day = client.get("/api/usage/logs?start_date=2026-09-01&end_date=2026-09-01").json()
+    all_day = client.get(
+        "/api/usage/logs?start_date=2026-09-01&end_date=2026-09-01"
+    ).json()
     assert all_day["total"] == 2
 
     # 10:00 之后 → 只有 12:00 那条

@@ -42,10 +42,17 @@ def _clean_kb_tables(monkeypatch):
         conn.execute(text("DELETE FROM kb_documents"))
 
 
-def _make_doc(db, title, source_type="preset", scope="public", user_id=None, anonymous_id=None):
+def _make_doc(
+    db, title, source_type="preset", scope="public", user_id=None, anonymous_id=None
+):
     return create_document(
-        db, title=title, doc_type="text", raw_text="测试内容。" * 30,
-        user_id=user_id, anonymous_id=anonymous_id, source_type=source_type,
+        db,
+        title=title,
+        doc_type="text",
+        raw_text="测试内容。" * 30,
+        user_id=user_id,
+        anonymous_id=anonymous_id,
+        source_type=source_type,
     )
 
 
@@ -63,8 +70,12 @@ def test_create_and_list_public_doc(db_session) -> None:
 
 def test_private_doc_owner_isolation(db_session) -> None:
     db = db_session
-    doc_a = _make_doc(db, "user_a_doc", source_type="uploaded", scope="private", user_id=1)
-    doc_b = _make_doc(db, "anon_b_doc", source_type="uploaded", scope="private", anonymous_id="anon_b")
+    doc_a = _make_doc(
+        db, "user_a_doc", source_type="uploaded", scope="private", user_id=1
+    )
+    doc_b = _make_doc(
+        db, "anon_b_doc", source_type="uploaded", scope="private", anonymous_id="anon_b"
+    )
     doc_c = _make_doc(db, "public_doc", scope="public")
 
     # 用户 1 只能看到自己的 + 公共的
@@ -128,15 +139,20 @@ def test_soft_delete_excludes_document(db_session) -> None:
 
 def test_get_owned_document_returns_none_if_not_visible(db_session) -> None:
     db = db_session
-    doc = _make_doc(db, "owned_test", source_type="uploaded", scope="private", user_id=1)
+    doc = _make_doc(
+        db, "owned_test", source_type="uploaded", scope="private", user_id=1
+    )
     assert get_owned_document(db, doc.id, user_id=1, anonymous_id=None) is not None
     assert get_owned_document(db, doc.id, user_id=2, anonymous_id=None) is None
+
 
 def test_ingest_dim_mismatch_marks_failed(db_session, monkeypatch) -> None:
     """embedding 维度与表不符 → 置 failed 而非卡在 processing（P1 修复回归）。"""
     monkeypatch.setattr(
         "app.services.kb_service.embed_texts",
-        lambda texts: [[0.5] * 1024] * len(texts),  # 模拟误配 1024 维模型（表为 768 维）
+        lambda texts: (
+            [[0.5] * 1024] * len(texts)
+        ),  # 模拟误配 1024 维模型（表为 768 维）
     )
     db = db_session
     doc = _make_doc(db, "dim_mismatch_test")
@@ -180,7 +196,9 @@ def test_hybrid_rescues_term_hit_filtered_by_vector_threshold(db_session) -> Non
     db = db_session
     lex_doc = _ready_doc(db, "lex_doc")
     vec_doc = _ready_doc(db, "vec_doc")
-    _insert_chunk(db, lex_doc, "聚簇索引是把数据行按主键顺序物理存储的结构。", _ORTHOGONAL_VEC)
+    _insert_chunk(
+        db, lex_doc, "聚簇索引是把数据行按主键顺序物理存储的结构。", _ORTHOGONAL_VEC
+    )
     _insert_chunk(db, vec_doc, "Redis 的持久化方式有 RDB 和 AOF 两种。", _FAKE_VEC)
 
     # 纯向量：lex_doc 相似度 0.036 < 0.65 → 被过滤，只剩 vec_doc
@@ -202,7 +220,9 @@ def test_hybrid_disabled_falls_back_to_vector(db_session, monkeypatch) -> None:
     monkeypatch.setattr("app.services.kb_service.settings.kb_hybrid_enabled", False)
     db = db_session
     lex_doc = _ready_doc(db, "lex_doc")
-    _insert_chunk(db, lex_doc, "聚簇索引是把数据行按主键顺序物理存储的结构。", _ORTHOGONAL_VEC)
+    _insert_chunk(
+        db, lex_doc, "聚簇索引是把数据行按主键顺序物理存储的结构。", _ORTHOGONAL_VEC
+    )
 
     results = search_chunks(
         db, _QUERY_VEC, None, "anon", top_k=5, query_text="聚簇索引是什么"
@@ -224,7 +244,9 @@ def test_hybrid_keeps_owner_isolation(db_session) -> None:
     )
     other_doc.status = "ready"
     db.commit()
-    _insert_chunk(db, other_doc, "聚簇索引是把数据行按主键顺序物理存储的结构。", _ORTHOGONAL_VEC)
+    _insert_chunk(
+        db, other_doc, "聚簇索引是把数据行按主键顺序物理存储的结构。", _ORTHOGONAL_VEC
+    )
 
     hybrid = search_chunks(
         db, _QUERY_VEC, 1, None, top_k=5, query_text="聚簇索引是什么"

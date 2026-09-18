@@ -25,19 +25,25 @@ def _register_client() -> tuple[TestClient, int]:
     """注册并登录，返回带 cookie 的 client 与 user_id。"""
     client = TestClient(app)
     addr = f"scores-{uuid.uuid4().hex[:10]}@example.com"
-    client.post("/api/auth/register", json={"email": addr, "password": "correct-horse-123"})
+    client.post(
+        "/api/auth/register", json={"email": addr, "password": "correct-horse-123"}
+    )
     with SessionLocal() as db:
-        uid = db.scalar(text("SELECT id FROM users WHERE email = :e"), params={"e": addr})
+        uid = db.scalar(
+            text("SELECT id FROM users WHERE email = :e"), params={"e": addr}
+        )
     return client, uid
 
 
 @pytest.fixture(autouse=True)
 def _clean_scores():
     """前后各清一次：前置清理防止上一轮异常中断留下的脏数据干扰断言。"""
+
     def _purge() -> None:
         with engine.begin() as conn:
             conn.execute(
-                text("DELETE FROM interview_sessions WHERE resume_id = :m"), {"m": _MARKER}
+                text("DELETE FROM interview_sessions WHERE resume_id = :m"),
+                {"m": _MARKER},
             )
             conn.execute(text("DELETE FROM users WHERE email LIKE 'scores-%'"))
 

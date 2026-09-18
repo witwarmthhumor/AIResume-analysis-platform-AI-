@@ -302,7 +302,9 @@ def test_logged_in_message_writes_user_id_usage(monkeypatch) -> None:
         )
         assert upload.status_code == 201
         resume_id = upload.json()["resume"]["id"]
-        session = user_client.post(f"/api/resumes/{resume_id}/interviews").json()["session"]
+        session = user_client.post(f"/api/resumes/{resume_id}/interviews").json()[
+            "session"
+        ]
 
         msg = user_client.post(
             f"/api/interviews/{session['id']}/messages", json={"content": "我的回答"}

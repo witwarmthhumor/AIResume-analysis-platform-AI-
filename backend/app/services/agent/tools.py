@@ -505,15 +505,12 @@ def make_tools(
             return "当前会话无法识别用户身份，查不到个人简历数据。请提示用户先登录后再提问。"
 
         try:
-            rows = (
-                db.scalars(
-                    select(Resume)
-                    .where(Resume.deleted_at.is_(None), owner)
-                    .order_by(Resume.created_at.desc(), Resume.id.desc())
-                    .limit(_TOOL_LIST_LIMIT)
-                )
-                .all()
-            )
+            rows = db.scalars(
+                select(Resume)
+                .where(Resume.deleted_at.is_(None), owner)
+                .order_by(Resume.created_at.desc(), Resume.id.desc())
+                .limit(_TOOL_LIST_LIMIT)
+            ).all()
         except Exception:
             logger.exception("agent resume_lookup 查询失败")
             return "简历查询暂时出错，请稍后再试。"
@@ -524,7 +521,9 @@ def make_tools(
         keyword = (query or "").strip()
         parts = []
         for resume in rows:
-            uploaded = resume.created_at.strftime("%Y-%m-%d") if resume.created_at else "未知"
+            uploaded = (
+                resume.created_at.strftime("%Y-%m-%d") if resume.created_at else "未知"
+            )
             head = (
                 f"【简历】{resume.filename}"
                 f"（{resume.page_count or '?'} 页，解析状态 {resume.parse_status}，上传于 {uploaded}）"
@@ -554,21 +553,22 @@ def make_tools(
 
         try:
             count = max(1, min(int(limit or 3), _TOOL_LIST_LIMIT))
-            rows = (
-                db.scalars(
-                    select(InterviewSession)
-                    .where(owner)
-                    .order_by(InterviewSession.created_at.desc(), InterviewSession.id.desc())
-                    .limit(count)
+            rows = db.scalars(
+                select(InterviewSession)
+                .where(owner)
+                .order_by(
+                    InterviewSession.created_at.desc(), InterviewSession.id.desc()
                 )
-                .all()
-            )
+                .limit(count)
+            ).all()
         except Exception:
             logger.exception("agent interview_history 查询失败")
             return "面试记录查询暂时出错，请稍后再试。"
 
         if not rows:
-            return "该用户名下暂无模拟面试记录。可提示用户到首页基于简历开始一场模拟面试。"
+            return (
+                "该用户名下暂无模拟面试记录。可提示用户到首页基于简历开始一场模拟面试。"
+            )
 
         status_labels = {
             "in_progress": "进行中",
@@ -577,7 +577,11 @@ def make_tools(
         }
         parts = [f"该用户最近 {len(rows)} 场模拟面试："]
         for index, session in enumerate(rows, start=1):
-            when = session.created_at.strftime("%Y-%m-%d") if session.created_at else "未知"
+            when = (
+                session.created_at.strftime("%Y-%m-%d")
+                if session.created_at
+                else "未知"
+            )
             position = _POSITION_LABELS.get(
                 session.position_type or "", _POSITION_DEFAULT
             )
@@ -655,7 +659,9 @@ def make_tools(
         first_overall: float | None = None
         for index, session in enumerate(sessions, start=1):
             report = session.final_report_json or {}
-            when = session.created_at.strftime("%m-%d") if session.created_at else "未知"
+            when = (
+                session.created_at.strftime("%m-%d") if session.created_at else "未知"
+            )
             if index == 1:
                 mark = "基准场"
             else:
@@ -676,7 +682,9 @@ def make_tools(
             previous_overall = overall
 
         if len(sessions) == 1:
-            lines.append("目前只有一场已完成的模拟面试，暂时看不出趋势，多练几场后再来看对比。")
+            lines.append(
+                "目前只有一场已完成的模拟面试，暂时看不出趋势，多练几场后再来看对比。"
+            )
         elif first_overall is not None and previous_overall is not None:
             delta = previous_overall - first_overall
             if delta > 0:
@@ -701,7 +709,9 @@ def make_tools(
         入参 days 为统计天数，默认 7，最大 90。"""
         owner = _owner_filter(UsageLog, user_id, anonymous_id)
         if owner is None:
-            return "当前会话无法识别用户身份，查不到用量数据。请提示用户先登录后再提问。"
+            return (
+                "当前会话无法识别用户身份，查不到用量数据。请提示用户先登录后再提问。"
+            )
 
         try:
             span = max(1, min(int(days or 7), 90))
@@ -749,14 +759,11 @@ def make_tools(
             return "当前会话无法识别用户身份，查不到个人分析报告。请提示用户先登录后再提问。"
 
         try:
-            rows = (
-                db.scalars(
-                    select(Resume)
-                    .where(Resume.deleted_at.is_(None), owner)
-                    .order_by(Resume.created_at.desc(), Resume.id.desc())
-                )
-                .all()
-            )
+            rows = db.scalars(
+                select(Resume)
+                .where(Resume.deleted_at.is_(None), owner)
+                .order_by(Resume.created_at.desc(), Resume.id.desc())
+            ).all()
         except Exception:
             logger.exception("agent analysis_read 简历查询失败")
             return "分析报告查询暂时出错，请稍后再试。"
@@ -890,11 +897,15 @@ def make_tools(
         入参 jd_text 为岗位描述原文或用户口述的岗位要求，超过 4000 字符会截断后分析。"""
         owner = _owner_filter(Resume, user_id, anonymous_id)
         if owner is None:
-            return "当前会话无法识别用户身份，无法做岗位匹配。请提示用户先登录后再提问。"
+            return (
+                "当前会话无法识别用户身份，无法做岗位匹配。请提示用户先登录后再提问。"
+            )
 
         jd = (jd_text or "").strip()
         if not jd:
-            return "请让用户把目标岗位的 JD（招聘要求/职位描述）贴进来，我才能做匹配分析。"
+            return (
+                "请让用户把目标岗位的 JD（招聘要求/职位描述）贴进来，我才能做匹配分析。"
+            )
 
         # 用户可能整页粘贴，超长 JD 会撑爆上下文并让费用翻倍——截断后在输出里说明
         truncated = len(jd) > _TOOL_JD_CHARS
@@ -957,7 +968,9 @@ def make_tools(
         if suggestions:
             lines.append("针对性建议：" + "；".join(suggestions))
         if truncated:
-            lines.append(f"（JD 超过 {_TOOL_JD_CHARS} 字符，已按前 {_TOOL_JD_CHARS} 字符分析。）")
+            lines.append(
+                f"（JD 超过 {_TOOL_JD_CHARS} 字符，已按前 {_TOOL_JD_CHARS} 字符分析。）"
+            )
         return "\n".join(lines)
 
     @tool
@@ -1051,7 +1064,9 @@ def make_tools(
         if not body:
             return "请让用户把他自己的回答贴进来（题目 + 他的回答），我才能点评。"
         if not title:
-            return "请让用户把对应的面试题目一起发过来，我才知道该按什么标准点评这段回答。"
+            return (
+                "请让用户把对应的面试题目一起发过来，我才知道该按什么标准点评这段回答。"
+            )
 
         # 用户可能把整段自述或项目经历贴进来，超长回答会撑爆上下文并让费用翻倍
         truncated = len(body) > _TOOL_ANSWER_CHARS

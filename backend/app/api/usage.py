@@ -58,8 +58,12 @@ def list_usage_logs(
     ip_address: str | None = Query(default=None),
     start_date: str | None = Query(default=None),
     end_date: str | None = Query(default=None),
-    start_time: str | None = Query(default=None, description="HH:MM，覆盖 start_date 当天 0 点"),
-    end_time: str | None = Query(default=None, description="HH:MM，覆盖 end_date 当天末"),
+    start_time: str | None = Query(
+        default=None, description="HH:MM，覆盖 start_date 当天 0 点"
+    ),
+    end_time: str | None = Query(
+        default=None, description="HH:MM，覆盖 end_date 当天末"
+    ),
     db: Session = Depends(get_db),  # noqa: B008
     user: User = Depends(get_current_user),  # noqa: B008
 ) -> dict:
@@ -76,7 +80,9 @@ def list_usage_logs(
     if start_dt is not None:
         conditions.append(UsageLog.created_at >= start_dt)
     end_dt = (
-        _parse_day(end_date, end_of_day=True, time_override=end_time) if end_date else None
+        _parse_day(end_date, end_of_day=True, time_override=end_time)
+        if end_date
+        else None
     )
     if end_dt is not None:
         conditions.append(UsageLog.created_at <= end_dt)

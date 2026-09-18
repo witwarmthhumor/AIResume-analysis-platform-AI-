@@ -63,9 +63,7 @@ def register(
         db.rollback()
         raise HTTPException(409, "该邮箱已注册") from None
     db.refresh(user)
-    response.set_cookie(
-        ACCESS_COOKIE, create_access_token(user.id), **_COOKIE_KWARGS
-    )
+    response.set_cookie(ACCESS_COOKIE, create_access_token(user.id), **_COOKIE_KWARGS)
     return AuthResponse(user=UserOut.model_validate(user))
 
 
@@ -91,9 +89,7 @@ def login(
         _login_failures.setdefault(key, []).append(now)
         raise HTTPException(401, "邮箱或密码错误")
     _login_failures.pop(key, None)  # 登录成功清空该组合的失败记录
-    response.set_cookie(
-        ACCESS_COOKIE, create_access_token(user.id), **_COOKIE_KWARGS
-    )
+    response.set_cookie(ACCESS_COOKIE, create_access_token(user.id), **_COOKIE_KWARGS)
     return AuthResponse(user=UserOut.model_validate(user))
 
 

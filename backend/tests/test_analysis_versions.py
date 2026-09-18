@@ -23,9 +23,13 @@ _HASH_PREFIX = "ver-"
 def _register_client() -> tuple[TestClient, int]:
     client = TestClient(app)
     addr = f"ver-{uuid.uuid4().hex[:10]}@example.com"
-    client.post("/api/auth/register", json={"email": addr, "password": "correct-horse-123"})
+    client.post(
+        "/api/auth/register", json={"email": addr, "password": "correct-horse-123"}
+    )
     with SessionLocal() as db:
-        uid = db.scalar(text("SELECT id FROM users WHERE email = :e"), params={"e": addr})
+        uid = db.scalar(
+            text("SELECT id FROM users WHERE email = :e"), params={"e": addr}
+        )
     return client, uid
 
 
@@ -40,7 +44,10 @@ def _clean_versions():
                 ),
                 {"p": f"{_HASH_PREFIX}%"},
             )
-            conn.execute(text("DELETE FROM resumes WHERE file_hash LIKE :p"), {"p": f"{_HASH_PREFIX}%"})
+            conn.execute(
+                text("DELETE FROM resumes WHERE file_hash LIKE :p"),
+                {"p": f"{_HASH_PREFIX}%"},
+            )
             conn.execute(text("DELETE FROM users WHERE email LIKE 'ver-%'"))
 
     _purge()
