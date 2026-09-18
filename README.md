@@ -39,6 +39,8 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 访问 `http://localhost`（或设置 `APP_PORT=8080` 后访问 `http://localhost:8080`）。
 
+> 当前后端为**单进程单 worker**（`Dockerfile` 直接跑 uvicorn）：登录防爆破的失败计数存在进程内存里，多 worker 部署会各自计数失效——上多 worker 前需先把防爆破计数迁移到 Redis（见 `docs/后续开发规划.md` §5 挂账）。
+
 查看状态和日志：
 
 ```bash

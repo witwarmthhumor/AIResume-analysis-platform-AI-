@@ -50,6 +50,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ollama:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
       interval: 10s
@@ -83,20 +85,6 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
-
-  backend:
-    build: ./backend
-    env_file:
-      - ./backend/.env.docker
-    volumes:
-      - uploadsdata:/data/uploads
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      ollama:
-        condition: service_started
 
 volumes:
   pgdata:
