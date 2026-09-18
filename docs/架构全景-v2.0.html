@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 简历分析 + AI 模拟面试 · 应用工程化全景（v2.0 · RAG 与 Agent 引入前）</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --line: #e6e8ec;
+    --text: #2c3038;
+    --muted: #767c88;
+    --faint: #9aa0ab;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 40px 24px 64px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+
+  h1 { font-size: 21px; font-weight: 600; text-align: center; margin: 0 0 8px; }
+  .sub { font-size: 12px; color: var(--faint); text-align: center; margin: 0 0 30px; }
+
+  .layer {
+    border-radius: 12px;
+    padding: 16px 18px 18px;
+    margin-bottom: 12px;
+    border: 1px solid;
+  }
+  .lhead { display: flex; align-items: center; gap: 9px; margin-bottom: 13px; flex-wrap: wrap; }
+  .badge {
+    flex: none; width: 22px; height: 22px; border-radius: 50%;
+    background: #fff; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600;
+  }
+  .lhead h2 { font-size: 14.5px; font-weight: 600; margin: 0; }
+  .ltag { font-size: 11.5px; color: var(--muted); }
+
+  .grid { display: grid; gap: 10px; }
+  .g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .g5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    min-width: 0;
+  }
+  .card h3 { font-size: 12.5px; font-weight: 600; margin: 0 0 5px; color: #23272e; }
+  .card p { font-size: 11.5px; color: var(--muted); margin: 0; line-height: 1.65; }
+  .card code {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 11px; color: #4a5058; background: #f2f3f5;
+    padding: 1px 4px; border-radius: 3px;
+  }
+
+  .notes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+  .note {
+    font-size: 11px; padding: 6px 10px; border-radius: 6px;
+    border-left: 3px solid; background: #fff; line-height: 1.55;
+  }
+  .note.ok { background: #e9f7ee; border-color: #34a853; color: #1f7a45; }
+  .note.warn { background: #fdf5e2; border-color: #e0a500; color: #8a6410; }
+  .note.info { background: #eaf2fc; border-color: #4a86c8; color: #2c6ea8; }
+  .note b { font-weight: 600; }
+
+  .arrow {
+    width: 0; height: 0; margin: 5px auto 7px;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 8px solid #c6cbd3;
+  }
+
+  .l1 { background: #eaf3fb; border-color: #d2e5f5; }
+  .l1 .badge { color: #2c6ea8; }
+  .l2 { background: #eaf7ef; border-color: #d2e9dc; }
+  .l2 .badge { color: #2f7a52; }
+  .l3 { background: #fdf7e6; border-color: #f0e4c4; }
+  .l3 .badge { color: #8a6410; }
+  .l4 { background: #f1eefb; border-color: #ddd7f3; }
+  .l4 .badge { color: #5b4fa8; }
+  .l5 { background: #f2f3f5; border-color: #dfe1e5; }
+  .l5 .badge { color: #4a5058; }
+  .l6 { background: #eef0f3; border-color: #dcdfe4; }
+  .l6 .badge { color: #4a5058; }
+
+  .sitem {
+    background: #fff; border: 1px solid var(--line); border-radius: 8px;
+    padding: 9px 11px; min-width: 0;
+  }
+  .sitem b { display: block; font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+  .sitem span { font-size: 11px; color: var(--muted); }
+
+  @media (max-width: 900px) {
+    .g3, .g4, .g5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 620px) {
+    .g2, .g3, .g4, .g5 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>AI 简历分析 + AI 模拟面试 · 应用工程化全景</h1>
+  <p class="sub">对应 v2.0 时期（RAG 与 Agent 引入之前）· 6 张业务表 / 5 次迁移 / 33 个单测 · 容器只有 db + redis</p>
+
+  <!-- ① -->
+  <section class="layer l1">
+    <div class="lhead">
+      <span class="badge">1</span>
+      <h2>用户与交互</h2>
+      <span class="ltag">8 个 Vue 组件 · 无 UI 框架、无路由库，页面切换靠 KeepAlive 动态组件</span>
+    </div>
+    <div class="grid g3">
+      <div class="card">
+        <h3>简历分析台</h3>
+        <p>上传 PDF → 解析正文 → 六块 AI 报告（岗位匹配 / 优势 / 短板 / 关键词缺口 / 建议 / 预测面试题）</p>
+      </div>
+      <div class="card">
+        <h3>模拟面试</h3>
+        <p>四阶段状态机 · SSE 逐字流式 · 消息落库刷新可恢复 · 结束生成分维度评价报告</p>
+      </div>
+      <div class="card">
+        <h3>只读管理面板</h3>
+        <p>统计卡片 + 用户列表 + 近 7 日用量；首个注册用户自动成为 admin</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="arrow"></div>
+
+  <!-- ② -->
+  <section class="layer l2">
+    <div class="lhead">
+      <span class="badge">2</span>
+      <h2>接入与鉴权</h2>
+      <span class="ltag">请求触达业务逻辑之前必须过的四道关</span>
+    </div>
+    <div class="grid g4">
+      <div class="card">
+        <h3>Nginx / Vite 代理</h3>
+        <p>静态托管 · SPA history fallback · <code>/api</code> 反代；<code>proxy_buffering off</code> 保证 SSE 不被缓冲</p>
+      </div>
+      <div class="card">
+        <h3>JWT + Argon2</h3>
+        <p>HttpOnly Cookie 无状态鉴权，前端 JS 读不到；登录失败按 IP + 邮箱计数，10 次锁定 15 分钟</p>
+      </div>
+      <div class="card">
+        <h3>归属隔离</h3>
+        <p>登录按 <code>user_id</code>、匿名按 <code>anonymous_id</code>；跨用户访问一律 404，不泄露存在性</p>
+      </div>
+      <div class="card">
+        <h3>双轨限流</h3>
+        <p>基于 <code>usage_logs</code> 按日聚合；当时只覆盖三类动作：<code>parse</code> / <code>analysis</code> / <code>interview_message</code></p>
+      </div>
+    </div>
+  </section>
+
+  <div class="arrow"></div>
+
+  <!-- ③ -->
+  <section class="layer l3">
+    <div class="lhead">
+      <span class="badge">3</span>
+      <h2>业务主链路</h2>
+      <span class="ltag">Router → Service → Model 三层，业务逻辑不下沉到路由</span>
+    </div>
+    <div class="grid g4">
+      <div class="card">
+        <h3>简历上传与解析</h3>
+        <p>扩展名 + magic bytes 双校验 · 5MB / 5 页 · SHA-256 去重不重复计费 · pypdf 提取 · 软删除可审计</p>
+      </div>
+      <div class="card">
+        <h3>AI 简历分析</h3>
+        <p>固定 JSON 结构 + Pydantic 校验 + 失败重试 2 次；<code>PROMPT_VERSION</code> 入库可追溯，命中缓存直接返回</p>
+      </div>
+      <div class="card">
+        <h3>模拟面试</h3>
+        <p><code>intro → technical → deep_dive → wrapup</code>；消息逐条落库；最大轮次防无限聊；智能出题按 <code>position_type</code> 调难度</p>
+      </div>
+      <div class="card">
+        <h3>历史记录</h3>
+        <p>按「简历 / 分析 / 面试」分组汇总本人数据；<b>此时还没有</b>使用日志明细与筛选（v3.3 才有）</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="arrow"></div>
+
+  <!-- ④ -->
+  <section class="layer l4">
+    <div class="lhead">
+      <span class="badge">4</span>
+      <h2>AI 封装层</h2>
+      <span class="ltag">此时只有「一次调用一份结构化输出」这一种形态，尚无检索与工具编排</span>
+    </div>
+    <div class="grid g4">
+      <div class="card">
+        <h3>统一 AIService</h3>
+        <p>OpenAI 兼容协议单一出口；换模型 = 改 <code>.env</code> 三行（BASE_URL / MODEL / API_KEY）</p>
+      </div>
+      <div class="card">
+        <h3>结构化输出治理</h3>
+        <p>固定 JSON 结构 → Pydantic 强校验 → 失败自动重试（最多 2 次）；失败留痕写库不白屏</p>
+      </div>
+      <div class="card">
+        <h3>流式通道</h3>
+        <p>仅面试使用：SSE 逐字推送面试官回复，前端打字动画；无工具事件、无引用来源</p>
+      </div>
+      <div class="card">
+        <h3>成本可见</h3>
+        <p>每次调用写 <code>usage_logs</code>（prompt / completion token 与耗时）；<code>max_tokens</code> 设上限控成本</p>
+      </div>
+    </div>
+    <div class="notes">
+      <span class="note info"><b>演进去向</b>：v3.0 在本层之上叠加 RAG 知识库检索（pgvector + Ollama embedding）；v3.4 引入 LangChain ReAct Agent；v3.5 扩到 11 个工具并做混合检索</span>
+      <span class="note warn"><b>当时的能力边界</b>：模型只能凭「简历正文 + 提示词」作答，无法查平台语料、无法读取历史面试记录、无法感知用户用量</span>
+    </div>
+  </section>
+
+  <div class="arrow"></div>
+
+  <!-- ⑤ -->
+  <section class="layer l5">
+    <div class="lhead">
+      <span class="badge">5</span>
+      <h2>数据与基础设施</h2>
+      <span class="ltag">Docker Compose 只编排两个容器：db 与 redis</span>
+    </div>
+    <div class="grid g5">
+      <div class="card">
+        <h3>PostgreSQL 16</h3>
+        <p><b>6 张业务表</b>：users / resumes / analyses / interview_sessions / interview_messages / usage_logs；<b>原生 PG 镜像，无 pgvector</b></p>
+      </div>
+      <div class="card">
+        <h3>Redis 7 + Celery</h3>
+        <p>简历解析 / AI 分析异步化，任务状态可查；appendonly 持久化 · 具名卷</p>
+      </div>
+      <div class="card">
+        <h3>本地文件存储</h3>
+        <p>简历原文件落在 <code>uploads/</code>（Web 根目录之外，不提供目录遍历）；尚无独立数据卷</p>
+      </div>
+      <div class="card">
+        <h3>大模型通道</h3>
+        <p>OpenAI 兼容协议（当时 DeepSeek / 通义互换验证）；Key 只放 <code>backend/.env</code>，永不入库</p>
+      </div>
+      <div class="card">
+        <h3>前端构建</h3>
+        <p>Vue 3 + Vite；零 UI 框架、零图表库 —— 手写 CSS 设计系统与 fetch 封装</p>
+      </div>
+    </div>
+    <div class="notes">
+      <span class="note info"><b>演进去向</b>：v3.0 换 <code>pgvector/pgvector:pg16</code> 镜像、新增 <code>kb_documents / kb_chunks</code> 两表与 HNSW 索引、加 Ollama 容器；v3.1 再加 <code>chat_sessions / chat_messages</code> —— 最终 10 张表、8 次迁移</span>
+    </div>
+  </section>
+
+  <div class="arrow"></div>
+
+  <!-- ⑥ -->
+  <section class="layer l6">
+    <div class="lhead">
+      <span class="badge">6</span>
+      <h2>工程护栏（贯穿全链路）</h2>
+      <span class="ltag">每一次改动的可回归依据</span>
+    </div>
+    <div class="grid g5">
+      <div class="sitem"><b>33 个 pytest</b><span>AI 全部 mock，不烧真实额度</span></div>
+      <div class="sitem"><b>测试简历集</b><span>5 份 PDF 固定样本，改解析 / 提示词后人工比对</span></div>
+      <div class="sitem"><b>ruff lint + format</b><span>提交前全绿；代码带类型注解</span></div>
+      <div class="sitem"><b>5 次 Alembic 迁移</b><span>禁止手改表，表结构全部版本化</span></div>
+      <div class="sitem"><b>版本可追溯</b><span>PROMPT_VERSION 递增 · Git tag v0.1 ~ v2.0</span></div>
+    </div>
+    <div class="notes">
+      <span class="note warn"><b>当时的护栏缺口</b>：没有量化评测基线（RAG 是 v3.0 才引入 <code>eval_rag.py</code>、工具体系是 v3.5 才引入 <code>eval_agent_routing.py</code>）——提示词质量只能靠 5 份固定简历人工比对</span>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

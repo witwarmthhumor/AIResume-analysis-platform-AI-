@@ -1,235 +1,164 @@
 {
   "project": "AIResume",
-  "branchName": "ralph/agent-tool-expansion",
-  "description": "Agent 工具扩展（4 → 11 个）：先把单 Agent 的工具做到 10+ 并用路由评测量化模型选择准确率，据此判断是否需要拆多 Agent。分两批 —— 批次 1 四个零新增 LLM 调用的工具（analysis_read / score_trend / kb_list / platform_help），批次 2 三个内部调 LLM 的工具（job_match / question_gen / answer_review）。",
+  "branchName": "main",
+  "description": "收口止血（v3.6 发布一致性）：把 Ralph 上一轮的 13 个提交合并回 main 并补齐 tag、统一端口口径为 8000、补齐 .gitignore 与未提交产出、修复数据库不可用时请求挂起（加 connect_timeout 与 pool_timeout + 503 话术）、提供一键环境自检脚本。需求文档见 tasks/prd-release-consolidation.md。注意两点：① branchName 是 main 而非 ralph/ 前缀 —— 本轮任务本质就是把成果收进 main 并在此继续，不应另开分支；② ID 已按依赖顺序重排（PRD 里的 tag 条目移到 US-005，确保 tag 指向干净 HEAD）。",
   "userStories": [
     {
       "id": "US-001",
-      "title": "分析查询逻辑下沉到 service 层",
-      "description": "作为开发者，我需要把分析报告查询从 API 层挪到 service 层，这样位于 services 层的 Agent 工具不必反向依赖 app/api/（项目约定 Router → Service → Model 单向依赖）。这是批次 1 的硬前置。",
+      "title": "合并 ralph 分支到 main",
+      "description": "作为开发者，我需要让 main 包含 Ralph 上一轮的全部成果（13 个提交），这样主线才代表项目真实状态。合并前先记录 frontend/vite.config.ts 的 diff（属 US-002 处理范围）。",
       "acceptanceCriteria": [
-        "在 backend/app/services/analysis_service.py 新增公开函数 latest_valid_analysis(db, resume_id)，筛选条件与现有 api/analyses.py 的 _latest_valid_analysis 完全一致：valid_json is True、prompt_version == PROMPT_VERSION、按 created_at desc 与 id desc 取第一条",
-        "backend/app/api/analyses.py 删除私有 _latest_valid_analysis，改为调用新的 service 函数",
-        "backend/tests/test_analyses.py 全部通过（行为无变化）",
+        "在 main 分支执行 git merge ralph/agent-tool-expansion，无冲突",
+        "git log --oneline -1 的 HEAD 为 6424543（feat: [US-013] - 前端工具名中文化）或其合并提交",
+        "git rev-list --count ralph/agent-tool-expansion..main 输出 0",
+        "git diff --stat main ralph/agent-tool-expansion 输出为空",
+        "合并后当前分支为 main",
+        "在 backend/ 下 python -m pytest -q 全绿，不少于 247 passed",
         "ruff check . 通过"
       ],
       "priority": 1,
       "passes": true,
-      "notes": "已完成：latest_valid_analysis 下沉到 services/analysis_service.py，api/analyses.py 改为调用它。143 项测试全通过，ruff 全绿。"
+      "notes": ""
     },
     {
       "id": "US-002",
-      "title": "新增 analysis_read 工具",
-      "description": "作为用户，我想让 AI 客服读出我某份简历的 AI 分析结论，这样我不用自己翻报告页。",
+      "title": "端口口径统一为 8000",
+      "description": "作为开发者，我需要代码与文档说的是同一个端口：vite 代理当前指向 8001，而 README / AGENTS.md / nginx.conf / compose 全部写 8000，统一还原到 8000。",
       "acceptanceCriteria": [
-        "在 backend/app/services/agent/tools.py 新增 analysis_read(resume_hint: str) -> str 并加入 make_tools 返回列表；kb_search 必须仍是列表第一个元素",
-        "无身份（user_id 与 anonymous_id 均为空）时返回包含「无法识别用户身份」的文案，不返回任何数据",
-        "有身份但名下无简历时返回包含「没有已上传的简历」的文案",
-        "有简历但该简历无有效分析报告时返回包含「还没有分析报告」的文案，不编造内容",
-        "resume_hint 为空字符串时取最近上传的一份简历；非空时按文件名包含匹配，无匹配时说明未找到并列出实际文件名",
-        "命中时输出目标岗位、岗位匹配、优势、短板、关键词缺口、改进建议、预测面试题，单次输出总长不超过 800 字符，预测面试题最多 5 条",
-        "查询抛异常时返回自然语言兜底文案，不向上抛异常",
-        "python -m pytest tests/test_agent_tools.py 通过，覆盖上述 6 条分支路径",
-        "ruff check . 通过"
+        "grep 'target:' frontend/vite.config.ts 输出 http://127.0.0.1:8000",
+        "以 8000 启动后端：python -m uvicorn app.main:app --reload --port 8000",
+        "curl --noproxy '*' http://localhost:8000/health 返回含 status ok 与 database connected",
+        "curl --noproxy '*' http://localhost:5173/api/health 返回同样内容（代理链路通）",
+        "npm run build 通过",
+        "frontend/vite.config.ts 的改动已提交，不再游离于工作区",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 2,
       "passes": true,
-      "notes": "已完成：analysis_read 读本人简历的 AI 分析结论，六块内容 + 800 字符截断 + 预测题上限 5；无身份/无简历/无报告/文件名不匹配四条分支各有明确话术。新增 10 项单测，全量 153 项通过。"
+      "notes": ""
     },
     {
       "id": "US-003",
-      "title": "新增 score_trend 工具",
-      "description": "作为用户，我想知道自己的面试表现是进步还是退步，这样能判断复习有没有效果。",
+      "title": "补齐 .gitignore 规则",
+      "description": "作为开发者，我需要工作区记忆与 Ralph 运行态文件不被误提交，同时保留可复用的 Ralph 工具与进度记录。",
       "acceptanceCriteria": [
-        "在 backend/app/services/agent/tools.py 新增 score_trend(limit: int = 5) -> str 并加入 make_tools 返回列表",
-        "只统计本人 status 为 finished 且 final_report_json 为 dict 的场次：JSONB 列写入 Python None 会落成 JSON null 字面量，is_not(None) 过滤不掉，必须用 isinstance(report, dict) 判断排除",
-        "limit 钳制到 1~10，非正数回落默认 5",
-        "按时间正序列出各场次的技术深度、表达结构、项目真实性、整体四项分数",
-        "每场与上一场对比给出上升、下降、持平标记，首场标记为基准场",
-        "场次为 0 时返回包含「暂无已完成的模拟面试」的文案；场次为 1 时返回该场分数并说明只有一场暂时看不出趋势",
-        "他人场次不可见（按归属者过滤：登录按 user_id，匿名按 user_id IS NULL 加 anonymous_id）",
-        "python -m pytest tests/test_agent_tools.py 通过",
+        ".gitignore 新增 .workbuddy/ 并带一行注释说明用途",
+        "git check-ignore -v .workbuddy/ 能命中规则",
+        "git status --short 不再出现 .workbuddy/",
+        "scripts/ralph/.last-branch 加入忽略（运行态文件）",
+        "scripts/ralph/ralph.sh、watch.sh、CLAUDE.md、prd.json、progress.txt 保留入库，不出现在 .gitignore 中",
         "ruff check . 通过"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": "已完成：score_trend 按时间正序列出本人已结束场次（status=finished 且 final_report_json 是 dict）的四维分数，逐场给 基准场/上升/下降/持平 标记 + 每维度 ↑↓→ 箭头，末尾给首末整体分差总结；limit 钳到 1~10（非正数回落 5）；0 场/1 场/他人数据各有明确话术。新增 8 项单测，全量 161 项通过。"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-004",
-      "title": "新增 kb_list 工具",
-      "description": "作为用户，我想知道平台知识库里有哪些资料，这样我才知道能问什么。",
+      "title": "提交本轮的文档与脚本产出",
+      "description": "作为开发者，我需要把体检与文档产出纳入版本管理，让工作区干净。",
       "acceptanceCriteria": [
-        "在 backend/app/services/agent/tools.py 新增 kb_list(query: str) -> str 并加入 make_tools 返回列表",
-        "返回预置语料（scope=public）与本人上传（scope=private）的文档：标题、块数、状态、来源",
-        "返回值绝不包含 raw_text 或任何切块正文",
-        "query 非空时按标题做不区分大小写的关键词过滤，无匹配时说明未找到",
-        "最多列出 20 条，超出时说明仅显示前 20 条",
-        "他人私有文档不可见（归属隔离）",
-        "python -m pytest tests/test_agent_tools.py 通过",
+        "docs/架构全景.html 与 docs/架构全景-v2.0.html 已提交",
+        "docs/后续开发规划.md（含 2026-09-18 更新）已提交",
+        "tasks/prd-agent-tool-expansion.md 与 tasks/prd-release-consolidation.md 已提交",
+        "scripts/ralph/ralph.sh、scripts/ralph/watch.sh、scripts/ralph/CLAUDE.md 已提交",
+        "提交信息遵循中文 conventional commits，例如 chore: 收口工作区与文档产出",
+        "git status --short 无未跟踪文件",
         "ruff check . 通过"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "已完成：kb_list 列预置语料 + 本人上传（标题/来源/状态/块数），只读元信息不碰 raw_text；标题过滤不区分大小写，未命中给「未找到」；上限 20 篇并提示截断；块数统计下沉为 kb_service.count_chunks_by_document（知识库接口与工具共用，不再重复 SQL）。新增 7 项单测，全量 168 项通过。"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-005",
-      "title": "新增 platform_help 工具",
-      "description": "作为用户，我想问「怎么开始模拟面试」「在哪看用量」，希望 AI 客服直接答，而不是去检索计算机技术知识库。",
+      "title": "补齐 v3.5 与 v3.6 tag",
+      "description": "作为开发者，我需要版本锚点：v3.5 对应混合检索提优加四工具的版本，v3.6 对应合并后的干净 HEAD。本 story 必须在前四个 story 全部完成后执行，否则 tag 会指向含未提交改动的状态。不推送远端。",
       "acceptanceCriteria": [
-        "在 backend/app/services/agent/tools.py 新增 platform_help(topic: str) -> str 并加入 make_tools 返回列表",
-        "纯静态文案：函数体内不查数据库、不调用 LLM",
-        "至少覆盖 8 个主题：上传简历、AI 分析、模拟面试、在线对话、AI 客服、使用日志、个人中心、数据看板与语料库管理",
-        "topic 为空或未知时返回平台功能总览",
-        "platform_help 的 docstring 明确写出：本平台功能使用问题用本工具，计算机技术知识点用 kb_search",
-        "kb_search 的 docstring 同步补上反向排他句：平台功能使用问题请勿调用本工具",
-        "python -m pytest tests/test_agent_tools.py 通过",
+        "打轻量 tag v3.5 指向 2e45707",
+        "打轻量 tag v3.6 指向当前 main 的 HEAD",
+        "git tag --sort=creatordate | tail -3 依次显示 v3.4、v3.5、v3.6",
+        "git show v3.5 --stat 输出包含 lexical_service.py 或 kb_service.py",
+        "git show v3.6 --stat 输出包含 services/agent/tools.py 或 eval_agent_routing.py",
+        "执行完毕后 git status --short 为空（tag 不产生工作区改动）",
+        "不推送远端，git status 显示 ahead of origin/main 属预期",
         "ruff check . 通过"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "已完成：platform_help(topic) 纯静态文案（函数体不查库不调模型），9 个主题各一段独立文案（个人中心/上传简历/AI 分析/模拟面试/在线对话/AI 客服/使用日志/数据看板/语料库管理）；_PLATFORM_TOPICS 用「别名元组 → 文案」按小写包含匹配路由，别名顺序即优先级（具体主题排前防泛词抢匹配），空 topic 或全不命中回落平台功能总览。kb_search 与 platform_help 的 docstring 互相点名排他。新增 12 项单测（9 项参数化主题 + 总览回落 + 静态无 db + 互斥描述），全量 180 项通过。"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-006",
-      "title": "工具描述互斥性校准",
-      "description": "作为开发者，我需要每个工具的 description 都能让模型分清什么时候不要用我，避免工具变多后互相抢调用。仅改 docstring，不动任何工具的行为逻辑。",
+      "title": "数据库连接快速失败",
+      "description": "作为用户，我不想在数据库不可用时看着页面转圈一分钟；作为开发者，我需要马上得到明确的失败信号。体检实测：容器停止后 POST /api/auth/register 挂起超过 60 秒。停容器实测耗时属人工验收项，在 US-009 记录。",
       "acceptanceCriteria": [
-        "全部 8 个工具（kb_search / resume_lookup / interview_history / usage_stats / analysis_read / score_trend / kb_list / platform_help）的 docstring 都包含三段信息：做什么、什么时候用、什么时候不用",
-        "kb_search 与 platform_help 的描述互相包含排他说明（技术知识点 vs 平台功能）",
-        "resume_lookup 与 analysis_read 的描述互相划清边界（简历原文 vs 分析结论）",
-        "新增单测断言每个工具的 description 长度大于 50 字符，且 kb_search 与 platform_help 的 description 各自包含排他关键词",
-        "python -m pytest tests/test_agent_tools.py 通过",
+        "backend/app/core/config.py 新增 db_connect_timeout_seconds（默认 5）与 db_pool_timeout_seconds（默认 10）",
+        "backend/app/db/session.py 的 create_engine 增加 pool_timeout 参数，并在 connect_args 中传 connect_timeout",
+        "新增全局异常处理：sqlalchemy.exc.OperationalError 与 InterfaceError 统一返回 503",
+        "503 响应体为项目统一结构 {code, message, details}，code 取值为 database_unavailable",
+        "503 的 message 为可读中文话术，不含数据库连接串、用户名、密码或 Python 堆栈",
+        "异常处理器加在既有的全局错误处理处，不在路由内逐个 try/except",
+        "新增单测：monkeypatch 让引擎抛 OperationalError，断言状态码 503 与 code、message 符合预期",
+        "在 backend/ 下 python -m pytest -q 全绿，不少于 247 passed",
         "ruff check . 通过"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": "已完成：8 个工具的 docstring 统一为「摘要 → 什么时候用：→ 什么时候不用：→ 入参说明」四段式，两个中文小标题固定作为机器可校验的锚点；resume_lookup / interview_history / usage_stats 补上了原本缺失的「什么时候不用」，kb_search ↔ platform_help、resume_lookup ↔ analysis_read 两组互相点名。新增 13 项描述守门测试（8 项三段式 + 4 项互指 + 1 项清单与 make_tools 一致性），全量 193 项通过。"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-007",
-      "title": "工具路由评测集与脚本（8 工具口径，离线可完成）",
-      "description": "作为开发者，我需要一份可重复运行的工具路由评测，回答模型面对 8 个工具时选对的比例。本 story 只要求数据集与脚本就绪并用 mock LLM 验证脚本逻辑，真实准确率在 US-012 测。",
+      "title": "一键环境自检脚本",
+      "description": "作为开发者，我需要在启动项目前一条命令看清所有前置条件。项目历史上多次因容器未启动而误判为代码问题，本脚本用于消除这类排查成本。",
       "acceptanceCriteria": [
-        "新增 data/agent_eval/routing.json，不少于 24 条用例（8 个工具各 3 条问法），字段为 question 与 expected_tool",
-        "问法贴近真实口语，例如「我简历里写过 K8s 吗」对应 resume_lookup、「怎么上传简历」对应 platform_help",
-        "新增 backend/scripts/eval_agent_routing.py：对每题发起一次 LLM 调用做工具选择，工具执行体一律 mock（只关心选了哪个工具，不真正查库）",
-        "脚本输出 top-1 准确率、逐题明细（问题、期望工具、实际工具、是否命中）与混淆矩阵（期望工具 × 实际选中工具），结果写入 data/agent_eval/report.md",
-        "LLM 不可用时（如 402 欠费）脚本以非零退出码明确报错退出，不产出空报告",
-        "新增 backend/tests/test_eval_agent_routing.py：mock LLM 返回值，验证准确率统计、混淆矩阵与逐题明细的输出结构正确",
-        "python -m pytest tests/test_eval_agent_routing.py 通过",
+        "新增 backend/scripts/check_env.py，通过 cd backend 后 python -m scripts.check_env 运行",
+        "检查项覆盖：Docker daemon 可用、ai-interview-db 与 redis 与 ollama 三容器均 healthy、数据库可达且 Alembic 版本为 head、Redis 可达、端口 8000 与 5173 占用情况、后端 /health 与 /health/ready、kb_chunks 条数、AI 通道可用性",
+        "任一检查失败不中断后续检查，全部跑完后输出汇总（通过 N 项 / 失败 M 项）",
+        "每个失败项附带可直接复制的修复命令，例如 docker start ai-interview-db ai-interview-redis ai-interview-ollama",
+        "支持 --skip-ai 参数跳过 AI 通道检查，避免无意消耗额度",
+        "退出码：全部通过为 0，存在失败为 1",
+        "后端未启动时不崩溃，报告后端未监听并给出启动命令",
+        "输出风格与 scripts/eval_rag.py 一致：分节标题、逐项一行结论、末尾汇总，失败项用 [FAIL] 前缀而非 emoji",
+        "新增测试：mock 各项检查结果，断言汇总统计与退出码逻辑",
         "ruff check . 通过"
       ],
       "priority": 7,
-      "passes": true,
-      "notes": "已完成：data/agent_eval/routing.json 24 条用例（8 工具各 3 条）；backend/scripts/eval_agent_routing.py 用 bind_tools + 单次 LLM 调用做选择（工具执行体从不运行，temperature 0），产出 top-1 准确率/分工具命中率/混淆矩阵/逐题明细/误选清单并写入 data/agent_eval/report.md；LLM 不可用或未配置时退出码 2 且不写报告。新增 10 项单测，全量 203 项通过。真机已跑通（DeepSeek 通道正常）：8 工具口径 24/24 = 100%，作为 US-012 对比基线。"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-008",
-      "title": "工具内 LLM 调用的独立限额与记账",
-      "description": "作为开发者，我需要把工具内部自己调 LLM 的消耗与 Agent 主循环调 LLM 分开统计和限制，否则实际可用次数会莫名腰斩且无法归因。这是批次 2 的前置。",
+      "title": "文档同步自检脚本用法与端口",
+      "description": "作为后来者，我需要知道启动前该跑什么，以及后端到底在哪个端口。",
       "acceptanceCriteria": [
-        "backend/app/core/config.py 新增 daily_agent_tool_llm_limit: int = 20",
-        "backend/.env.docker.example 同步新增该配置项",
-        "在 backend/app/services/agent/tools.py 中新增统一的工具内 LLM 调用辅助：先判断当日 agent_tool_llm 次数是否超限，超限直接返回提示；未超限则调用并写 usage_logs",
-        "超限时工具返回包含「今日工具内 AI 调用已达上限」的自然语言文案，不抛异常（Agent 主循环必须继续可用）",
-        "计数与写入复用 usage_service.count_today_usage_by_owner 与 usage_service.write_usage，不新写 SQL",
-        "不影响 daily_agent_limit（Agent 主循环提问次数）的判定逻辑",
-        "python -m pytest tests/test_agent_tools.py 通过，覆盖未超限、恰好达上限、超限返回文案且不抛、usage_logs 确实落了一条 agent_tool_llm",
+        "README.md 新增「启动前自检」小节，含命令与输出说明",
+        "AGENTS.md 的启动命令区新增该命令",
+        "AGENTS.md 已知清单补充一条：容器闲置会自行退出，启动前先跑自检",
+        "README.md 与 AGENTS.md 中后端端口表述统一为 8000，文档中不出现 8001",
         "ruff check . 通过"
       ],
       "priority": 8,
-      "passes": true,
-      "notes": "已完成：config 新增 daily_agent_tool_llm_limit=20（.env.docker.example 同步），tools.py 新增 _run_tool_llm(db, user_id, anonymous_id, call) 统一入口——先按 agent_tool_llm 查当日次数，达到上限即不调模型直接回「今日工具内 AI 调用已达上限」话术（limit=0 即关闭），放行则执行并记一条带 token 合计的 agent_tool_llm 用量后提交；异常由各工具自己兜（本层不吞），失败的调用不记账，无归属者不写不可归因的账，记账失败只告警不连累结果。计数/写入复用 usage_service 两个函数，daily_agent_limit 判定逻辑未动。新增 9 项单测，全量 211 项通过。"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-009",
-      "title": "新增 job_match 工具",
-      "description": "作为用户，我想贴一段 JD 让 AI 告诉我匹配度如何、缺哪些关键词。",
+      "title": "收口验收与进度记录",
+      "description": "作为项目 owner，我需要这次收口在日志与规划里留痕，避免下次重复盘问。同时把停容器实测 503 耗时的结果记录下来（人工验收项）。",
       "acceptanceCriteria": [
-        "在 backend/app/services/agent/tools.py 新增 job_match(jd_text: str) -> str 并加入 make_tools 返回列表",
-        "jd_text 超过 4000 字符时截断，并在输出中说明已截断",
-        "jd_text 为空时提示需要提供 JD 内容，不调用 LLM",
-        "本人名下无简历时返回包含「需要先上传简历」的文案，不调用 LLM",
-        "复用 ai_client.chat_json(system_prompt, user_prompt, settings, validator) 走结构化输出与失败重试，输出包含匹配度评分、命中关键词、缺失关键词、针对性建议",
-        "新增该提示词的 PROMPT_VERSION 常量并递增",
-        "工具内 LLM 调用受 daily_agent_tool_llm_limit 约束，并写 action_type 为 agent_tool_llm 的 usage_logs",
-        "LLM 抛错（含余额不足）时返回可读话术，不向上抛异常",
-        "python -m pytest tests/test_agent_tools.py 通过（mock LLM，覆盖成功路径、JD 超长截断、空 JD、无简历、LLM 抛错）",
-        "ruff check . 通过"
+        "PROGRESS.md 追加本次收口记录：分支合并、tag、端口、DB 超时、自检脚本、提交范围",
+        "PROGRESS.md 记录停容器后接口返回 503 的实测耗时；若未实测则明确标注待人工验证",
+        "docs/后续开发规划.md 第 1 批的 5 项任务标记为已完成",
+        "git status --short 输出为空",
+        "在 main 上 python -m pytest -q 不少于 250 passed",
+        "ruff check . 通过",
+        "npm run build 通过",
+        "git log --oneline -8 能看出本次收口批次"
       ],
       "priority": 9,
-      "passes": true,
-      "notes": "已完成：job_match(jd_text) 取本人最新一份简历（按 created_at/id desc 取最近一版），JD 与简历正文分别截到 4000/6000 字（JD 截断会在输出里说明），走 chat_json + JobMatchReport 结构化校验（提示词在 prompts.py，版本号独立为 JOB_MATCH_PROMPT_VERSION，不动 analyses 表口径），LLM 调用统一过 _run_tool_llm（限额 + agent_tool_llm 记账）；无身份/空 JD/无简历/简历无正文四条路径各有话术且不调模型，AI 抛错兜底不向上抛。新增 6 项单测，另因工具数变 9 而给 data/agent_eval/routing.json 补了 3 条 job_match 用例（守门测试要求每工具 ≥3 条）。全量 219 项通过；真机跑通一次真实 DeepSeek 调用，match_score/命中/缺失/建议输出正常。"
-    },
-    {
-      "id": "US-010",
-      "title": "新增 question_gen 工具",
-      "description": "作为用户，我想让 AI 针对某个主题出一组面试题，并且这些题要贴合平台知识库。",
-      "acceptanceCriteria": [
-        "在 backend/app/services/agent/tools.py 新增 question_gen(topic: str, position_type: str) -> str 并加入 make_tools 返回列表",
-        "实现路径：先调用 kb_search 检索平台语料，再依据检索结果出题，不是纯模型生成",
-        "检索未命中时明确说明平台知识库未收录该主题，并退回模型自身出题，同时在输出中标注这部分不来自平台知识库",
-        "position_type 取 intern、fresh、senior 或空字符串，非法值回落通用并体现难度定位",
-        "单次生成 3 到 5 道题",
-        "docstring 与 kb_search 互相划清边界：出题用本工具，查答案用 kb_search",
-        "python -m pytest tests/test_agent_tools.py 通过，覆盖检索命中路径、未命中回退路径、非法 position_type 回落",
-        "ruff check . 通过"
-      ],
-      "priority": 10,
-      "passes": true,
-      "notes": "已完成：question_gen(topic, position_type) 先 _kb_retrieve 检索平台知识库（前 3 块各截 300 字进提示词），再 chat_json 出题 —— 不是纯模型生成；命中时输出「依据平台知识库出题」+《出题依据》文档名，未命中或检索失败（含 embedding 挂掉）时退回模型出题并标注「以下题目不来自平台知识库」。难度定位走模块级 _POSITION_LABELS（intern/fresh/senior，空值与非法值回落「通用」，输出里始终体现），题目数由 QuestionGenReport（min 3 / max 5）卡住。检索链路下沉为公共入口 _kb_retrieve（返回 (命中, 兜底话术)，kb_search 与 question_gen 共用，两种失败话术分开），岗位类型中文映射提到模块级供 interview_history 复用。kb_search 与 question_gen 的 description 互相点名（查答案 vs 出题）。新增 12 项单测 + routing.json 补 3 条用例，全量 235 项通过；真机跑通两次真实 DeepSeek 调用，出题质量与 KB 依据标注正常。"
-    },
-    {
-      "id": "US-011",
-      "title": "新增 answer_review 工具",
-      "description": "作为用户，我想贴一段自己的回答让 AI 点评，看看哪里能改进。",
-      "acceptanceCriteria": [
-        "在 backend/app/services/agent/tools.py 新增 answer_review(question: str, answer: str) -> str 并加入 make_tools 返回列表",
-        "answer 超过 2000 字符时截断，并在输出中说明已截断",
-        "question 或 answer 为空时提示需要补全，不调用 LLM",
-        "复用四维评分口径中的技术深度、表达结构、项目真实性三项，并给出 2 到 4 条改进建议",
-        "走 ai_client.chat_json 结构化输出与校验重试",
-        "工具内 LLM 调用受 daily_agent_tool_llm_limit 约束，并写 action_type 为 agent_tool_llm 的 usage_logs",
-        "LLM 抛错时返回话术兜底，不向上抛异常",
-        "python -m pytest tests/test_agent_tools.py 通过（mock LLM，覆盖成功、answer 超长截断、参数缺失、LLM 抛错）",
-        "ruff check . 通过"
-      ],
-      "priority": 11,
-      "passes": true,
-      "notes": "已完成：answer_review(question, answer) 用四维评分口径里的技术深度/表达结构/项目真实性三项（共用 _SCORE_LABELS、10 分制、不评整体）加 2~4 条改进建议点评用户贴的回答；题目与回答都必填，缺哪个给哪个的补全话术且一次模型都不调；回答截到 2000 字并在输出里说明；走 chat_json + AnswerReviewReport 结构化校验（评分 1~10、建议 min 2 / max 4），提示词版本独立为 ANSWER_REVIEW_PROMPT_VERSION，LLM 调用统一过 _run_tool_llm，异常兜话术不向上抛。与 question_gen 在描述里互相点名（出题 vs 点评）。新增 8 项单测 + routing.json 补 3 条用例（30→33，满足 11 工具 ×3），全量 245 项通过；真机跑通一次真实 DeepSeek 调用，三项评分与 4 条建议输出正常。"
-    },
-    {
-      "id": "US-012",
-      "title": "评测集扩充到 11 工具口径并实测准确率",
-      "description": "作为开发者，我需要在上线全部工具后重跑路由评测，确认扩到 11 个工具没有让准确率掉下来。本 story 需要可用的 LLM 通道（DeepSeek 402 欠费期间无法完成）。",
-      "acceptanceCriteria": [
-        "data/agent_eval/routing.json 扩充到不少于 33 条，新增 job_match、question_gen、answer_review 各 3 条问法",
-        "在 LLM 可用环境运行 backend/scripts/eval_agent_routing.py，产出 11 工具口径报告",
-        "11 工具口径 top-1 准确率不低于 85%，且相比 8 工具口径下降不超过 5 个百分点",
-        "若准确率低于 85%，在 docs/Agent工具设计.md 中记录所有误选案例与结论（是否触发该考虑多 Agent 的判断）",
-        "报告写入 data/agent_eval/report.md",
-        "ruff check . 通过"
-      ],
-      "priority": 12,
-      "passes": true,
-      "notes": "已完成：33 条用例（11 工具各 3 条）在真机 DeepSeek 上跑通，最终 33/33 = 100%，与 8 工具基线（24/24）持平（+0.0pp），未触发拆多 Agent。过程是三轮：首轮 27/33（81.8%）未达标 → 校准 5 个工具 docstring 的排他句后 30/33（90.9%）→ 把 3 条依赖上下文/不自包含的用例改写成自包含问法后 33/33。首轮 6 处误选已逐条记进 docs/Agent工具设计.md §五实测记录表（含结论：掉点原因是描述边界不狠 + 用例不可判定，不是工具太多）。eval_agent_routing.py 新增 BASELINE 常量，报告自带「对比 8 工具口径基线：±X 个百分点」一行；全量 247 项测试通过，ruff 全绿。"
-    },
-    {
-      "id": "US-013",
-      "title": "前端工具名中文化",
-      "description": "作为用户，我在 AI 客服的工具调用过程里看到 analysis_read 这样的英文标识看不懂。",
-      "acceptanceCriteria": [
-        "frontend/src/components/agent/AgentChatCore.vue 的工具调用过程显示中文名，例如 analysis_read 显示为读取分析报告、kb_search 显示为检索知识库",
-        "映射表集中定义在组件内一处常量，覆盖全部 11 个工具加 unknown_tool 占位",
-        "未在映射表内的工具名原样显示，不显示为空",
-        "npm run build 通过",
-        "Verify in browser using dev-browser skill"
-      ],
-      "priority": 13,
-      "passes": true,
-      "notes": "已完成：AgentChatCore.vue 新增组件内常量 TOOL_LABELS（11 个工具 + unknown_tool 占位）+ toolLabel(name) 回落原始名，「调用 X」改为「调用 中文名」；映射键与后端 make_tools 的 11 个工具名逐一对齐（脚本校验无缺失无多余）。验证方式：用 @vue/compiler-sfc 现场编译该 SFC 并 SSR 渲染带 5 条 toolSteps 的消息，输出确认为「调用 检索知识库 / 读取分析报告 / 点评我的回答 / 未知工具 / brand_new_tool（未收录名原样显示）」，英文工具名不再出现；npm run build 通过。"
+      "passes": false,
+      "notes": ""
     }
   ]
 }
