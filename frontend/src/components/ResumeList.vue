@@ -10,12 +10,7 @@ const props = defineProps({
 const emit = defineEmits(['select', 'deleted'])
 const deletingId = ref(null)
 
-const STATUS = {
-  success: { label: '成功', cls: 'ok' },
-  unsupported: { label: '扫描件', cls: 'warn' },
-  failed: { label: '失败', cls: 'bad' },
-  pending: { label: '解析中', cls: 'warn' },
-}
+import { RESUME_STATUS as STATUS } from '../utils.js' // 与 HomeView 同一份映射
 
 async function remove(id, e) {
   e.stopPropagation()

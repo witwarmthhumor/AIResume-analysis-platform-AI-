@@ -1,8 +1,10 @@
 <script setup>
+/* LoginPanel —— 登录/注册双模式表单（模态内使用）。
+   成功后 emit logged-in 交由 App 写入全局用户态；本组件不处理会话持久化。 */
 import { ref } from 'vue'
 import { post } from '../api.js'
 
-const emit = defineEmits(['logged-in', 'logged-out'])
+const emit = defineEmits(['logged-in'])
 const mode = ref('login')
 const email = ref('')
 const password = ref('')
@@ -24,13 +26,21 @@ async function submit() {
 <template>
   <section class="card" style="max-width:420px">
     <h2 style="margin-bottom:8px">{{ mode === 'login' ? '登录' : '注册账号' }}</h2>
-    <label class="label" for="login-email">邮箱</label>
-    <input id="login-email" v-model="email" type="email" autocomplete="email" placeholder="your@email.com" />
-    <label class="label" for="login-pass">密码（至少 8 位）</label>
-    <input id="login-pass" v-model="password" type="password" autocomplete="current-password" />
-    <button class="btn btn-primary" :disabled="loading || !email || password.length < 8" @click="submit" style="width:100%;margin-top:10px;padding:11px">
-      {{ loading ? '处理中…' : mode === 'login' ? '登 录' : '注册并登录' }}
-    </button>
+    <!-- 包一层 form：密码框回车即可提交（原先只能点按钮） -->
+    <form @submit.prevent="submit">
+      <label class="label" for="login-email">邮箱</label>
+      <input id="login-email" v-model="email" type="email" autocomplete="email" placeholder="your@email.com" />
+      <label class="label" for="login-pass">密码（至少 8 位）</label>
+      <input
+        id="login-pass"
+        v-model="password"
+        type="password"
+        :autocomplete="mode === 'login' ? 'current-password' : 'new-password'"
+      />
+      <button class="btn btn-primary" type="submit" :disabled="loading || !email || password.length < 8" style="width:100%;margin-top:10px;padding:11px">
+        {{ loading ? '处理中…' : mode === 'login' ? '登 录' : '注册并登录' }}
+      </button>
+    </form>
     <p v-if="error" class="msg error" style="margin:0">{{ error }}</p>
     <p class="switch">
       <span v-if="mode === 'login'">还没有账号？<b class="link" @click="mode='register'; error=''">注册</b></span>

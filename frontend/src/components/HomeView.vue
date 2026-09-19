@@ -11,12 +11,9 @@ const resumes = ref([])
 const currentResume = ref(null)
 const interviewResume = ref(null)
 
-const STATUS = {
-  success: { label: '解析成功', cls: 'ok' },
-  unsupported: { label: '暂不支持', cls: 'warn' },
-  failed: { label: '解析失败', cls: 'bad' },
-  pending: { label: '解析中', cls: 'warn' },
-}
+// 解析状态徽标映射来自 utils.RESUME_STATUS（与 ResumeList 同一份，文案不再漂移）
+import { RESUME_STATUS as STATUS } from '../utils.js'
+
 
 async function refreshList() {
   try {

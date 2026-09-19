@@ -1,4 +1,6 @@
 <script setup>
+/* InterviewChat —— 文字模拟面试对话视图（SSE 打字机 + 四阶段进度 + 结束评价入口）。
+   由 HomeView 按 resume 挂载；简历未解析成功时不可进入。 */
 import { nextTick, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import { parseSseBlock, post, streamChat } from '../api.js'
 import InterviewReport from './InterviewReport.vue'

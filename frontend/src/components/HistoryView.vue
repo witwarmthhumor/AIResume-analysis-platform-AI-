@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { get } from '../api.js'
+import { fmtDateTime, pageNumbers as pageNumbersUtil } from '../utils.js'
 import DateRangePicker from './DateRangePicker.vue'
 
 // —— 数据 ——
@@ -62,6 +63,7 @@ async function loadLogs() {
     logs.value = res.items
     total.value = res.total
   } catch (e) {
+    // 失败只提示、保留旧数据：一次网络抖动不应把整张表换成错误占位
     error.value = e.message || '加载失败'
   } finally {
     loading.value = false
@@ -118,24 +120,8 @@ function onPageSizeChange() {
   loadLogs()
 }
 
-// 页码（超过 7 页用省略号折叠）
-const pageNumbers = computed(() => {
-  const tp = totalPages.value
-  const cur = page.value
-  if (tp <= 7) return Array.from({ length: tp }, (_, i) => i + 1)
-  const arr = [1]
-  if (cur > 3) arr.push('…')
-  for (let i = Math.max(2, cur - 1); i <= Math.min(tp - 1, cur + 1); i++) arr.push(i)
-  if (cur < tp - 2) arr.push('…')
-  arr.push(tp)
-  return arr
-})
-
-function formatTime(iso) {
-  if (!iso) return '-'
-  const d = new Date(iso)
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
+// 页码折叠算法收敛到 utils.pageNumbers（与 AdminPanel 同一份实现）
+const pageNumbers = computed(() => pageNumbersUtil(page.value, totalPages.value))
 
 onMounted(loadLogs)
 </script>
@@ -178,10 +164,11 @@ onMounted(loadLogs)
     <!-- —— 使用日志卡片 —— -->
     <div class="log-card">
       <h3>📋 使用日志</h3>
+      <!-- 错误横幅不顶掉表格：失败时保留旧数据，重试后恢复 -->
       <p v-if="error" class="msg error">{{ error }}</p>
-      <div v-else-if="loading" class="state-loading">加载中…</div>
+      <div v-if="loading && !logs.length" class="state-loading">加载中…</div>
 
-      <template v-else>
+      <template v-else-if="!loading || logs.length">
         <!-- 空态 -->
         <div v-if="logs.length === 0" class="empty-state">
           <div class="empty-icon">📭</div>
@@ -203,7 +190,7 @@ onMounted(loadLogs)
               </thead>
               <tbody>
                 <tr v-for="log in logs" :key="log.id">
-                  <td class="time">{{ formatTime(log.created_at) }}</td>
+                  <td class="time">{{ fmtDateTime(log.created_at) }}</td>
                   <td>
                     <span
                       class="action-badge"

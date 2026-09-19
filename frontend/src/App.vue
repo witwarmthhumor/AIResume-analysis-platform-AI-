@@ -1,12 +1,13 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { get, post } from './api.js'
 import HomeView from './components/HomeView.vue'
 import ChatView from './components/ChatView.vue'
 import LoginPanel from './components/LoginPanel.vue'
 import HistoryView from './components/HistoryView.vue'
-import AdminPanel from './components/AdminPanel.vue'
-import KbAdminView from './components/KbAdminView.vue'
+// 管理端三视图仅 admin 可达：异步分包，普通用户首屏不下载这部分代码
+const AdminPanel = defineAsyncComponent(() => import('./components/AdminPanel.vue'))
+const KbAdminView = defineAsyncComponent(() => import('./components/KbAdminView.vue'))
 import AgentChatView from './components/agent/AgentChatView.vue'
 import AgentWidget from './components/agent/AgentWidget.vue'
 import ProfileView from './components/ProfileView.vue'
@@ -28,7 +29,7 @@ const avatarLetter = computed(() => {
   return ch ? ch.toUpperCase() : '?'
 })
 
-// —— 视图组件映射 ——
+// —— 视图组件映射：home/chat/history/admin/kb-admin/agent/profile 七视图（双端按角色可见性由 navItems 控制）——
 const viewComponents = {
   home: HomeView,
   chat: ChatView,

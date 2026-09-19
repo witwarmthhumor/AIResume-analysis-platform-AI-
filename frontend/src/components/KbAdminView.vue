@@ -1,4 +1,6 @@
 <script setup>
+/* KbAdminView —— 管理端语料库管理：列出/删除全部知识库文档，上传可直接入预置语料。
+   归属校验与配额由后端负责，前端预检只是体验层（扩展名/大小）。 */
 import { onMounted, ref } from 'vue'
 import { del, get, post } from '../api.js'
 
@@ -27,9 +29,24 @@ async function loadDocs() {
   }
 }
 
+const KB_ALLOWED_EXTENSIONS = ['txt', 'md', 'markdown', 'pdf'] // 与后端白名单一致
+const KB_MAX_SIZE = 5 * 1024 * 1024
+
 async function onFileSelected(event) {
   const file = event.target.files?.[0]
   if (!file) return
+  // 前端预检只是体验层（免得用户等一次必然失败的上传）；真正的校验在后端
+  const ext = file.name.split('.').pop().toLowerCase()
+  if (!KB_ALLOWED_EXTENSIONS.includes(ext)) {
+    uploadError.value = '只支持 txt / md / pdf 文件'
+    event.target.value = ''
+    return
+  }
+  if (file.size > KB_MAX_SIZE) {
+    uploadError.value = '文件超过 5MB 限制'
+    event.target.value = ''
+    return
+  }
   uploadError.value = ''
   const form = new FormData()
   form.append('file', file)

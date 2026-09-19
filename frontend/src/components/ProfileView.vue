@@ -3,7 +3,8 @@
    四区块：个人信息卡(含退出) / 本人五卡(第5卡=累计Token) / 近7日用量柱图 / 精简使用日志。
    数据全部是"本人"口径：/api/me/*；日志复用 /api/usage/logs（后端本就按当前用户过滤）。 */
 import { computed, onMounted, ref } from 'vue'
-import { get, post } from '../api.js'
+import { get } from '../api.js'
+import { fmtDateTime, fmtNum, shortDate } from '../utils.js'
 
 const emit = defineEmits(['logout'])
 
@@ -45,21 +46,7 @@ const maxTokens = computed(() => Math.max(1, ...usage.value.map((d) => d.tokens 
 function barHeight(t) {
   return t ? Math.max(4, Math.round((t / maxTokens.value) * 100)) : 0
 }
-function shortDate(s) {
-  const p = String(s).split('-')
-  return p.length === 3 ? `${Number(p[1])}/${p[2]}` : s
-}
-function fmtNum(n) {
-  return Number(n || 0).toLocaleString()
-}
-function pad(n) {
-  return String(n).padStart(2, '0')
-}
-function fmtDateTime(iso) {
-  if (!iso) return '-'
-  const d = new Date(iso)
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
+// shortDate / fmtNum / fmtDateTime 来自 utils.js（与 AdminPanel/HistoryView 共享）
 const avatarLetter = computed(() => me.value?.email?.trim()?.[0]?.toUpperCase() || '?')
 
 async function loadAll() {
@@ -90,12 +77,9 @@ function goPage(p) {
   loadLogs()
 }
 
-async function logout() {
-  try {
-    await post('/api/auth/logout')
-  } finally {
-    emit('logout')
-  }
+function logout() {
+  // 只 emit：POST /api/auth/logout 由 App.logout 统一发一次（此前会连发两次）
+  emit('logout')
 }
 
 onMounted(loadAll)

@@ -214,18 +214,6 @@ onDeactivated(() => activeAbort?.())
           </div>
         </div>
 
-        <div class="input-row">
-          <textarea
-            v-model="input"
-            :disabled="streaming"
-            rows="2"
-            placeholder="向知识库提问，如：Redis 分布式锁怎么实现…"
-            @keydown.enter.exact.prevent="send"
-          ></textarea>
-          <button class="btn btn-primary send" :disabled="streaming || !input.trim()" @click="send">
-            {{ streaming ? '回答中…' : '提问' }}
-          </button>
-        </div>
       </template>
 
       <!-- 无对话空态 -->
@@ -233,18 +221,20 @@ onDeactivated(() => activeAbort?.())
         <div class="chat-empty-icon">💬</div>
         <div class="chat-empty-title">开始新的对话吧</div>
         <div class="chat-empty-desc">点击左侧「+ 新建对话」，或直接在下方输入问题自动创建</div>
-        <div class="input-row empty-input">
-          <textarea
-            v-model="input"
-            :disabled="streaming"
-            rows="2"
-            placeholder="输入问题，自动创建对话…"
-            @keydown.enter.exact.prevent="send"
-          ></textarea>
-          <button class="btn btn-primary send" :disabled="streaming || !input.trim()" @click="send">
-            {{ streaming ? '回答中…' : '提问' }}
-          </button>
-        </div>
+      </div>
+
+      <!-- 输入区两态共用一份（仅 placeholder 不同）：有会话直接提问，无会话输入即自动创建 -->
+      <div class="input-row" :class="{ 'empty-input': !activeSessionId }">
+        <textarea
+          v-model="input"
+          :disabled="streaming"
+          rows="2"
+          :placeholder="activeSessionId ? '向知识库提问，如：Redis 分布式锁怎么实现…' : '输入问题，自动创建对话…'"
+          @keydown.enter.exact.prevent="send"
+        ></textarea>
+        <button class="btn btn-primary send" :disabled="streaming || !input.trim()" @click="send">
+          {{ streaming ? '回答中…' : '提问' }}
+        </button>
       </div>
     </div>
   </section>

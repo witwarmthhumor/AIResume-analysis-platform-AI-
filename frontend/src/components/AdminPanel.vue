@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { get } from '../api.js'
+import { fmtNum, pageNumbers } from '../utils.js'
 
 const stats = ref(null)
 const users = ref([])
@@ -36,10 +37,6 @@ const cards = computed(() => {
   ]
 })
 
-function fmtNum(n) {
-  return Number(n || 0).toLocaleString()
-}
-
 // —— 分页：用户列表（每页 10 条） ——
 const USER_PAGE_SIZE = 10
 const userPage = ref(1)
@@ -73,16 +70,6 @@ async function goUsagePage(p) {
 }
 
 // 页码数组（超过 7 页用省略号折叠）
-function pageNumbers(current, total) {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
-  const pages = [1]
-  if (current > 3) pages.push('…')
-  for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) pages.push(i)
-  if (current < total - 2) pages.push('…')
-  pages.push(total)
-  return pages
-}
-
 // —— 柱状图（纯 CSS，全量 7 天） ——
 const maxTokens = computed(() => Math.max(1, ...usage.value.map((d) => d.tokens || 0)))
 function barHeight(tokens) {
