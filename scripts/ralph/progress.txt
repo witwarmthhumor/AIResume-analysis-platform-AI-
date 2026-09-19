@@ -60,6 +60,15 @@ Started: 2026-09-18
 
 ## Log
 
+### 2026-09-19 · v3.7.1 全量代码质量修复（三路审计 77 条全修，CI 一次通过）
+
+- **P0×2 匿名越权（全轮最重）**：resumes 匿名上传不写 anonymous_id + 归属只判 `user_id IS NULL`；interviews `_get_session` 漏判 anonymous_id——匿名访客可读/删/操作他人数据。统一修法：`deps.owner_clause` / `matches_owner`（匿名 = user_id IS NULL **且** anonymous_id 相等），resumes/analyses/interviews 全部换用，配 2 个横向越权回归测试。教训：**"user_id 为空 = 匿名自己的"这个等式在多租户字段设计下天然不成立**。
+- **限流原子化**：`usage_service.acquire_limit_lock`（pg_advisory_xact_lock(hashtext(key)::bigint)），enforce_daily_limit 与 tools._run_tool_llm 先抢锁再 count——锁随事务释放，串行化 count→执行→记账窗口。
+- **两个自查出来的坑**：①interviews 断开补账第一版用 try/finally 包 delta 循环，**正常完成也触发**（多记 0-token），必须显式 `except GeneratorExit: ... raise`；②executor drain 哨兵在正常路径被主循环消费后，finally 再等一次 = 死等，必须 `sentinel_seen` 标志。
+- **审计报告并非全对**：tasks 接口"无鉴权"（parse/analyze 其实已有）、"v0.5 tag 缺失"、"httpx2 来历不明"三处与事实不符——报告要逐条核实再动手。
+- **CI 失败诊断**：pytest 步骤加 `--junitxml | tee` + 失败行转 `::error::` annotation，公开仓库无 gh 也能从 check-runs annotations 读失败明细。本机 Linux 容器复刻 CI 的网络在 Windows 上不稳（pip 0% CPU 挂死），复刻失败就直接让 CI 当验证环境。
+
+
 ### 2026-09-19 · v3.7 工程质量门禁 9/9 全部完成（CI 全绿 run 35380624972）
 
 - **7.1~7.3**：文档口径升版（11 工具/260 测试）；ruff format 收 26 文件 + pre-commit；requirements.lock 生成。**httpx2 反转**：它是 langsmith>=0.12 的正式依赖，"来路不明可卸载"的体检结论是错的——卸载后 pip check 立刻报缺依赖，装回并固定进 lock。
