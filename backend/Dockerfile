@@ -5,8 +5,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+COPY requirements.txt requirements.lock ./
+# 用 pip freeze 快照安装：镜像构建可复现，与 CI 同口径（requirements.txt 仅是宽松下限）
+RUN pip install --upgrade pip && pip install -r requirements.lock
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini .
