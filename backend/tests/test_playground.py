@@ -13,7 +13,9 @@ from app.services.kb_service import create_document, ingest_kb_document
 client = TestClient(app)
 
 _FAKE_VEC = [0.5] * 768  # 与库里向量同方向 → 相似度 1.0，稳定命中
-_DOC_TITLE = "pgtest-HashMap 原理测试"  # 标记前缀：清理只删本文件造的文档，预置语料不受影响
+_DOC_TITLE = (
+    "pgtest-HashMap 原理测试"  # 标记前缀：清理只删本文件造的文档，预置语料不受影响
+)
 
 
 @pytest.fixture(autouse=True)

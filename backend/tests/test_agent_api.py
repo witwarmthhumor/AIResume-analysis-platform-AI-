@@ -30,7 +30,9 @@ def _clean_agent():
     chat_create 记账，按动作类型过滤会漏；顺序执行下按「测试期间新增」过滤绝对精确。
     """
     with engine.begin() as conn:
-        snap = conn.execute(text("SELECT COALESCE(MAX(id), 0) FROM usage_logs")).scalar()
+        snap = conn.execute(
+            text("SELECT COALESCE(MAX(id), 0) FROM usage_logs")
+        ).scalar()
     yield
     aids = [c.value for c in client.cookies.jar if c.name == ANONYMOUS_COOKIE]
     owner_sql = (

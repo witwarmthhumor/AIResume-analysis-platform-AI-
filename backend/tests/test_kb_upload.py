@@ -71,7 +71,9 @@ def test_anonymous_dedup_isolated_between_users():
 
     # 各自列表里恰好看到自己那一份（按测试文件名过滤，忽略预置语料）
     mine_a = [
-        d for d in alice.get("/api/kb/documents").json() if d["title"] == "kbup-note.txt"
+        d
+        for d in alice.get("/api/kb/documents").json()
+        if d["title"] == "kbup-note.txt"
     ]
     mine_b = [
         d for d in bob.get("/api/kb/documents").json() if d["title"] == "kbup-note.txt"
