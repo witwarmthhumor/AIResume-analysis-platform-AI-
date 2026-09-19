@@ -2,7 +2,7 @@
 /* AgentWidget —— 管理端右下角悬浮 AI 客服（v3.4，仅 admin 由 App 挂载）
    收起：56px 青绿气泡；展开：轻遮罩 + 400px 浮层，内嵌 AgentChatCore(compact)。
    历史会话持久化：头部「历史」下拉切换、「新建」开新会话。 */
-import { nextTick, ref } from 'vue'
+import { ref } from 'vue'
 import { del, get, post } from '../../api.js'
 import AgentChatCore from './AgentChatCore.vue'
 
@@ -11,6 +11,7 @@ const sessions = ref([])
 const activeId = ref(null)
 const showHistory = ref(false)
 const loaded = ref(false)
+const widgetError = ref('')
 
 async function loadSessions() {
   try {
@@ -20,13 +21,12 @@ async function loadSessions() {
   }
 }
 
-async function toggle() {
+function toggle() {
   open.value = !open.value
   if (open.value && !loaded.value) {
     loaded.value = true
     loadSessions()
   }
-  await nextTick()
 }
 
 function close() {
@@ -35,13 +35,14 @@ function close() {
 }
 
 async function newSession() {
+  widgetError.value = ''
   try {
     const s = await post('/api/agent/sessions', {})
     sessions.value.unshift(s)
     activeId.value = s.id
     showHistory.value = false
-  } catch {
-    /* 忽略 */
+  } catch (e) {
+    widgetError.value = e.message || '创建对话失败' // 失败必须可见，不能静默吞掉
   }
 }
 
@@ -53,9 +54,14 @@ function pick(s) {
 async function remove(s, evt) {
   evt.stopPropagation()
   if (!confirm(`删除对话「${s.title}」？`)) return
-  await del(`/api/agent/sessions/${s.id}`)
-  sessions.value = sessions.value.filter((x) => x.id !== s.id)
-  if (activeId.value === s.id) activeId.value = null
+  widgetError.value = ''
+  try {
+    await del(`/api/agent/sessions/${s.id}`)
+    sessions.value = sessions.value.filter((x) => x.id !== s.id)
+    if (activeId.value === s.id) activeId.value = null
+  } catch (e) {
+    widgetError.value = e.message || '删除失败'
+  }
 }
 
 function onSessionCreated(s) {
@@ -107,6 +113,7 @@ function onSessionCreated(s) {
         </div>
       </div>
 
+      <p v-if="widgetError" class="aw-error">{{ widgetError }}</p>
       <div class="aw-body">
         <AgentChatCore
           :session-id="activeId"
@@ -281,3 +288,12 @@ function onSessionCreated(s) {
   padding: 12px;
 }
 </style>
+
+.aw-error {
+  margin: 0;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: #b91c1c;
+  background: #fef2f2;
+  border-top: 1px solid #fecaca;
+}

@@ -1,6 +1,6 @@
 <script setup>
-import { nextTick, onMounted, ref, watch } from 'vue'
-import { post, streamChat } from '../api.js'
+import { nextTick, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
+import { parseSseBlock, post, streamChat } from '../api.js'
 import InterviewReport from './InterviewReport.vue'
 
 const props = defineProps({ resume: { type: Object, required: true } })
@@ -14,6 +14,8 @@ const finishing = ref(false)
 const error = ref('')
 const chatBox = ref(null)
 const positionType = ref('')  // '' / intern / fresh / senior
+let activeAbort = null // 流的 abort 句柄：组件卸载/失活（关闭面试/切视图）时中止后台流
+let streamMsgId = null // 当前流式回答的消息 id：error 时按 id 定位删除，避免误删其他消息
 
 const STAGES = { intro: '自我介绍', technical: '技术问答', deep_dive: '深入追问', wrapup: '收尾' }
 const POSITIONS = [
@@ -40,20 +42,23 @@ async function startOrResume() {
 }
 
 function handleEvent(block) {
-  const event = block.match(/^event: (.+)$/m)?.[1]
-  const dataLine = block.match(/^data: (.+)$/m)?.[1]
-  if (!event || !dataLine) return
-  const data = JSON.parse(dataLine)
+  const parsed = parseSseBlock(block)
+  if (!parsed || !parsed.data) return // 畸形块：跳过，不中断整条流
+  const { event, data } = parsed
   if (event === 'meta') {
-    messages.value.push({ id: `stream-${Date.now()}`, role: 'interviewer', content: '' })
+    streamMsgId = `stream-${Date.now()}`
+    messages.value.push({ id: streamMsgId, role: 'interviewer', content: '' })
   } else if (event === 'delta') {
-    messages.value[messages.value.length - 1].content += data.content
+    const last = messages.value[messages.value.length - 1]
+    if (last) last.content += data.content || ''
   } else if (event === 'done') {
     session.value.turn_count = data.turn
     session.value.stage = data.stage
   } else if (event === 'error') {
     error.value = data.content
-    messages.value.pop()
+    // 只移除"当前这条还没写出内容"的流式消息；已流出部分内容或错位时保留，避免误删
+    const idx = messages.value.findIndex((m) => m.id === streamMsgId)
+    if (idx >= 0 && !messages.value[idx].content) messages.value.splice(idx, 1)
   }
 }
 
@@ -65,7 +70,8 @@ async function send() {
   streaming.value = true
   error.value = ''
   try {
-    const { reader } = streamChat(`/api/interviews/${session.value.id}/messages`, { content })
+    const { reader, abort } = streamChat(`/api/interviews/${session.value.id}/messages`, { content })
+    activeAbort = abort
     const stream = await reader
     const decoder = new TextDecoder()
     let buffer = ''
@@ -83,8 +89,9 @@ async function send() {
       }
     }
   } catch (e) {
-    error.value = e.message || '网络异常，请重试'
+    if (e?.name !== 'AbortError') error.value = e.message || '网络异常，请重试'
   } finally {
+    activeAbort = null
     streaming.value = false
   }
 }
@@ -106,8 +113,11 @@ function isStreamingNow(message) {
   return streaming.value && message === messages.value[messages.value.length - 1]
 }
 
-watch(messages, async () => { await nextTick(); if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight }, { deep: true })
+// 只 watch 长度：流式期间每个 token 的内容增长由 send 循环内滚动，deep watch 会每 token 全量遍历
+watch(() => messages.value.length, async () => { await nextTick(); if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight })
 onMounted(startOrResume)
+onBeforeUnmount(() => activeAbort?.())
+onDeactivated(() => activeAbort?.())
 </script>
 
 <template>
@@ -122,7 +132,10 @@ onMounted(startOrResume)
       </div>
       <button class="btn btn-ghost" @click="emit('close')">返回简历</button>
     </div>
-    <p v-if="error" class="msg error">{{ error }}</p>
+    <p v-if="error" class="msg error">
+      {{ error }}
+      <button v-if="!session && !loading" class="btn btn-ghost" @click="startOrResume">重试</button>
+    </p>
     <div v-if="loading" class="setup">
       <p class="loading">正在恢复面试会话…</p>
     </div>

@@ -3,8 +3,8 @@
    只负责：消息列表（含工具调用过程）、输入框、SSE 流式。
    会话侧栏/悬浮外壳由父组件（AgentChatView / AgentWidget）提供。
    父组件通过 :session-id 指定当前会话；无会话时发送会自动新建并 emit session-created。 */
-import { nextTick, ref, watch } from 'vue'
-import { get, post, streamChat } from '../../api.js'
+import { nextTick, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
+import { get, parseSseBlock, post, streamChat } from '../../api.js'
 
 const props = defineProps({
   sessionId: { type: [Number, null], default: null },
@@ -18,6 +18,8 @@ const streaming = ref(false)
 const error = ref('')
 const chatBox = ref(null)
 let currentSessionId = props.sessionId
+let activeAbort = null // 当前流的 abort 句柄：切会话/组件卸载时中止后台空转的流
+let loadSeq = 0 // 历史消息加载序号守卫：快速连点会话时"先发慢回"的旧响应不得覆盖新状态
 
 // 工具名 → 中文名（与后端 make_tools 的 11 个工具一一对应）
 // 不在表内的工具名原样显示，保证新增工具不会显示为空
@@ -46,11 +48,13 @@ async function scrollBottom() {
 }
 
 async function loadMessages(sid) {
+  const seq = ++loadSeq // 只有最新一次加载允许写状态，竞态旧响应直接丢弃
   messages.value = []
   error.value = ''
   if (!sid) return
   try {
     const rows = await get(`/api/agent/sessions/${sid}/messages`)
+    if (seq !== loadSeq) return
     messages.value = rows.map((m) => ({
       id: m.id,
       role: m.role,
@@ -61,6 +65,7 @@ async function loadMessages(sid) {
     }))
     scrollBottom()
   } catch (e) {
+    if (seq !== loadSeq) return
     error.value = e.message || '历史消息加载失败'
   }
 }
@@ -89,10 +94,9 @@ async function ensureSession() {
 
 // —— SSE 事件 ——
 function handleEvent(block) {
-  const event = block.match(/^event: (.+)$/m)?.[1]
-  const dataLine = block.match(/^data: (.+)$/m)?.[1]
-  if (!event || !dataLine) return
-  const data = JSON.parse(dataLine)
+  const parsed = parseSseBlock(block)
+  if (!parsed || !parsed.data) return // 无 data 或畸形块：跳过，不中断整条流
+  const { event, data } = parsed
   const last = messages.value[messages.value.length - 1]
 
   if (event === 'meta') {
@@ -109,7 +113,7 @@ function handleEvent(block) {
       step.running = false
     }
   } else if (event === 'delta') {
-    if (last) last.content += data.content
+    if (last) last.content += data.content || '' // 兜底空 delta，防止拼出字面 "undefined"
   } else if (event === 'done') {
     if (last) {
       last.content = data.content || last.content
@@ -132,16 +136,19 @@ async function send() {
   if (!content || streaming.value) return
   if (!(await ensureSession())) return
 
+  const sentSessionId = currentSessionId // 流的归属会话快照：中途切换会话即中止旧流
   input.value = ''
   messages.value.push({ id: `u-${Date.now()}`, role: 'user', content, toolSteps: [], citations: [], loading: false })
   streaming.value = true
   error.value = ''
   try {
-    const { reader } = streamChat('/api/agent/ask', { content, session_id: currentSessionId })
+    const { reader, abort } = streamChat('/api/agent/ask', { content, session_id: sentSessionId })
+    activeAbort = abort
     const stream = await reader
     const decoder = new TextDecoder()
     let buffer = ''
     while (true) {
+      if (currentSessionId !== sentSessionId) { activeAbort?.(); break } // 已切走：旧流立即中止
       const { done, value } = await stream.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
@@ -149,6 +156,7 @@ async function send() {
       while ((boundary = buffer.indexOf('\n\n')) >= 0) {
         const block = buffer.slice(0, boundary)
         buffer = buffer.slice(boundary + 2)
+        if (currentSessionId !== sentSessionId) break // 事件也只写入归属会话
         handleEvent(block)
         scrollBottom()
       }
@@ -157,14 +165,19 @@ async function send() {
     if (last) last.loading = false
     emit('title-updated')
   } catch (e) {
-    error.value = e.message || '网络异常，请重试'
+    if (e?.name !== 'AbortError') error.value = e.message || '网络异常，请重试'
     const last = messages.value[messages.value.length - 1]
     if (last) last.loading = false
   } finally {
+    activeAbort = null
     streaming.value = false
     scrollBottom()
   }
 }
+
+// 组件卸载（悬浮窗关闭）或 KeepAlive 失活（切走视图）时中止后台流，不再空转写废弃状态
+onBeforeUnmount(() => activeAbort?.())
+onDeactivated(() => activeAbort?.())
 
 const suggestions = ['synchronized 和 ReentrantLock 区别？', '什么是 RAG？', 'MySQL 索引为什么用 B+ 树？']
 </script>

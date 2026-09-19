@@ -1,6 +1,6 @@
 <script setup>
-import { nextTick, onMounted, ref } from 'vue'
-import { del, get, post, streamChat } from '../api.js'
+import { nextTick, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue'
+import { del, get, parseSseBlock, post, streamChat } from '../api.js'
 
 // —— 会话管理 ——
 const sessions = ref([])
@@ -15,6 +15,8 @@ const input = ref('')
 const streaming = ref(false)
 const error = ref('')
 const chatBox = ref(null)
+let activeAbort = null // 当前流的 abort 句柄：切会话/组件失活时中止后台流
+let loadSeq = 0 // 历史消息加载序号守卫：快速连点会话时旧响应不得覆盖新状态
 
 async function loadSessions() {
   sessionsLoading.value = true
@@ -42,12 +44,17 @@ async function newSession() {
 
 async function selectSession(s) {
   if (s.id === activeSessionId.value) return
+  if (streaming.value) activeAbort?.() // 切走即中止旧流：事件只属于归属会话，不再串台
+  const seq = ++loadSeq
   activeSessionId.value = s.id
   messages.value = []
   error.value = ''
   try {
-    messages.value = await get(`/api/chat/sessions/${s.id}/messages`)
+    const rows = await get(`/api/chat/sessions/${s.id}/messages`)
+    if (seq !== loadSeq) return // 竞态旧响应：丢弃
+    messages.value = rows
   } catch (e) {
+    if (seq !== loadSeq) return
     error.value = e.message || '历史消息加载失败'
   }
   await nextTick()
@@ -70,10 +77,9 @@ async function deleteSession(s) {
 
 // —— SSE 事件解析（复用 Playground 逻辑） ——
 function handleEvent(block, last) {
-  const event = block.match(/^event: (.+)$/m)?.[1]
-  const dataLine = block.match(/^data: (.+)$/m)?.[1]
-  if (!event || !dataLine) return
-  const data = JSON.parse(dataLine)
+  const parsed = parseSseBlock(block)
+  if (!parsed || !parsed.data) return // 畸形块：跳过，不中断整条流
+  const { event, data } = parsed
   if (event === 'meta') {
     messages.value.push({ id: `assistant-${Date.now()}`, role: 'assistant', content: '', citations: [], error: false })
   } else if (event === 'delta') {
@@ -100,16 +106,19 @@ async function send() {
   }
 
   input.value = ''
+  const sentSessionId = activeSessionId.value // 流的归属会话快照：中途切会话即中止旧流
   messages.value.push({ id: `user-${Date.now()}`, role: 'user', content })
   streaming.value = true
   error.value = ''
   try {
-    const { reader } = streamChat('/api/playground/ask', { content, session_id: activeSessionId.value })
+    const { reader, abort } = streamChat('/api/playground/ask', { content, session_id: sentSessionId })
+    activeAbort = abort
     const stream = await reader
     const decoder = new TextDecoder()
     let buffer = ''
     const last = { value: null }
     while (true) {
+      if (activeSessionId.value !== sentSessionId) { activeAbort?.(); break } // 已切走：旧流立即中止
       const { done, value } = await stream.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
@@ -117,6 +126,7 @@ async function send() {
       while ((boundary = buffer.indexOf('\n\n')) >= 0) {
         const block = buffer.slice(0, boundary)
         buffer = buffer.slice(boundary + 2)
+        if (activeSessionId.value !== sentSessionId) break // 事件只写入归属会话
         handleEvent(block, last)
         last.value = messages.value[messages.value.length - 1]
         await nextTick()
@@ -126,13 +136,16 @@ async function send() {
     // 发送完成后刷新会话列表（标题可能已更新）
     loadSessions()
   } catch (e) {
-    error.value = e.message || '网络异常，请重试'
+    if (e?.name !== 'AbortError') error.value = e.message || '网络异常，请重试'
   } finally {
+    activeAbort = null
     streaming.value = false
   }
 }
 
 onMounted(loadSessions)
+onBeforeUnmount(() => activeAbort?.())
+onDeactivated(() => activeAbort?.())
 </script>
 
 <template>

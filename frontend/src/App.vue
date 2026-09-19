@@ -15,6 +15,7 @@ import ProfileView from './components/ProfileView.vue'
 const activeView = ref('home') // home / chat / history / admin
 const collapsed = ref(false)
 const viewRef = ref(null) // 动态组件实例引用，用于调用 HomeView.refreshList
+const viewEpoch = ref(0) // 登录/登出时 +1：重挂载全部视图，清空 KeepAlive 里的跨账号缓存
 
 // —— 用户与登录 ——
 const currentUser = ref(null)
@@ -85,9 +86,10 @@ async function logout() {
     currentUser.value = null
     showLogin.value = false
     showUserMenu.value = false
-    if (['history', 'admin', 'kb-admin', 'profile', 'chat'].includes(activeView.value)) {
+    if (['history', 'admin', 'kb-admin', 'profile', 'chat', 'agent'].includes(activeView.value)) {
       activeView.value = 'home'
     }
+    viewEpoch.value += 1 // 重挂载全部视图：KeepAlive 里缓存的上一账号状态必须清空
     viewRef.value?.refreshList?.()
   }
 }
@@ -95,6 +97,7 @@ async function logout() {
 function onLoggedIn(user) {
   currentUser.value = user
   showLogin.value = false
+  viewEpoch.value += 1 // 换账号登录同样重挂载，避免读到上个账号的会话缓存
   viewRef.value?.refreshList?.()
 }
 
@@ -170,7 +173,7 @@ onMounted(loadUser)
         <div class="page" :class="{ wide: ['admin', 'agent', 'profile'].includes(activeView) }">
           <!-- 视图统一保活切换 -->
           <KeepAlive>
-            <component :is="currentViewComponent" ref="viewRef" @logout="logout" />
+            <component :is="currentViewComponent" :key="viewEpoch" ref="viewRef" @logout="logout" />
           </KeepAlive>
         </div>
       </main>

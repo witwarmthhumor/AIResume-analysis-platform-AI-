@@ -60,3 +60,21 @@ export function streamChat(url, body) {
     abort: () => controller.abort(),
   }
 }
+/* 解析一个 SSE 事件块：按 SSE 规范聚合多行 data:，JSON 失败返回 null。
+   返回 { event, data }；无 data 行时 data 为 null。畸形块（代理截断等）
+   由调用方跳过，绝不让单个坏块中断整条流。 */
+export function parseSseBlock(block) {
+  const event = block.match(/^event:\s?(.+)$/m)?.[1]
+  if (!event) return null
+  const data = block
+    .split('\n')
+    .filter((l) => l.startsWith('data:'))
+    .map((l) => l.replace(/^data: ?/, ''))
+    .join('\n')
+  if (!data) return { event, data: null }
+  try {
+    return { event, data: JSON.parse(data) }
+  } catch {
+    return null
+  }
+}
