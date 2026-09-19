@@ -60,6 +60,15 @@ Started: 2026-09-18
 
 ## Log
 
+### 2026-09-19 · v3.7 工程质量门禁 9/9 全部完成（CI 全绿 run 35380624972）
+
+- **7.1~7.3**：文档口径升版（11 工具/260 测试）；ruff format 收 26 文件 + pre-commit；requirements.lock 生成。**httpx2 反转**：它是 langsmith>=0.12 的正式依赖，"来路不明可卸载"的体检结论是错的——卸载后 pip check 立刻报缺依赖，装回并固定进 lock。
+- **7.4 测试隔离（最大单项）**：10 文件全表 DELETE → 专属标记清理；5 处全局 count 断言改归属者口径；agent_api/chat 的 usage_logs 用 **id 快照兜底**（匿名 aid 会被服务端轮换，按 aid 追踪必漏——残留 pair 模式就是轮换证据）。验收=连跑两次全量 260 passed 且所有表零残留。
+- **7.5**：prod compose backend 键去重；nginx 6m/gzip/安全头，413 A/B 实测消失；README 标注单 worker 限定。
+- **7.6/7.7**：推送 main+tags；CI 上线。**CI 三轮修复的教训（全部靠"全保真复刻环境"定位，不要盲改盲推）**：干净 git clone（无 .env/.venv）+ 全新 pg/redis 容器 + 本机 Linux 容器 `--network host` = 与 GitHub runner 等价的复现环境。三个真问题：① 测试硬编码 +08:00 时间戳 → UTC 下日期窗口错位，一律用 `_TZO = datetime.now().astimezone().strftime("%z")` 构造；② 多个测试隐性依赖本地 .env 的 AI 配置（ai_client 前置检查直接拒绝）→ monkeypatch 假配置/补 chat_json 替身；③ **全新库首个注册用户自动提权 admin**（auth.py 引导设计）——admin_kb 的 403 测试在空库必挂，先造占位用户占掉首位。
+- **7.8/7.9**：覆盖率基线 89% 记录入规划；v0.5 tag 核实为探索报告误报（一直在位）。
+- 下次注意：① Git Bash 传给 docker 的路径——`-v` 源用 `cygpath -w`，其余加 `MSYS_NO_PATHCONV=1`，否则挂载静默失效（容器里跑默认配置还以为改坏了）；② 写任何依赖"数据库现状"的断言前先想 CI 空库场景（首用户提权、预置语料不存在、.env 缺失三条都已踩过）；③ push 前先在复刻容器里跑一遍 pytest，2 分钟换一轮 CI 5 分钟 + 无效提交历史。
+
 ### 2026-09-18 · 收口止血（v3.6 发布一致性）9/9 story 全部完成
 
 - **US-001 合并**：工作区改动先 stash（prd/progress/规划/vite 四文件在 main 与 ralph 间有差异，脏工作区切不过去），`main` fast-forward 到 6424543，pop 恢复。合并前把 vite 8001 游离 diff 存档到 `archive/2026-09-18-vite-8001-workaround.patch`。合并后全量 pytest 247 passed + ruff 通过 + seed_kb_preset 恢复语料。
