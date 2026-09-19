@@ -215,17 +215,39 @@ def search_chunks_hybrid(
         chunk_map[chunk.id] = (chunk, title)
         similarity_map[chunk.id] = _cosine(chunk.embedding or [], query_embedding)
 
-    # —— 词法路：取可见语料的全部切块文本，建内存 BM25 索引 ——
-    all_rows = db.execute(base_query).all()
-    for chunk, title in all_rows:
-        chunk_map.setdefault(chunk.id, (chunk, title))
-
-    bm25 = Bm25Index([(chunk.id, chunk.content) for chunk, _title in all_rows])
+    # —— 词法路：只取轻量列建内存 BM25 索引 ——
+    # 不把 embedding 大列（768 浮点/块）拉进内存：它会让词法路的 IO/内存随语料量
+    # 线性膨胀，而 BM25 排序只需要 id+content；最终融合入选的词法块再按需补实体
+    lex_rows = db.execute(
+        select(
+            KBChunk.id,
+            KBChunk.content,
+            KBChunk.document_id,
+            KBChunk.seq,
+            KBDocument.title,
+        )
+        .join(KBDocument, KBChunk.document_id == KBDocument.id)
+        .where(
+            KBDocument.deleted_at.is_(None),
+            KBDocument.status == "ready",
+            _visible_clause(user_id, anonymous_id),
+        )
+    ).all()
+    bm25 = Bm25Index([(r.id, r.content) for r in lex_rows])
     lexical_hits = bm25.search(query_text, candidate_n)
     lexical_rank = {
         cid: rank for rank, (cid, _score) in enumerate(lexical_hits, start=1)
     }
     lexical_score = {cid: score for cid, score in lexical_hits}
+
+    # 词法入选但不在向量候选里的块：补取完整实体（含 embedding），保证融合结果的
+    # 相似度口径与渲染字段同纯向量路径完全一致（补取数量 ≤ candidate_n，量小）
+    need_full = set(lexical_rank) - set(vector_rank)
+    if need_full:
+        for chunk, title in db.execute(
+            _visible_ready_query(user_id, anonymous_id).where(KBChunk.id.in_(need_full))
+        ).all():
+            chunk_map[chunk.id] = (chunk, title)
 
     # —— RRF 融合 ——
     rrf_k = settings.kb_rrf_k

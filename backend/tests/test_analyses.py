@@ -183,7 +183,10 @@ def test_analyze_502_and_tombstone_on_ai_error(monkeypatch) -> None:
         assert conn.execute(text("SELECT valid_json FROM analyses")).scalar() is False
         assert (
             conn.execute(
-                text("SELECT count(*) FROM usage_logs WHERE anonymous_id = ANY(:a)"),
+                text(
+                    "SELECT count(*) FROM usage_logs "
+                    "WHERE anonymous_id = ANY(:a) AND action_type = 'analysis'"
+                ),
                 {"a": aids},
             ).scalar()
             == 1

@@ -198,8 +198,9 @@ def test_message_flow_sse_and_persistence(monkeypatch) -> None:
         row = conn.execute(
             text(
                 "SELECT action_type, tokens_total FROM usage_logs "
-                "WHERE anonymous_id = ANY(:a) "
-                "OR user_id IN (SELECT id FROM users WHERE email LIKE 'test-%')"
+                "WHERE (anonymous_id = ANY(:a) "
+                "OR user_id IN (SELECT id FROM users WHERE email LIKE 'test-interview-%')) "
+                "AND action_type = 'interview_message' ORDER BY id DESC"
             ),
             {"a": aids},
         ).fetchone()
@@ -272,13 +273,14 @@ def test_finish_generates_report_and_closes(monkeypatch) -> None:
         assert (
             conn.execute(
                 text(
-                    "SELECT count(*) FROM usage_logs WHERE anonymous_id = ANY(:a) "
-                    "OR user_id IN (SELECT id FROM users WHERE email LIKE 'test-%')"
+                    "SELECT count(*) FROM usage_logs WHERE (anonymous_id = ANY(:a) "
+                    "OR user_id IN (SELECT id FROM users WHERE email LIKE 'test-interview-%')) "
+                    "AND action_type = 'interview_message'"
                 ),
                 {"a": aids},
             ).scalar()
             == 2
-        )  # 1 条消息 + 1 次报告
+        )  # 1 条消息 + 1 次报告（上传的 parse 记账不算在内）
 
 
 def test_finish_requires_at_least_one_answer() -> None:

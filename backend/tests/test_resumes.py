@@ -10,6 +10,7 @@ from fpdf import FPDF
 from sqlalchemy import text
 
 from app.api.resumes import UPLOAD_DIR
+from app.core.config import settings
 from app.db.session import engine
 from app.main import app
 
@@ -41,14 +42,37 @@ def upload(data: bytes, filename: str = "rt-resume.pdf"):
 
 
 @pytest.fixture(autouse=True)
-def _clean_state():
-    """按标记清理本文件造的简历（文件名前缀 rt-）和 uploads/ 里的文件，真实数据不受影响。"""
+def _clean_state(monkeypatch):
+    """按标记清理本文件造的简历（rt- 前缀）；uploads/ 只删测试期间新增的文件。
+
+    - uploads/ 快照式清理：目录里存的是 {hash}.pdf，按文件名前缀过滤不可行，
+      快照差集既能清掉自造文件又不会误删手动上传的真实简历（P1 修复）。
+    - usage_logs 用 id 快照兜底（上传现在会记 parse 账），防跨文件计数残留。
+    - 抬高每日上传限额：本文件用例多，避免用例总数撞上真实限额（限额另有专测）。
+    """
+    monkeypatch.setattr(settings, "daily_upload_limit", 1000)
+    with engine.begin() as conn:
+        usage_snap = conn.execute(
+            text("SELECT COALESCE(MAX(id), 0) FROM usage_logs")
+        ).scalar()
+    uploads_before = {f.name for f in UPLOAD_DIR.iterdir() if f.is_file()}
     yield
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM resumes WHERE filename LIKE 'rt-%'"))
+        conn.execute(text("DELETE FROM usage_logs WHERE id > :s"), {"s": usage_snap})
     for f in UPLOAD_DIR.iterdir():
-        if f.is_file():
+        if f.is_file() and f.name not in uploads_before:
             f.unlink()
+
+
+def test_upload_daily_limit(monkeypatch) -> None:
+    """P1 回归：简历上传接入每日限额——超限 429，不再对匿名敞开无限上传。"""
+    monkeypatch.setattr(settings, "daily_upload_limit", 1)
+    first = upload(make_text_pdf(["limit test one content, enough text here"]))
+    assert first.status_code == 201
+    second = upload(make_text_pdf(["limit test two, a different body entirely"]))
+    assert second.status_code == 429
+    assert "每日上限" in second.json()["message"]
 
 
 def test_upload_text_pdf_returns_raw_text() -> None:

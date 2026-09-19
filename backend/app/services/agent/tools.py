@@ -61,7 +61,11 @@ from app.services.prompts import (
     build_job_match_prompt,
     build_question_gen_prompt,
 )
-from app.services.usage_service import count_today_usage_by_owner, write_usage
+from app.services.usage_service import (
+    acquire_limit_lock,
+    count_today_usage_by_owner,
+    write_usage,
+)
 
 logger = get_logger(__name__)
 
@@ -428,6 +432,8 @@ def _run_tool_llm(
     自己 try/except 组织。**失败的调用不记账**（重试仍受主循环 daily_agent_limit 约束）。
     """
     try:
+        # 原子化：与主循环限额同样的咨询锁，防并发突破工具内每日上限
+        acquire_limit_lock(db, _TOOL_LLM_ACTION, user_id, anonymous_id)
         used = count_today_usage_by_owner(
             db, _TOOL_LLM_ACTION, user_id=user_id, anonymous_id=anonymous_id
         )

@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import Cookie, HTTPException, Response
 from sqlalchemy.orm import Session
 
-from app.services.usage_service import count_today_usage_by_owner
+from app.services.usage_service import acquire_limit_lock, count_today_usage_by_owner
 
 ANONYMOUS_COOKIE = "anonymous_id"
 _COOKIE_MAX_AGE = 365 * 24 * 3600  # 一年，浏览器重装/清 cookie 后视为新用户
@@ -68,6 +68,8 @@ def enforce_daily_limit(
     传 user_id 时按登录身份计数（kb 上传等需要跨 cookie 生效的配额）；
     不传则按匿名 cookie 计数。
     """
+    # 原子化：先抢事务级咨询锁，把同归属者的 count→执行→记账 串行化（防并发超限）
+    acquire_limit_lock(db, action_type, user_id, anonymous_id)
     used = count_today_usage_by_owner(
         db, action_type, user_id=user_id, anonymous_id=anonymous_id
     )

@@ -9,18 +9,19 @@ import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.auth_deps import get_optional_current_user
-from app.api.deps import get_anonymous_id, owner_clause
+from app.api.deps import enforce_daily_limit, get_anonymous_id, owner_clause
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.resume import Resume
 from app.models.user import User
 from app.schemas.resume import ResumeDetail, ResumeOut, UploadResult
 from app.services.pdf_parser import PDF_MAGIC, ParseError, parse_pdf
+from app.services.usage_service import write_usage
 
 router = APIRouter(prefix="/api", tags=["resumes"])
 
@@ -33,6 +34,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 @router.post("/resumes", response_model=UploadResult, status_code=201)
 async def upload_resume(
     file: UploadFile,
+    request: Request,
     db: Session = Depends(get_db),  # noqa: B008  FastAPI 依赖注入官方惯用法
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
     anonymous_id: str = Depends(get_anonymous_id),
@@ -62,6 +64,15 @@ async def upload_resume(
         raise HTTPException(413, f"文件超过 {max_mb}MB 限制，请压缩后重新上传")
 
     file_hash = hashlib.sha256(data).hexdigest()
+
+    # 每日上传限额（含重复上传也计数：请求本身占了带宽与校验成本）
+    enforce_daily_limit(
+        db,
+        anonymous_id,
+        settings.daily_upload_limit,
+        "parse",
+        user_id=user.id if user else None,
+    )
 
     # 重复上传：hash 命中未删除的历史记录 → 直接复用，不重复解析（PROJECT-PLAN §3）。
     # 去重按归属者隔离（登录按 user_id、匿名按 anonymous_id）——匿名之间互不吞单
@@ -111,6 +122,16 @@ async def upload_resume(
     db.add(resume)
     db.commit()
     db.refresh(resume)
+    write_usage(
+        db,
+        anonymous_id=None if user is not None else anonymous_id,
+        user_id=user.id if user else None,
+        action_type="parse",
+        model_name=None,
+        tokens_total=None,
+        ip_address=request.client.host if request.client else None,
+    )
+    db.commit()
     return UploadResult(duplicate=False, resume=ResumeDetail.model_validate(resume))
 
 
