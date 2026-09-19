@@ -8,6 +8,7 @@ from app.db.session import SessionLocal
 from app.models.analysis import Analysis
 from app.models.kb import KBDocument
 from app.models.resume import Resume
+from app.models.usage_log import UsageLog
 from app.services.ai_client import analyze_resume as call_ai
 from app.services.kb_service import ingest_kb_document
 from app.services.pdf_parser import ParseError, parse_pdf
@@ -75,6 +76,18 @@ def analyze_resume(resume_id: int) -> dict[str, int | str]:
             duration_ms=result.duration_ms,
         )
         db.add(analysis)
+        # 异步路径同样记账（action 与同步分析一致），否则 worker 绕开用量统计
+        db.add(
+            UsageLog(
+                user_id=resume.user_id,
+                anonymous_id=resume.anonymous_id,
+                action_type="analysis",
+                model_name=result.model_name,
+                tokens_total=(result.tokens_prompt or 0)
+                + (result.tokens_completion or 0),
+                ip_address=None,
+            )
+        )
         db.commit()
         db.refresh(analysis)
         return {"resume_id": resume_id, "analysis_id": analysis.id, "status": "success"}

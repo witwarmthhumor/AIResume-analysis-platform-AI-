@@ -12,6 +12,8 @@ from typing import Any
 from fastapi import Cookie, HTTPException, Response
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+from app.models.chat import ChatSession
 from app.services.usage_service import acquire_limit_lock, count_today_usage_by_owner
 
 ANONYMOUS_COOKIE = "anonymous_id"
@@ -27,7 +29,12 @@ def get_anonymous_id(
         return anonymous_id
     new_id = uuid.uuid4().hex
     response.set_cookie(
-        ANONYMOUS_COOKIE, new_id, max_age=_COOKIE_MAX_AGE, httponly=True, samesite="lax"
+        ANONYMOUS_COOKIE,
+        new_id,
+        max_age=_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=settings.jwt_secure_cookie,  # 与登录 cookie 同口径：HTTPS 下不再明文
     )
     return new_id
 
@@ -54,6 +61,31 @@ def matches_owner(
     if user is not None:
         return record.user_id == user.id
     return record.user_id is None and record.anonymous_id == anonymous_id
+
+
+def get_owned_chat_session(
+    db: Session,
+    session_id: int,
+    user: Any,
+    anonymous_id: str | None,
+    session_type: str | None = None,
+) -> ChatSession:
+    """取归属者自己的对话会话，可选按 session_type 收窄；不存在/无权限一律 404。
+
+    chat（在线对话）与 agent（AI 客服）共用 chat_sessions 表，靠 session_type 区分；
+    chat/playground/agent 三处路由统一走这里，防止归属/类型校验的实现漂移。
+    """
+    session = db.get(ChatSession, session_id)
+    if session is None or session.deleted_at is not None:
+        raise HTTPException(404, "对话不存在")
+    if user is not None:
+        if session.user_id != user.id:
+            raise HTTPException(404, "对话不存在")
+    elif session.anonymous_id != anonymous_id:
+        raise HTTPException(404, "对话不存在")
+    if session_type is not None and session.session_type != session_type:
+        raise HTTPException(404, "对话不存在")
+    return session
 
 
 def enforce_daily_limit(

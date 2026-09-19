@@ -96,6 +96,7 @@ class Settings(BaseSettings):
     # 知识库上传配额：上传会触发切块+批量向量化（消耗 Ollama 资源），需与提问同等级别的限额
     daily_kb_upload_limit: int = 10  # 每人每日上传文档次数上限（按归属者统计）
     kb_max_documents_per_owner: int = 20  # 每个归属者名下（未删除）文档数上限
+    kb_max_pages: int = 50  # 知识库 PDF 页数上限（简历是 5 页，语料 PDF 允许更厚）
 
     # 运行环境：prod 时 JWT 弱默认密钥直接拒绝启动（dev 只告警，方便本地起服务）
     app_env: str = "dev"

@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.admin import _admin_only
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.kb import KBChunk, KBDocument
 from app.models.user import User
@@ -23,7 +24,7 @@ from app.worker.tasks import ingest_kb
 router = APIRouter(prefix="/api/admin/kb", tags=["admin_kb"])
 
 _TEXT_EXTENSIONS = {"txt", "md", "markdown"}
-_MAX_SIZE = 5 * 1024 * 1024  # 与普通上传一致，5MB
+# 大小上限走 settings（与简历上传同一口径），不再各写一份 5MB 魔法数字
 
 
 def _doc_out(
@@ -112,10 +113,10 @@ def upload_preset_document(
     filename = file.filename or "document.txt"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
-    if file.size is not None and file.size > _MAX_SIZE:
+    if file.size is not None and file.size > settings.upload_max_size:
         raise HTTPException(413, "文件超过 5MB 限制，请压缩后重新上传")
     data = file.file.read()
-    if len(data) > _MAX_SIZE:
+    if len(data) > settings.upload_max_size:
         raise HTTPException(413, "文件超过 5MB 限制，请压缩后重新上传")
 
     # 文档类型与正文抽取（与普通上传一致）
@@ -130,7 +131,7 @@ def upload_preset_document(
             raise HTTPException(415, "文件内容不是 PDF，请上传 .txt / .md / .pdf")
         doc_type = "pdf"
         try:
-            raw_text = parse_pdf(data, 50).text  # 预置文档允许更多页
+            raw_text = parse_pdf(data, settings.kb_max_pages).text  # 预置文档允许更多页
         except ParseError as exc:
             raise HTTPException(400, exc.message) from exc
     else:

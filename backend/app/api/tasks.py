@@ -14,7 +14,10 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 
 @router.post("/health-check")
-def submit_health_check() -> dict[str, str]:
+def submit_health_check(
+    user: User = Depends(get_current_user),  # noqa: B008
+) -> dict[str, str]:
+    """提交 Celery 联调任务需登录：这是无需业务数据的调试入口，不对外开放。"""
     task = health_check.delay()
     return {"task_id": task.id, "status": "pending"}
 
@@ -26,7 +29,7 @@ def submit_parse_resume(
     user: User = Depends(get_current_user),  # noqa: B008
 ) -> dict[str, str]:
     resume = db.get(Resume, resume_id)
-    if resume is None or resume.user_id != user.id:
+    if resume is None or resume.deleted_at is not None or resume.user_id != user.id:
         raise HTTPException(404, "简历记录不存在或已删除")
     task = parse_resume.delay(resume_id)
     return {"task_id": task.id, "status": "pending"}
@@ -39,7 +42,7 @@ def submit_analyze_resume(
     user: User = Depends(get_current_user),  # noqa: B008
 ) -> dict[str, str]:
     resume = db.get(Resume, resume_id)
-    if resume is None or resume.user_id != user.id:
+    if resume is None or resume.deleted_at is not None or resume.user_id != user.id:
         raise HTTPException(404, "简历记录不存在或已删除")
     task = analyze_resume.delay(resume_id)
     return {"task_id": task.id, "status": "pending"}

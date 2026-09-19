@@ -3,7 +3,7 @@
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -36,6 +36,10 @@ def _recent_failure_count(key: str, now: float) -> int:
     recent = [
         t for t in _login_failures.get(key, []) if now - t < _FAILURE_WINDOW_SECONDS
     ]
+    if not recent:
+        # 窗口全过期后连 key 一起删：恶意刷不同 IP:邮箱时字典不无限增长
+        _login_failures.pop(key, None)
+        return 0
     _login_failures[key] = recent
     return len(recent)
 
@@ -49,7 +53,9 @@ def register(
     db: Session = Depends(get_db),  # noqa: B008
 ) -> AuthResponse:
     email = str(credentials.email).lower()
-    # 首个注册用户自动成为 admin（P6 只读管理面板入口）
+    # 首个注册用户自动成为 admin（P6 管理面板引导入口）。并发首注可产生双 admin，
+    # 用事务级咨询锁串行化"查计数 → 插入"窗口
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtext('first-user')::bigint)"))
     is_first_user = db.scalar(select(func.count()).select_from(User)) == 0
     user = User(
         email=email,
@@ -61,6 +67,8 @@ def register(
         db.commit()
     except IntegrityError:
         db.rollback()
+        # 有意保留 409 明确话术：注册页不是防枚举的重点场景（登录侧已模糊化），
+        # 体验上明确告知"邮箱被占用"比含糊话术更有用——若要防枚举再统一调整
         raise HTTPException(409, "该邮箱已注册") from None
     db.refresh(user)
     response.set_cookie(ACCESS_COOKIE, create_access_token(user.id), **_COOKIE_KWARGS)

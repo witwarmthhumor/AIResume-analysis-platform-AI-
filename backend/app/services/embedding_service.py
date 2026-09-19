@@ -7,6 +7,21 @@ OpenAI 兼容协议：本地 Ollama 用 base_url=http://localhost:11434/v1 + 占
 
 from openai import OpenAI
 
+_client: OpenAI | None = None
+
+
+def _get_client() -> OpenAI:
+    """模块级复用 OpenAI 客户端：每次调用新建连接池开销大（settings 运行期不变）。"""
+    global _client
+    if _client is None:
+        _client = OpenAI(
+            base_url=settings.embedding_base_url,
+            api_key=settings.embedding_api_key,
+            timeout=60.0,
+        )
+    return _client
+
+
 from app.core.config import settings
 from app.core.logging import get_logger
 
@@ -28,11 +43,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     """
     if not texts:
         return []
-    client = OpenAI(
-        base_url=settings.embedding_base_url,
-        api_key=settings.embedding_api_key,
-        timeout=60.0,
-    )
+    client = _get_client()
     try:
         resp = client.embeddings.create(
             model=settings.embedding_model, input=list(texts)

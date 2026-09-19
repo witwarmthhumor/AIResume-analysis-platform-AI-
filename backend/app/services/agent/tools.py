@@ -782,8 +782,9 @@ def make_tools(
             return "当前会话无法识别用户身份，查不到个人分析报告。请提示用户先登录后再提问。"
 
         try:
-            rows = db.scalars(
-                select(Resume)
+            # 只取 id+filename：无 limit 全量拉含 raw_text 大字段的实体只为文件名匹配，太重
+            rows = db.execute(
+                select(Resume.id, Resume.filename)
                 .where(Resume.deleted_at.is_(None), owner)
                 .order_by(Resume.created_at.desc(), Resume.id.desc())
             ).all()

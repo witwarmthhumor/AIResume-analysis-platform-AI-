@@ -30,7 +30,6 @@ from app.worker.tasks import ingest_kb
 router = APIRouter(prefix="/api/kb", tags=["knowledge_base"])
 
 _TEXT_EXTENSIONS = {"txt", "md", "markdown"}
-_MAX_SIZE = 5 * 1024 * 1024  # 与简历上传一致，5MB
 
 
 def _owner_clause(user: User | None, anonymous_id: str | None):
@@ -91,10 +90,10 @@ def upload_kb_document(
     filename = file.filename or "document.txt"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
-    if file.size is not None and file.size > _MAX_SIZE:
+    if file.size is not None and file.size > settings.upload_max_size:
         raise HTTPException(413, "文件超过 5MB 限制，请压缩后重新上传")
     data = file.file.read()
-    if len(data) > _MAX_SIZE:
+    if len(data) > settings.upload_max_size:
         raise HTTPException(413, "文件超过 5MB 限制，请压缩后重新上传")
 
     # 文档类型与正文抽取

@@ -6,13 +6,13 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.auth_deps import get_optional_current_user
-from app.api.deps import enforce_daily_limit, get_anonymous_id
+from app.api.deps import enforce_daily_limit, get_anonymous_id, get_owned_chat_session
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.chat import ChatMessage, ChatSession
@@ -33,16 +33,7 @@ def _get_owned_session(
     db: Session, session_id: int, user: User | None, anonymous_id: str
 ) -> ChatSession:
     """取会话并校验归属，不存在或无权限 → 404（不泄露存在性）。"""
-    session = db.get(ChatSession, session_id)
-    if session is None or session.deleted_at is not None:
-        raise HTTPException(404, "对话不存在")
-    if user:
-        if session.user_id != user.id:
-            raise HTTPException(404, "对话不存在")
-    else:
-        if session.anonymous_id != anonymous_id:
-            raise HTTPException(404, "对话不存在")
-    return session
+    return get_owned_chat_session(db, session_id, user, anonymous_id)
 
 
 @router.get("/sessions")

@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ai
       POSTGRES_DB: ai_interview
     ports:
-      - "5432:5432" # 宿主机端口:容器端口，后端通过 localhost:5432 连接
+      - "127.0.0.1:5432:5432" # 宿主机端口:容器端口，后端通过 localhost:5432 连接
     volumes:
       - pgdata:/var/lib/postgresql/data # 具名卷：容器重建后数据仍在
     healthcheck:
@@ -24,7 +24,7 @@ services:
     image: ollama/ollama:latest
     container_name: ai-interview-ollama
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama_data:/root/.ollama # 模型文件持久化，重建容器不重复下载
     healthcheck:
@@ -38,7 +38,7 @@ services:
     container_name: ai-interview-redis
     command: redis-server --appendonly yes
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:

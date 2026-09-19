@@ -96,9 +96,11 @@ async def validation_handler(request: Request, exc: Exception) -> JSONResponse:
         loc = ".".join(str(x) for x in first.get("loc", []) if x != "body")
         msg = first.get("msg", "参数校验失败")
         text = f"{loc}: {msg}" if loc else msg
+        # details 只留 loc/msg：exc.errors() 会回显用户原始 input，响应里没必要带
+        slim = [{"loc": e.get("loc"), "msg": e.get("msg")} for e in exc.errors()]
         return JSONResponse(
             status_code=422,
-            content=_error_body("validation_error", text, details=exc.errors()),
+            content=_error_body("validation_error", text, details=slim),
         )
     return await unhandled_handler(request, exc)
 
