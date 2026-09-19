@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.auth_deps import get_optional_current_user
+from app.api.deps import get_anonymous_id, owner_clause
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.resume import Resume
@@ -34,8 +35,13 @@ async def upload_resume(
     file: UploadFile,
     db: Session = Depends(get_db),  # noqa: B008  FastAPI 依赖注入官方惯用法
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
+    anonymous_id: str = Depends(get_anonymous_id),
 ) -> UploadResult:
-    """上传简历：校验 → hash 去重 → 解析落库。重复文件返回 duplicate=true。"""
+    """上传简历：校验 → hash 去重 → 解析落库。重复文件返回 duplicate=true。
+
+    匿名上传必须写入 anonymous_id：详情/删除的归属判断依赖它区分
+    「谁的匿名简历」，漏写会造成匿名用户横向越权（可读删他人记录）。
+    """
     # 大小预检（读文件之前）：Starlette 会把整个请求体收进临时文件，
     # 不预检的话超大文件仍会被完整接收一遍才被 413 拒掉
     max_mb = settings.upload_max_size // (1024 * 1024)
@@ -57,15 +63,13 @@ async def upload_resume(
 
     file_hash = hashlib.sha256(data).hexdigest()
 
-    # 重复上传：hash 命中未删除的历史记录 → 直接复用，不重复解析（PROJECT-PLAN §3）
-    ownership = (
-        Resume.user_id == user.id if user is not None else Resume.user_id.is_(None)
-    )
+    # 重复上传：hash 命中未删除的历史记录 → 直接复用，不重复解析（PROJECT-PLAN §3）。
+    # 去重按归属者隔离（登录按 user_id、匿名按 anonymous_id）——匿名之间互不吞单
     existing = db.scalar(
         select(Resume).where(
             Resume.file_hash == file_hash,
             Resume.deleted_at.is_(None),
-            ownership,
+            owner_clause(Resume, user, anonymous_id),
         )
     )
     if existing is not None:
@@ -94,6 +98,7 @@ async def upload_resume(
 
     resume = Resume(
         user_id=user.id if user is not None else None,
+        anonymous_id=None if user is not None else anonymous_id,
         filename=filename,
         file_hash=file_hash,
         storage_path=str(storage_path),
@@ -113,13 +118,13 @@ async def upload_resume(
 def list_resumes(
     db: Session = Depends(get_db),  # noqa: B008
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
+    anonymous_id: str = Depends(get_anonymous_id),
 ) -> list[Resume]:
-    """历史列表：登录用户只能看到自己的简历，匿名阶段保持原有兼容行为。"""
-    query = select(Resume).where(Resume.deleted_at.is_(None))
-    if user is not None:
-        query = query.where(Resume.user_id == user.id)
-    else:
-        query = query.where(Resume.user_id.is_(None))
+    """历史列表：登录用户只能看到自己的简历，匿名用户只能看到自己的匿名简历。"""
+    query = select(Resume).where(
+        Resume.deleted_at.is_(None),
+        owner_clause(Resume, user, anonymous_id),
+    )
     return list(db.scalars(query.order_by(Resume.created_at.desc(), Resume.id.desc())))
 
 
@@ -128,14 +133,17 @@ def get_resume(
     resume_id: int,
     db: Session = Depends(get_db),  # noqa: B008
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
+    anonymous_id: str = Depends(get_anonymous_id),
 ) -> Resume:
-    """详情：登录用户只能访问自己的记录，跨用户统一返回 404。"""
+    """详情：仅归属者可见（登录按 user_id、匿名按 anonymous_id），跨用户统一 404。"""
     resume = db.get(Resume, resume_id)
     if resume is None or resume.deleted_at is not None:
         raise HTTPException(404, "简历记录不存在或已删除")
     if user is not None and resume.user_id != user.id:
         raise HTTPException(404, "简历记录不存在或已删除")
-    if user is None and resume.user_id is not None:
+    if user is None and (
+        resume.user_id is not None or resume.anonymous_id != anonymous_id
+    ):
         raise HTTPException(404, "简历记录不存在或已删除")
     return resume
 
@@ -145,14 +153,17 @@ def delete_resume(
     resume_id: int,
     db: Session = Depends(get_db),  # noqa: B008
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
+    anonymous_id: str = Depends(get_anonymous_id),
 ) -> None:
-    """软删除（P7 隐私入口）：置 deleted_at，数据保留可审计。仅本人可删。"""
+    """软删除（P7 隐私入口）：置 deleted_at，数据保留可审计。仅归属者可删。"""
     resume = db.get(Resume, resume_id)
     if resume is None or resume.deleted_at is not None:
         raise HTTPException(404, "简历记录不存在或已删除")
     if user is not None and resume.user_id != user.id:
         raise HTTPException(404, "简历记录不存在或已删除")
-    if user is None and resume.user_id is not None:
+    if user is None and (
+        resume.user_id is not None or resume.anonymous_id != anonymous_id
+    ):
         raise HTTPException(404, "简历记录不存在或已删除")
     resume.deleted_at = datetime.now(timezone.utc)
     db.commit()

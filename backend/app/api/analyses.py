@@ -56,7 +56,10 @@ def analyze_resume_endpoint(
         raise HTTPException(404, "简历记录不存在或已删除")
     if user is not None and resume.user_id != user.id:
         raise HTTPException(404, "简历记录不存在或已删除")
-    if user is None and resume.user_id is not None:
+    # 匿名归属必须同时校验 user_id 为空且 anonymous_id 相等，防匿名横向越权
+    if user is None and (
+        resume.user_id is not None or resume.anonymous_id != anonymous_id
+    ):
         raise HTTPException(404, "简历记录不存在或已删除")
     if resume.parse_status != "success" or not resume.raw_text:
         raise HTTPException(400, "该简历未成功解析出文本，无法发起 AI 分析")
@@ -99,9 +102,12 @@ def analyze_resume_endpoint(
     return AnalysisResultOut(cached=False, analysis=_to_out(analysis))
 
 
-def _get_owned_resume(db: Session, resume_id: int, user: User | None) -> Resume:
+def _get_owned_resume(
+    db: Session, resume_id: int, user: User | None, anonymous_id: str | None = None
+) -> Resume:
     """取"本人可见"的简历：不存在 / 已软删 / 非本人 / 匿名查登录用户的简历，一律 404。
 
+    匿名归属同时校验 user_id 为空且 anonymous_id 相等（防匿名横向越权）。
     统一 404 而非 403 是有意为之——不向调用方泄露"这条记录存在但不是你的"。
     """
     resume = db.get(Resume, resume_id)
@@ -109,7 +115,9 @@ def _get_owned_resume(db: Session, resume_id: int, user: User | None) -> Resume:
         raise HTTPException(404, "简历记录不存在或已删除")
     if user is not None and resume.user_id != user.id:
         raise HTTPException(404, "简历记录不存在或已删除")
-    if user is None and resume.user_id is not None:
+    if user is None and (
+        resume.user_id is not None or resume.anonymous_id != anonymous_id
+    ):
         raise HTTPException(404, "简历记录不存在或已删除")
     return resume
 
@@ -119,6 +127,7 @@ def list_resume_analyses(
     resume_id: int,
     db: Session = Depends(get_db),  # noqa: B008
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
+    anonymous_id: str = Depends(get_anonymous_id),
 ) -> AnalysisVersionsOut:
     """该简历的历次分析报告，按时间倒序（v3.5 报告页「版本对比」数据源）。
 
@@ -126,7 +135,7 @@ def list_resume_analyses(
     递增、旧报告不再被复用，但它们仍在库里，正是版本对比要看的东西。
     只保留 valid_json=True 的记录（输出没通过校验的没有对比价值）。
     """
-    _get_owned_resume(db, resume_id, user)
+    _get_owned_resume(db, resume_id, user, anonymous_id)
     rows = db.scalars(
         select(Analysis)
         .where(Analysis.resume_id == resume_id, Analysis.valid_json.is_(True))
@@ -141,9 +150,10 @@ def get_analysis(
     resume_id: int,
     db: Session = Depends(get_db),  # noqa: B008
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
+    anonymous_id: str = Depends(get_anonymous_id),
 ) -> AnalysisOut:
     """该简历最新的有效分析报告；没有则 404。"""
-    _get_owned_resume(db, resume_id, user)
+    _get_owned_resume(db, resume_id, user, anonymous_id)
     analysis = latest_valid_analysis(db, resume_id)
     if analysis is None:
         raise HTTPException(404, "该简历还没有分析报告")

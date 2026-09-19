@@ -288,10 +288,11 @@ def test_finish_requires_at_least_one_answer() -> None:
 
 
 def test_daily_message_limit(monkeypatch) -> None:
-    session = _start_session()
-    monkeypatch.setattr(settings, "daily_interview_message_limit", 0)
+    # 先固定身份再建会话：会话归属 = 该匿名身份，P0 修复后归属不一致会被 404 拦下
     anon = "test-anon-msg"
     client.cookies.set("anonymous_id", anon)
+    session = _start_session()
+    monkeypatch.setattr(settings, "daily_interview_message_limit", 0)
     resp = client.post(
         f"/api/interviews/{session['id']}/messages", json={"content": "回答"}
     )
@@ -383,3 +384,33 @@ def test_logged_in_message_writes_user_id_usage(monkeypatch) -> None:
         assert all(r[1] is not None for r in rows)
     finally:
         user_client.post("/api/auth/logout")
+
+
+def test_anonymous_session_isolation() -> None:
+    """P0 越权回归：匿名用户 A 的面试会话，匿名用户 B 不可读、不可发消息、不可结束。
+
+    历史缺陷：_get_session 只校验 user_id，漏了已写入的 anonymous_id，
+    任意匿名访客可凭自增 session_id 操作他人会话（get/send/finish 全中）。
+    """
+    client_a = TestClient(app)
+    up = client_a.post(
+        "/api/resumes",
+        files={"file": ("rt-interview-iso.pdf", make_text_pdf(), "application/pdf")},
+    )
+    assert up.status_code == 201
+    sid = client_a.post(f"/api/resumes/{up.json()['resume']['id']}/interviews").json()[
+        "session"
+    ]["id"]
+
+    client_b = TestClient(app)  # 全新匿名身份
+    assert client_b.get(f"/api/interviews/{sid}").status_code == 404
+    assert (
+        client_b.post(
+            f"/api/interviews/{sid}/messages", json={"content": "x"}
+        ).status_code
+        == 404
+    )
+    assert client_b.post(f"/api/interviews/{sid}/finish").status_code == 404
+
+    # A 自己仍可正常读取（确认修复没有误伤）
+    assert client_a.get(f"/api/interviews/{sid}").status_code == 200

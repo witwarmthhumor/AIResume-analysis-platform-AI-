@@ -191,10 +191,12 @@ def test_analyze_502_and_tombstone_on_ai_error(monkeypatch) -> None:
 
 
 def test_daily_limit_429(monkeypatch) -> None:
+    anon = "test-anon-429"
+    # 先固定身份再上传：简历归属 = 该匿名身份，后续 analyze 才能命中限额检查
+    # （P0 修复后匿名归属校验要求 resume.anonymous_id 与请求 cookie 一致）
+    client.cookies.set("anonymous_id", anon)
     resume_id = _upload_ok()
     monkeypatch.setattr(settings, "daily_analysis_limit", 2)
-    anon = "test-anon-429"
-    client.cookies.set("anonymous_id", anon)  # 固定身份，便于埋计数
     _seed_usage(anon, 2)
     resp = client.post(f"/api/resumes/{resume_id}/analyze")
     assert resp.status_code == 429

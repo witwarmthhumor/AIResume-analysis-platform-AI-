@@ -54,14 +54,21 @@ class StartInterviewIn(BaseModel):
 
 
 def _get_session(
-    db: Session, session_id: int, user: User | None = None
+    db: Session,
+    session_id: int,
+    user: User | None = None,
+    anonymous_id: str | None = None,
 ) -> InterviewSession:
+    """取归属者自己的面试会话：匿名必须同时满足 user_id 为空且 anonymous_id 相等，
+    否则任意匿名访客可凭自增 ID 读/写/结束他人会话（横向越权）。"""
     session = db.get(InterviewSession, session_id)
     if session is None:
         raise HTTPException(404, "面试会话不存在")
     if user is not None and session.user_id != user.id:
         raise HTTPException(404, "面试会话不存在")
-    if user is None and session.user_id is not None:
+    if user is None and (
+        session.user_id is not None or session.anonymous_id != anonymous_id
+    ):
         raise HTTPException(404, "面试会话不存在")
     return session
 
@@ -237,9 +244,10 @@ def get_interview(
     session_id: int,
     db: Session = Depends(get_db),  # noqa: B008
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
+    anonymous_id: str = Depends(get_anonymous_id),
 ) -> SessionOut:
     """会话详情（含全部消息）：刷新页面后靠它恢复。"""
-    return _session_out(db, _get_session(db, session_id, user))
+    return _session_out(db, _get_session(db, session_id, user, anonymous_id))
 
 
 @router.post("/interviews/{session_id}/messages")
@@ -252,7 +260,7 @@ def send_message(
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
 ) -> StreamingResponse:
     """用户回答 → AI 回复 SSE 流式返回。每条 AI 回复记 usage_logs 并受每日限流。"""
-    session = _get_session(db, session_id, user)
+    session = _get_session(db, session_id, user, anonymous_id)
     if session.status != "in_progress":
         raise HTTPException(400, "该面试已结束")
     if _abandon_if_stale(db, session):
@@ -385,7 +393,7 @@ def finish_interview(
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
 ) -> SessionOut:
     """结束面试：基于全部对话生成分维度评价报告，status=finished。"""
-    session = _get_session(db, session_id, user)
+    session = _get_session(db, session_id, user, anonymous_id)
     if session.status != "in_progress":
         raise HTTPException(400, "该面试已结束，报告以现有内容为准")
     if _abandon_if_stale(db, session):

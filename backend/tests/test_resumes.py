@@ -151,3 +151,32 @@ def test_soft_delete_hides_resume() -> None:
     )
     assert resp2.status_code == 201
     assert resp2.json()["duplicate"] is False
+
+
+def test_anonymous_isolation_cannot_read_or_delete_others() -> None:
+    """P0 越权回归：匿名用户 A 的简历，匿名用户 B 不可读、不可删、列表互不可见。
+
+    历史缺陷：匿名上传不写 anonymous_id 且归属只按 user_id IS NULL 判定，
+    任意匿名访客可凭自增 ID 读取/软删除他人匿名简历（含 raw_text 隐私全文）。
+    """
+    client_a = TestClient(app)
+    resp = client_a.post(
+        "/api/resumes",
+        files={
+            "file": (
+                "rt-iso-a.pdf",
+                make_text_pdf(["Isolation test A"]),
+                "application/pdf",
+            )
+        },
+    )
+    assert resp.status_code == 201
+    rid = resp.json()["resume"]["id"]
+
+    client_b = TestClient(app)  # 全新匿名身份（独立 cookie）
+    assert client_b.get(f"/api/resumes/{rid}").status_code == 404
+    assert client_b.get("/api/resumes").json() == []
+    assert client_b.delete(f"/api/resumes/{rid}").status_code == 404
+
+    # A 自己仍可正常访问（确认修复没有误伤）
+    assert client_a.get(f"/api/resumes/{rid}").status_code == 200
