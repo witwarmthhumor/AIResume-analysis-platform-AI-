@@ -57,7 +57,16 @@ jobs:
         run: python -m alembic upgrade head
 
       - name: pytest 全量（260+ 用例）
-        run: python -m pytest -q
+        run: |
+          python -m pytest -q --junitxml=pytest-result.xml | tee pytest.log
+          exit ${PIPESTATUS[0]}
+      - name: 失败用例转 annotation（无需 gh 即可从 API 读取失败明细）
+        if: failure()
+        run: |
+          grep -E "^(FAILED|ERROR)" pytest.log | while read -r line; do
+            echo "::error::$line"
+          done
+          true
 
   frontend:
     runs-on: ubuntu-latest
