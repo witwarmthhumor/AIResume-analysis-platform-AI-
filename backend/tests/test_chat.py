@@ -19,7 +19,7 @@ _DOC_PREFIX = "chattest-"
 
 
 def _email() -> str:
-    return f"test-{uuid.uuid4().hex[:10]}@example.com"
+    return f"chatview-{uuid.uuid4().hex[:10]}@example.com"
 
 
 @pytest.fixture(autouse=True)
@@ -37,7 +37,7 @@ def _clean_chat_and_usage():
     aid = client.cookies.get(ANONYMOUS_COOKIE)
     owner_sql = (
         "anonymous_id = :a OR user_id IN "
-        "(SELECT id FROM users WHERE email LIKE 'test-%')"
+        "(SELECT id FROM users WHERE email LIKE 'chatview-%')"
     )
     with engine.begin() as conn:
         conn.execute(

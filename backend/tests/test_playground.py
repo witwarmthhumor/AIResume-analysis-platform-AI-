@@ -43,6 +43,11 @@ def _clean_and_seed(monkeypatch):
         ok, _ = ingest_kb_document(db, doc)
         assert ok
 
+    with engine.begin() as conn:
+        usage_snap = conn.execute(
+            text("SELECT COALESCE(MAX(id), 0) FROM usage_logs")
+        ).scalar()
+
     yield
 
     with engine.begin() as conn:
@@ -53,7 +58,8 @@ def _clean_and_seed(monkeypatch):
             )
         )
         conn.execute(text("DELETE FROM kb_documents WHERE title LIKE 'pgtest-%'"))
-        conn.execute(text("DELETE FROM usage_logs WHERE action_type = 'playground'"))
+        # id 快照清理：按 action_type 全删会把开发时的真实用量一并清掉（重置限额计数）
+        conn.execute(text("DELETE FROM usage_logs WHERE id > :s"), {"s": usage_snap})
 
 
 def test_ask_streams_answer_with_citations(monkeypatch) -> None:

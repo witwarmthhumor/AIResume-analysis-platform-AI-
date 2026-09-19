@@ -81,13 +81,11 @@ def test_skip_ai_does_not_invoke_ai_check(monkeypatch):
 
 def test_ai_check_unconfigured_gives_fail_with_env_fix(monkeypatch):
     """AI 未配置（build_chat_llm 抛 ValueError）→ FAIL 且修复命令指向 backend/.env。"""
-    from app.services.agent import llm_factory
 
     def fake_build(_settings):
         raise ValueError("AI 服务未配置")
 
-    monkeypatch.setattr(llm_factory, "build_chat_llm", fake_build)
-    # check_ai_channel 内部是「延迟导入 build_chat_llm」，所以要 patch 导入源
+    # check_ai_channel 内部是「延迟导入 build_chat_llm」，patch 导入源即可
     monkeypatch.setattr(
         "app.services.agent.llm_factory.build_chat_llm", fake_build, raising=True
     )

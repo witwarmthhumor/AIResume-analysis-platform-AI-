@@ -35,6 +35,11 @@ def _fake_ingest(monkeypatch):
 @pytest.fixture(autouse=True)
 def _clean_tables():
     """按标记清理本文件造的 kb 数据（文件名前缀 kbup-），预置语料不受影响。"""
+    with engine.begin() as conn:
+        usage_snap = conn.execute(
+            text("SELECT COALESCE(MAX(id), 0) FROM usage_logs")
+        ).scalar()
+
     yield
     with engine.begin() as conn:
         conn.execute(
@@ -44,7 +49,8 @@ def _clean_tables():
             )
         )
         conn.execute(text("DELETE FROM kb_documents WHERE title LIKE 'kbup-%'"))
-        conn.execute(text("DELETE FROM usage_logs WHERE action_type = 'kb_upload'"))
+        # id 快照清理：按 action_type 全删会清掉开发时真实上传的用量记录
+        conn.execute(text("DELETE FROM usage_logs WHERE id > :s"), {"s": usage_snap})
 
 
 def _upload(client: TestClient, content: str, filename: str = "kbup-note.txt"):

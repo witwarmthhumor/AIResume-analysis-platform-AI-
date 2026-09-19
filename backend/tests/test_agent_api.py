@@ -173,7 +173,14 @@ def test_ask_without_session_does_not_persist(_mock_runtime) -> None:
     resp = client.post("/api/agent/ask", json={"content": "你好"})
     assert resp.status_code == 200
     with engine.begin() as conn:
-        count = conn.execute(text("SELECT COUNT(*) FROM chat_messages")).scalar()
+        aids = [c.value for c in client.cookies.jar if c.name == ANONYMOUS_COOKIE]
+        count = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM chat_messages WHERE session_id IN "
+                "(SELECT id FROM chat_sessions WHERE anonymous_id = ANY(:a))"
+            ),
+            {"a": aids},
+        ).scalar()
     assert count == 0
 
 

@@ -34,6 +34,7 @@ def run(reset: bool = False) -> None:
             deleted = db.execute(
                 delete(KBDocument).where(KBDocument.source_type == "preset")
             )
+            db.commit()  # 先提交：后续任一文件失败回滚，也不会"声称已清空但被回滚"
             print(f"已清空旧预置语料 {deleted.rowcount} 条（含其 chunks，级联删除）")
 
         done = skipped = failed = 0
@@ -51,6 +52,16 @@ def run(reset: bool = False) -> None:
                 print(f"  [跳过] {title}（已 ready）")
                 skipped += 1
                 continue
+
+            # 上次中断遗留的 processing/failed 同 title 文档先清再重入，
+            # 否则 title 无唯一约束会越积越多
+            db.execute(
+                delete(KBDocument).where(
+                    KBDocument.source_type == "preset",
+                    KBDocument.title == title,
+                    KBDocument.status != "ready",
+                )
+            )
 
             doc = create_document(
                 db,

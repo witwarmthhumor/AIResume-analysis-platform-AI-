@@ -55,6 +55,7 @@ def fake_analysis_result() -> AnalysisResult:
 @pytest.fixture(autouse=True)
 def _clean_state():
     """按标记清理本文件造的数据（简历文件名前缀 rt-），真实数据不受影响。"""
+    _uploads_before = {f.name for f in UPLOAD_DIR.iterdir() if f.is_file()}
     yield
     with engine.begin() as conn:
         conn.execute(
@@ -79,19 +80,19 @@ def _clean_state():
         conn.execute(
             text(
                 "DELETE FROM usage_logs WHERE anonymous_id = ANY(:a) "
-                "OR user_id IN (SELECT id FROM users WHERE email LIKE 'test-%')"
+                "OR user_id IN (SELECT id FROM users WHERE email LIKE 'test-interview-%')"
             ),
             {"a": _anon_aids()},
         )
         conn.execute(text("DELETE FROM resumes WHERE filename LIKE 'rt-%'"))
+    for f in UPLOAD_DIR.iterdir():
+        if f.is_file() and f.name not in _uploads_before:
+            f.unlink()
 
 
 def _anon_aids() -> list[str]:
     """收集本文件共享 client 的匿名身份，用于清理 usage_logs。"""
     return [c.value for c in client.cookies.jar if c.name == "anonymous_id"]
-    for f in UPLOAD_DIR.iterdir():
-        if f.is_file():
-            f.unlink()
 
 
 def _upload_ok() -> int:

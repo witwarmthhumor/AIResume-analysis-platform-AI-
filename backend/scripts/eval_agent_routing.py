@@ -210,7 +210,13 @@ def build_report(details: Sequence[dict], cases_path: Path = CASES_PATH) -> str:
 
 def build_selector(tools: Sequence) -> BaseChatModel:
     """把工具 schema 绑到模型上，供路由选择调用（温度固定 0）。"""
-    return build_chat_llm().bind(temperature=EVAL_TEMPERATURE).bind_tools(list(tools))
+    # 探测用独立 settings：把超时压到 15s，单题卡顿不至于拖满全局 60s × 33 题
+    probe_settings = settings.model_copy(update={"ai_timeout_seconds": 15})
+    return (
+        build_chat_llm(probe_settings)
+        .bind(temperature=EVAL_TEMPERATURE)
+        .bind_tools(list(tools))
+    )
 
 
 def _make_ask(selector: BaseChatModel) -> Callable[[str], BaseMessage]:

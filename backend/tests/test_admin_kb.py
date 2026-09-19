@@ -26,7 +26,7 @@ class _FakeTask:
 
 
 def _email() -> str:
-    return f"test-{uuid.uuid4().hex[:10]}@example.com"
+    return f"kbadmin-{uuid.uuid4().hex[:10]}@example.com"
 
 
 def _make_admin(client: TestClient) -> str:
@@ -64,10 +64,10 @@ def _clean_tables():
         conn.execute(
             text(
                 "DELETE FROM usage_logs WHERE action_type = 'kb_upload' "
-                "AND user_id IN (SELECT id FROM users WHERE email LIKE 'test-%@example.com')"
+                "AND user_id IN (SELECT id FROM users WHERE email LIKE 'kbadmin-%')"
             )
         )
-        conn.execute(text("DELETE FROM users WHERE email LIKE 'test-%@example.com'"))
+        conn.execute(text("DELETE FROM users WHERE email LIKE 'kbadmin-%'"))
 
 
 # —— 权限 ——

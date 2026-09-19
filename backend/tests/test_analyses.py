@@ -180,7 +180,15 @@ def test_analyze_502_and_tombstone_on_ai_error(monkeypatch) -> None:
     assert "重试" in resp.json()["message"]
     with engine.begin() as conn:  # 失败也留痕（valid_json=false）+ 记账
         aids = [c.value for c in client.cookies.jar if c.name == "anonymous_id"]
-        assert conn.execute(text("SELECT valid_json FROM analyses")).scalar() is False
+        assert (
+            conn.execute(
+                text(
+                    "SELECT valid_json FROM analyses WHERE resume_id IN "
+                    "(SELECT id FROM resumes WHERE filename LIKE 'rt-%')"
+                )
+            ).scalar()
+            is False
+        )
         assert (
             conn.execute(
                 text(
