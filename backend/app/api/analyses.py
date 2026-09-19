@@ -6,7 +6,7 @@ usage_logs 记账（限流依据）。AI 调用是同步的，前端需等待 10
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.api.auth_deps import get_optional_current_user
@@ -64,11 +64,23 @@ def analyze_resume_endpoint(
     if resume.parse_status != "success" or not resume.raw_text:
         raise HTTPException(400, "该简历未成功解析出文本，无法发起 AI 分析")
 
+    # 并发去重：分析是"查缓存 → 调 AI → 落库"的长事务流程，双击/并发会各自
+    # 走完整个 AI 调用（双倍成本、两份报告）。取 per-resume 事务级咨询锁，
+    # 后到的请求阻塞在前者落库提交之后，届时缓存命中直接返回
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k)::bigint)"),
+        {"k": f"resume-analysis:{resume_id}"},
+    )
     existing = latest_valid_analysis(db, resume_id)
     if existing is not None:
         return AnalysisResultOut(cached=True, analysis=_to_out(existing))
 
-    enforce_daily_limit(db, anonymous_id, settings.daily_analysis_limit)
+    enforce_daily_limit(
+        db,
+        anonymous_id,
+        settings.daily_analysis_limit,
+        user_id=user.id if user else None,
+    )
 
     try:
         result = analyze_resume(resume.raw_text, settings)

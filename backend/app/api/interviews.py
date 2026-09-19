@@ -9,6 +9,10 @@
 
 import json
 import time
+
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -273,7 +277,11 @@ def send_message(
         raise HTTPException(400, "已达到最大轮次，请结束面试查看评价报告")
 
     enforce_daily_limit(
-        db, anonymous_id, settings.daily_interview_message_limit, "interview_message"
+        db,
+        anonymous_id,
+        settings.daily_interview_message_limit,
+        "interview_message",
+        user_id=user.id if user else None,
     )
 
     # 用户消息先落库（AI 失败也不丢用户的回答）
@@ -325,6 +333,24 @@ def send_message(
             for delta in stream_chat(messages, settings, usage):
                 chunks.append(delta)
                 yield sse("delta", {"content": delta})
+        except GeneratorExit:
+            # 客户端中途断开：补一条 0-token 账，已消耗的 token 不白嫖
+            # （对齐 playground/agent 的断开补账范式；正常完成不会进这个分支）
+            try:
+                db.add(
+                    UsageLog(
+                        user_id=user.id if user else None,
+                        anonymous_id=anonymous_id,
+                        action_type="interview_message",
+                        model_name=settings.ai_model,
+                        tokens_total=0,
+                        ip_address=request.client.host if request.client else None,
+                    )
+                )
+                db.commit()
+            except Exception:
+                logger.warning("interview 断开路径记账失败", exc_info=True)
+            raise
         except AIError as exc:
             yield sse("error", {"content": exc.message})
             return

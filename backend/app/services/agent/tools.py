@@ -510,19 +510,36 @@ def make_tools(
         if owner is None:
             return "当前会话无法识别用户身份，查不到个人简历数据。请提示用户先登录后再提问。"
 
+        query_kw = (query or "").strip()
         try:
-            rows = db.scalars(
+            base = (
                 select(Resume)
                 .where(Resume.deleted_at.is_(None), owner)
                 .order_by(Resume.created_at.desc(), Resume.id.desc())
-                .limit(_TOOL_LIST_LIMIT)
-            ).all()
+            )
+            rows = db.scalars(base.limit(_TOOL_LIST_LIMIT)).all()
         except Exception:
             logger.exception("agent resume_lookup 查询失败")
             return "简历查询暂时出错，请稍后再试。"
 
         if not rows:
             return "该用户名下没有已上传的简历。可提示用户到首页上传一份 PDF 简历后再来提问。"
+
+        if query_kw:
+            # 关键词在 SQL 端过滤，且不限 _TOOL_LIST_LIMIT：原先"先取 5 份再在正文里
+            # 匹配"会漏掉第 5 份之后的简历命中，误导模型答复"正文中未找到"
+            try:
+                rows = db.scalars(
+                    base.where(Resume.raw_text.ilike(f"%{query_kw}%"))
+                ).all()
+            except Exception:
+                logger.exception("agent resume_lookup 关键词查询失败")
+                return "简历查询暂时出错，请稍后再试。"
+            if not rows:
+                return (
+                    f"未找到与「{query_kw}」相关的内容：名下简历正文中没有匹配项。"
+                    "可提示用户确认关键词，或用空 query 先列出简历清单。"
+                )
 
         keyword = (query or "").strip()
         parts = []

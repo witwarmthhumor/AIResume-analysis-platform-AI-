@@ -78,28 +78,36 @@ def my_usage(
     user: User = Depends(get_current_user),  # noqa: B008
 ) -> list[dict]:
     """本人近 7 日每日 token 消耗与调用次数（日期升序，供柱状图）。"""
-    today_start = _today_start()
+    # 单条 GROUP BY 聚合替代逐日 14 次查询（口径同 admin 侧：本地今天 0 点基准）
+    start, end = _today_start() - timedelta(days=6), _today_start() + timedelta(days=1)
+    day_idx = (
+        func.floor(func.extract("epoch", UsageLog.created_at - start) / 86400.0)
+    ).label("day_idx")
+    grouped = {
+        int(idx): (int(cnt), int(tok))
+        for idx, cnt, tok in db.execute(
+            select(
+                day_idx,
+                func.count(),
+                func.coalesce(func.sum(UsageLog.tokens_total), 0),
+            )
+            .where(
+                UsageLog.user_id == user.id,
+                UsageLog.created_at >= start,
+                UsageLog.created_at < end,
+            )
+            .group_by(day_idx)
+        ).all()
+    }
     rows = []
     for i in range(6, -1, -1):
-        day = today_start - timedelta(days=i)
-        next_day = day + timedelta(days=1)
-        base = [
-            UsageLog.user_id == user.id,
-            UsageLog.created_at >= day,
-            UsageLog.created_at < next_day,
-        ]
-        tokens = (
-            db.scalar(
-                select(func.coalesce(func.sum(UsageLog.tokens_total), 0)).where(*base)
-            )
-            or 0
-        )
-        count = db.scalar(select(func.count()).select_from(UsageLog).where(*base)) or 0
+        day = _today_start() - timedelta(days=i)
+        calls, tokens = grouped.get(6 - i, (0, 0))
         rows.append(
             {
                 "date": day.strftime("%Y-%m-%d"),
-                "calls": int(count),
-                "tokens": int(tokens),
+                "calls": calls,
+                "tokens": tokens,
             }
         )
     return rows

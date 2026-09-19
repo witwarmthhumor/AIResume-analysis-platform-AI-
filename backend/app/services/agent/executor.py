@@ -116,7 +116,15 @@ class _QueueCallback(BaseCallbackHandler):
         self._q.put({"type": "observation", "preview": preview})
 
     def on_tool_error(self, error, *, run_id=None, **kwargs) -> None:
-        self._q.put({"type": "error", "content": f"工具调用出错：{error}"})
+        # 只回类型名：原始异常文本可能携带 SQL 片段/内部路径，经 SSE 下发有泄露风险；
+        # 细节进服务端日志
+        logger.warning("agent 工具调用出错", exc_info=error)
+        self._q.put(
+            {
+                "type": "error",
+                "content": f"工具调用出错（{type(error).__name__}），请稍后重试",
+            }
+        )
 
     # —— 逐字 token（仅最终回答轮有可见文本，工具决策轮自然无 token）——
     def on_llm_new_token(self, token: str, **kwargs) -> None:
@@ -142,7 +150,13 @@ class _QueueCallback(BaseCallbackHandler):
             logger.debug("agent token 累计失败", exc_info=True)
 
     def on_llm_error(self, error, **kwargs) -> None:
-        self._q.put({"type": "error", "content": f"AI 模型调用出错：{error}"})
+        logger.warning("agent 模型调用出错", exc_info=error)
+        self._q.put(
+            {
+                "type": "error",
+                "content": f"AI 模型调用出错（{type(error).__name__}），请稍后重试",
+            }
+        )
 
 
 def stream_agent_events(
@@ -184,8 +198,19 @@ def stream_agent_events(
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
 
-    while True:
-        event = q.get()
-        if event is None:
-            break
-        yield event
+    sentinel_seen = False
+    try:
+        while True:
+            event = q.get()
+            if event is None:
+                sentinel_seen = True
+                break
+            yield event
+    finally:
+        # 消费者中途断开（GeneratorExit）也要把队列读到哨兵：等 worker 自然结束。
+        # worker 的工具闭包持有请求级 db Session（非线程安全），调用方只有在
+        # 哨兵消费后才能安全地用同一 Session 补账/落库。
+        # 正常路径哨兵已在本循环消费（sentinel_seen=True），绝不能再等第二次
+        if not sentinel_seen:
+            while q.get() is not None:
+                pass

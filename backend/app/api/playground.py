@@ -71,7 +71,13 @@ def ask(
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
 ) -> StreamingResponse:
     """用户提问 → 向量检索 → RAG 流式回答。有 session_id 时持久化消息。"""
-    enforce_daily_limit(db, anonymous_id, settings.daily_playground_limit, "playground")
+    enforce_daily_limit(
+        db,
+        anonymous_id,
+        settings.daily_playground_limit,
+        "playground",
+        user_id=user.id if user else None,
+    )
 
     # v3.1：校验会话归属（有 session_id 时）
     session: ChatSession | None = None

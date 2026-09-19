@@ -28,7 +28,9 @@ class Settings(BaseSettings):
     db_pool_timeout_seconds: int = 10
 
     # 阶段1：简历上传限制与存储（PROJECT-PLAN §1 风险1 对策：只收小体积文本型 PDF）
-    daily_upload_limit: int = 10  # 简历上传每日上限（按归属者统计，防匿名刷磁盘与解析 CPU）
+    daily_upload_limit: int = (
+        10  # 简历上传每日上限（按归属者统计，防匿名刷磁盘与解析 CPU）
+    )
     upload_max_size: int = 5 * 1024 * 1024  # 5MB
     upload_max_pages: int = 5
     # 相对启动目录（和 .env 一样，统一从 backend/ 启动）；在 web 根目录之外，不对外暴露

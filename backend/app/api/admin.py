@@ -79,29 +79,32 @@ def admin_usage(
     user: User = Depends(_admin_only),  # noqa: B008
 ) -> list[dict]:
     """近 7 日每日 token 消耗与调用次数。"""
+    # 单条 GROUP BY 聚合替代逐日 14 次查询；day_idx 以"本地今天 0 点"为基准，
+    # 与旧实现完全同一套本地时区边界（created_at 为 timestamptz，epoch 为绝对秒）
+    today_start = (
+        datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    )
+    start, end = today_start - timedelta(days=6), today_start + timedelta(days=1)
+    day_idx = (
+        func.floor(func.extract("epoch", UsageLog.created_at - start) / 86400.0)
+    ).label("day_idx")
+    grouped = {
+        int(idx): (int(cnt), int(tok))
+        for idx, cnt, tok in db.execute(
+            select(
+                day_idx,
+                func.count(),
+                func.coalesce(func.sum(UsageLog.tokens_total), 0),
+            )
+            .where(UsageLog.created_at >= start, UsageLog.created_at < end)
+            .group_by(day_idx)
+        ).all()
+    }
     rows = []
     for i in range(6, -1, -1):
-        day = datetime.now().astimezone().replace(
-            hour=0, minute=0, second=0, microsecond=0
-        ) - timedelta(days=i)
-        next_day = day + timedelta(days=1)
-        tokens = (
-            db.scalar(
-                select(func.coalesce(func.sum(UsageLog.tokens_total), 0)).where(
-                    UsageLog.created_at >= day, UsageLog.created_at < next_day
-                )
-            )
-            or 0
-        )
-        count = (
-            db.scalar(
-                select(func.count())
-                .select_from(UsageLog)
-                .where(UsageLog.created_at >= day, UsageLog.created_at < next_day)
-            )
-            or 0
-        )
+        day = today_start - timedelta(days=i)
+        calls, tokens = grouped.get(6 - i, (0, 0))
         rows.append(
-            {"date": day.strftime("%Y-%m-%d"), "calls": count, "tokens": tokens}
+            {"date": day.strftime("%Y-%m-%d"), "calls": calls, "tokens": tokens}
         )
     return rows
