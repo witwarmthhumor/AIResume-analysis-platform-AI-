@@ -235,8 +235,10 @@ def main() -> None:
 
     stats = summarize(results["hybrid"])
     print(f"\n[hybrid] hit@1 {stats['hit@1']} · hit@5 {stats['hit@5']}")
-    # 退出码：hybrid 模式下 hit@1 全部命中才算 0（严格回归阈值），否则 1
-    sys.exit(0 if all(r["hit@1"] for r in results["hybrid"]) else 1)
+    # 退出码与基线对齐（data/kb_eval/report.md：43/49 = 87.8%）：不低于基线即 0，
+    # 低于基线说明检索质量回退，CI/外层脚本据此失败；原"全命中才 0"的口径
+    # 让退出码恒为 1，自动化集成把成功的回归判定为失败（P1 修复）
+    sys.exit(0 if stats["hit1_count"] >= round(49 * 0.878) else 1)
 
 
 if __name__ == "__main__":

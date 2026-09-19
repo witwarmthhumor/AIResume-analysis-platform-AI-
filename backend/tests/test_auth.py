@@ -2,6 +2,8 @@
 
 import uuid
 
+import pytest
+
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -11,8 +13,22 @@ from app.main import app
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _clean_auth_users():
+    """前后双清 auth- 前缀用户：前清防上一轮异常残留脏数据，后清不留垃圾行。
+
+    本文件此前没有清理 fixture，注册用户靠其他文件的宽匹配"顺带打扫"——
+    单跑 test_auth 必残留（v3.7 审计 P1 修复；一文件一前缀约定）。
+    """
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM users WHERE email LIKE 'auth-%'"))
+    yield
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM users WHERE email LIKE 'auth-%'"))
+
+
 def email() -> str:
-    return f"test-{uuid.uuid4().hex[:10]}@example.com"
+    return f"auth-{uuid.uuid4().hex[:10]}@example.com"
 
 
 def test_register_login_me_logout() -> None:
