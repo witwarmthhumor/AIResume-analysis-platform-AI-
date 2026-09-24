@@ -477,12 +477,22 @@ def test_interview_disconnect_logs_zero_tokens(monkeypatch) -> None:
 
     asyncio.run(_drive())
 
-    with engine.begin() as conn:
-        row = conn.execute(
-            text(
-                "SELECT tokens_total FROM usage_logs "
-                "WHERE action_type = 'interview_message' AND anonymous_id = :a"
-            ),
-            {"a": anon},
-        ).fetchone()
+    # 合跑下同步生成器的关闭可能延迟一个 GC 周期（引用链随用例顺序变化），
+    # 用"collect + 重试查询"确保断言时补账已落库
+    import time
+
+    row = None
+    for _ in range(6):
+        with engine.begin() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT tokens_total FROM usage_logs "
+                    "WHERE action_type = 'interview_message' AND anonymous_id = :a"
+                ),
+                {"a": anon},
+            ).fetchone()
+        if row is not None:
+            break
+        gc.collect()
+        time.sleep(0.5)
     assert row == (0,)  # 断开路径的 0-token 补账（正常完成是 165）

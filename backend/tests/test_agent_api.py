@@ -276,11 +276,20 @@ def test_ask_disconnect_logs_zero_tokens(monkeypatch) -> None:
 
     asyncio.run(_drive())
 
-    with engine.begin() as conn:
-        rows = conn.execute(
-            text(
-                "SELECT tokens_total FROM usage_logs "
-                "WHERE action_type = 'agent' AND anonymous_id = 'test-anon-disc'"
-            )
-        ).fetchall()
+    # 合跑下同步生成器的关闭可能延迟一个 GC 周期：collect + 重试确保补账已落库
+    import time
+
+    rows = []
+    for _ in range(6):
+        with engine.begin() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT tokens_total FROM usage_logs "
+                    "WHERE action_type = 'agent' AND anonymous_id = 'test-anon-disc'"
+                )
+            ).fetchall()
+        if rows:
+            break
+        gc.collect()
+        time.sleep(0.5)
     assert rows == [(0,)]  # 断开路径补的 0-token 账（正常完成会是真实 tokens）
