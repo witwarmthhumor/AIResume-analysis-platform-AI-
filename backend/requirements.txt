@@ -25,6 +25,9 @@ jieba>=0.42
 # 本项目 Agent 流式基于 0.3 的 AgentExecutor + BaseCallbackHandler，故上限 <0.4
 langchain>=0.3,<0.4
 langchain-openai>=0.2,<0.4    # ChatOpenAI（OpenAI 兼容协议，通义/DeepSeek 可用）
+# v4.0：Agent v2 编排层（LangGraph 0.2.x，实测与 langchain-core 0.3.86 零冲突；1.x 会强升 core→1.6 破坏 v1，禁升）
+langgraph>=0.2.76,<0.3
+langgraph-checkpoint-postgres>=2.0.21,<3
 
 # 阶段4：用户认证与异步任务
 pwdlib[argon2]>=0.3
