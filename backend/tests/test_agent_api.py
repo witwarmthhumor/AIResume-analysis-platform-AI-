@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from app.api.deps import ANONYMOUS_COOKIE
-from app.db.session import engine
+from app.db.session import SessionLocal, engine
 from app.main import app
 
 client = TestClient(app)
@@ -222,3 +222,64 @@ def test_ask_llm_not_configured_503(monkeypatch) -> None:
     monkeypatch.setattr("app.api.agent.build_chat_llm", _raise)
     resp = client.post("/api/agent/ask", json={"content": "q"})
     assert resp.status_code == 503
+
+
+def test_ask_disconnect_logs_zero_tokens(monkeypatch) -> None:
+    """v3.7.1 断开补账回归：消费方中途 aclose（= 客户端断开）→ GeneratorExit 补 0-token 账。
+
+    直驱实现：TestClient 的取消机制不会及时向线程池托管的同步生成器投递
+    GeneratorExit（实测断开后拿不到 0-token 行），所以直接调用路由函数，
+    手动消费 body_iterator 两个事件后 aclose，再强制 GC 关闭被包装的同步生成器。
+    """
+    import asyncio
+    import gc
+    import threading
+
+    from fastapi import Request
+
+    from app.api.agent import AgentAskIn, ask as agent_ask
+
+    release = threading.Event()
+
+    def _blocking_events(*_a, **_k):
+        yield {"type": "delta", "content": "断开前"}
+        release.wait(timeout=5)  # 卡住：保证生成器停在 delta 处等消费者
+        yield {"type": "delta", "content": "断开后"}
+
+    monkeypatch.setattr("app.api.agent.stream_agent_events", _blocking_events)
+
+    async def _drive():
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/agent/ask",
+            "headers": [],
+            "client": ("127.0.0.1", 50000),
+            "query_string": b"",
+        }
+        request = Request(scope)
+        with SessionLocal() as db:
+            resp = agent_ask(
+                body=AgentAskIn(content="断开测试"),
+                request=request,
+                db=db,
+                anonymous_id="test-anon-disc",
+                user=None,
+            )
+            it = resp.body_iterator
+            meta = await it.__anext__()
+            delta = await it.__anext__()
+            assert "delta" in delta and "meta" in meta  # 包装器透传原始 str
+            await it.aclose()  # 模拟客户端断开：向包装生成器投递 GeneratorExit
+        gc.collect()  # 关闭被 anyio 包装的同步生成器 → 其 finally 补账
+
+    asyncio.run(_drive())
+
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT tokens_total FROM usage_logs "
+                "WHERE action_type = 'agent' AND anonymous_id = 'test-anon-disc'"
+            )
+        ).fetchall()
+    assert rows == [(0,)]  # 断开路径补的 0-token 账（正常完成会是真实 tokens）

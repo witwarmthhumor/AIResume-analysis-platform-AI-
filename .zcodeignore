@@ -1,0 +1,73 @@
+# 密钥与环境变量（永不入库，铁律第1条）
+.env
+backend/.env
+backend/.env.docker
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node / 前端构建产物
+node_modules/
+frontend/dist/
+
+# 上传的简历文件（阶段1 起，隐私数据不入库）
+uploads/
+
+# run-app 本地运行时 PID 与日志
+.run-app/
+
+# 系统杂项
+.DS_Store
+Thumbs.db
+
+# 本地 AI 协作/工具与过程稿（仅本地保留，不入库；方案A 撤下）
+.workbuddy/
+.zcode/
+.agents/
+AGENTS.md
+AI-COLLABORATION.md
+PROGRESS.md
+PROJECT-PLAN.md
+ROADMAP.md
+unit-test-report.md
+docs/实施计划-*
+docs/效果图-*
+docs/layout-preview.html
+docs/LangChain引入方案-*
+
+# Ralph 运行态文件（当前分支指针，每次运行覆盖；ralph 工具与进度记录本体保留入库）
+scripts/ralph/.last-branch
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+bower_components/
+jspm_packages/
+site-packages/
+venv/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）

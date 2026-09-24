@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 from app.api.resumes import UPLOAD_DIR
 from app.core.config import settings
-from app.db.session import engine
+from app.db.session import SessionLocal, engine
 from app.main import app
 from app.services.ai_client import AIError, AnalysisResult
 
@@ -417,3 +417,72 @@ def test_anonymous_session_isolation() -> None:
 
     # A 自己仍可正常读取（确认修复没有误伤）
     assert client_a.get(f"/api/interviews/{sid}").status_code == 200
+
+
+def test_interview_disconnect_logs_zero_tokens(monkeypatch) -> None:
+    """v3.7.1 断开补账回归：消费方中途 aclose（= 客户端断开）→ GeneratorExit 补 0-token 账。
+
+    直驱实现：TestClient 的取消机制不会及时向线程池托管的同步生成器投递
+    GeneratorExit（实测断开后拿到的是完整记账），所以直接调用路由函数，
+    手动消费 body_iterator 两个事件后 aclose，再强制 GC 关闭同步生成器。
+    """
+    import asyncio
+    import gc
+    import threading
+
+    from fastapi import Request
+
+    from app.api.interviews import SendMessageIn
+    from app.api.interviews import send_message as interview_send
+
+    anon = "test-anon-disc"
+    client.cookies.set("anonymous_id", anon)  # 先固定身份（会话归属要求一致）
+    session = _start_session()
+
+    release = threading.Event()
+
+    def _blocking_stream(messages, s, usage_out):
+        usage_out.update({"tokens_prompt": 120, "tokens_completion": 45})
+        yield "第一段"
+        release.wait(timeout=5)  # 卡住：保证生成器停在 delta 处等消费者
+        yield "第二段"
+
+    monkeypatch.setattr("app.api.interviews.stream_chat", _blocking_stream)
+
+    async def _drive():
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": f"/api/interviews/{session['id']}/messages",
+            "headers": [],
+            "client": ("127.0.0.1", 50000),
+            "query_string": b"",
+        }
+        request = Request(scope)
+        with SessionLocal() as db:
+            resp = interview_send(
+                session_id=session["id"],
+                body=SendMessageIn(content="我的回答"),
+                request=request,
+                db=db,
+                anonymous_id=anon,
+                user=None,
+            )
+            it = resp.body_iterator
+            await it.__anext__()  # meta
+            delta = await it.__anext__()
+            assert "delta" in delta  # 包装器透传原始 str
+            await it.aclose()  # 模拟客户端断开
+        gc.collect()  # 关闭同步生成器 → 其 finally 补 0-token 账
+
+    asyncio.run(_drive())
+
+    with engine.begin() as conn:
+        row = conn.execute(
+            text(
+                "SELECT tokens_total FROM usage_logs "
+                "WHERE action_type = 'interview_message' AND anonymous_id = :a"
+            ),
+            {"a": anon},
+        ).fetchone()
+    assert row == (0,)  # 断开路径的 0-token 补账（正常完成是 165）
