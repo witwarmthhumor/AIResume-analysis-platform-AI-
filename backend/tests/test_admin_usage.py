@@ -60,6 +60,18 @@ def _local_ts(days_ago: int, hour: int = 12, minute: int = 0) -> str:
 
 
 @pytest.fixture(autouse=True)
+def _seed_placeholder_user():
+    """CI 空库上「首个注册用户自动提权 admin」会让被测普通用户变 admin（403 断言必挂），
+    先造一个占位用户占掉首位（同 test_admin_kb 的处理）。"""
+    c = TestClient(app)
+    c.post(
+        "/api/auth/register",
+        json={"email": _email("admusage-placeholder"), "password": "correct-horse-123"},
+    )
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _clean_usage_data():
     yield
     with engine.begin() as conn:
