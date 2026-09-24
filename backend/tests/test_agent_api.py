@@ -237,7 +237,8 @@ def test_ask_disconnect_logs_zero_tokens(monkeypatch) -> None:
 
     from fastapi import Request
 
-    from app.api.agent import AgentAskIn, ask as agent_ask
+    from app.api.agent import AgentAskIn
+    from app.api.agent import ask as agent_ask
 
     release = threading.Event()
 
