@@ -101,6 +101,14 @@ class Settings(BaseSettings):
     # 运行环境：prod 时 JWT 弱默认密钥直接拒绝启动（dev 只告警，方便本地起服务）
     app_env: str = "dev"
 
+    # v4.0：Agent v2（LangGraph 试点，PRD §4.2）
+    agent_v2_enabled: bool = True  # 总开关：异常时可一键关 v2 回退 v1（入口隐藏 + 接口 503）
+    daily_agent_v2_run_limit: int = 10  # 每归属者每日 v2 运行次数（与 v1 的 30 次分开）
+    agent_v2_max_retries_per_node: int = 2  # Verifier 回环每节点最大重试次数
+    agent_v2_max_run_tokens: int = 30000  # 单 run token 熔断（评审 R2：防回环叠加放大成本）
+    agent_approval_ttl_minutes: int = 30  # 审批单超时，超时自动 expired
+    langsmith_enabled: bool = False  # 强制默认关闭（简历隐私不外传，PRD §10.4）
+
     # 登录防爆破：按 IP+邮箱计失败次数，超限锁定。内存实现（进程重启即解锁），
     # 多 worker 部署需换 Redis 集中计数——当前单 worker 部署够用
     login_max_failures: int = 10
