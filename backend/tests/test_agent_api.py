@@ -224,12 +224,13 @@ def test_ask_llm_not_configured_503(monkeypatch) -> None:
     assert resp.status_code == 503
 
 
-def test_ask_disconnect_logs_zero_tokens(monkeypatch) -> None:
+def test_ask_disconnect_logs_zero_tokens(_mock_runtime, monkeypatch) -> None:
     """v3.7.1 断开补账回归：消费方中途 aclose（= 客户端断开）→ GeneratorExit 补 0-token 账。
 
     直驱实现：TestClient 的取消机制不会及时向线程池托管的同步生成器投递
     GeneratorExit（实测断开后拿不到 0-token 行），所以直接调用路由函数，
     手动消费 body_iterator 两个事件后 aclose，再强制 GC 关闭被包装的同步生成器。
+    _mock_runtime：CI 无 .env，真实 build_chat_llm 会在开流前 503。
     """
     import asyncio
     import gc
