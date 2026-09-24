@@ -1,7 +1,7 @@
 # PRD v4.0：企业级多 Agent 改造（LangGraph 试点）
 
 > **本文件是干嘛的**：v4.0 的产品需求文档（PRD）——为什么做、做什么、不做什么、图怎么编排、数据/接口怎么变、分几期、怎么验收。动工前先评审本文件，定稿后再拆解实施计划与更新 PROJECT-PLAN.md。
-> 编制日期：2026-09-22　·　状态：**待评审（等 owner 拍板未决问题后定稿）**
+> 编制日期：2026-09-22　·　状态：**已评审定稿（2026-09-23 技术可行性评估通过「有条件可行」→ 条件已闭环；版本兼容实测通过，§15 全部拍板，评审补充 D1-D4/R2 已并入）**
 > 关联文档：[Agent工具设计.md](./Agent工具设计.md)、[实施计划-v3.4-双端分离与AI客服.md](./实施计划-v3.4-双端分离与AI客服.md)、[后续开发规划.md](./后续开发规划.md)、[../PROJECT-PLAN.md](../PROJECT-PLAN.md)、[../AGENTS.md](../AGENTS.md)
 > 输入依据：《高含金量 Agent 项目的六大硬核标准》（抖音资料/Agent项目的六大标准.md）+ v3.7.1 现状盘点
 
@@ -114,10 +114,10 @@ v3.7.1 已有一个 **LangChain 0.3 单 ReAct Agent + 11 工具**的 AI 客服�
 | key | 动作 | 为什么要人审 |
 |---|---|---|
 | `create_interview_session` | 由任务结果自动创建模拟面试场次 | 产生持久数据 + 消耗面试额度 |
-| `overwrite_analysis` | 用本次新分析覆盖/顶替当前有效报告版本 | 影响既有结论，旧版本需可追溯 |
-| `hard_delete_resume` | 硬删除简历及关联产物（超出软删） | 不可逆，涉及隐私数据销毁 |
 
-> 不在清单内的只读/纯生成动作（匹配、出题、读报告）不中断。清单写在配置/代码常量中，新增风险动作必须同步加审计与测试。
+> **v4.0 只做这一个**（评审收缩 D4）：`overwrite_analysis` 在现设计中 analyzer 只新增版本不覆盖（该动作无触发路径，做了是死代码）；`hard_delete_resume` 全系统本无硬删入口。两者保留在本表作为 v4.1+ 预留，触发链路实现时再启用。不在清单内的只读/纯生成动作（匹配、出题、读报告）不中断。清单写在配置/代码常量中，新增风险动作必须同步加审计与测试。
+>
+> ⚠️ **下沉漏项（评审补充 D4）**：`create_interview_session` 的执行逻辑在 `api/interviews.py:123-164`（归属校验、超时废弃、开场白生成），M1 必须随 matcher/questioner 一并下沉为 `interview_service.create_session(...)`，风险动作执行器与 v1 路由调同一份 service——否则执行器要么复制逻辑要么违规反向 import api 层。
 
 ---
 
@@ -140,7 +140,8 @@ v3.7.1 已有一个 **LangChain 0.3 单 ReAct Agent + 11 工具**的 AI 客服�
 
 ### 4.2 依赖与配置（M0 定版）
 
-- requirements 新增：`langgraph`、`langgraph-checkpoint-postgres`（同步 saver）；**候选 0.2.x 稳定线（与 langchain-core 0.3 兼容），具体版本以 M0 实测为准**，装完必须重新生成 `backend/requirements.lock`；
+- requirements 新增：`langgraph==0.2.76`、`langgraph-checkpoint-postgres==2.0.21`；装完必须重新生成 `backend/requirements.lock`；
+  - **版本兼容性已实测（2026-09-23 评估，dry-run 解析）**：`langgraph==0.2.76 + langgraph-checkpoint 2.1.2 + langgraph-checkpoint-postgres 2.0.21 + langgraph-sdk 0.1.74 + psycopg-pool 3.3.3` 与现有 `langchain-core 0.3.86 / langchain 0.3.30 / langchain-openai 0.3.35` **零冲突零升级**；对照组 langgraph 1.0.10 会强升 langchain-core→1.6.4（破坏 v1，不可用）。M0 剩余工作仅剩：真装依赖 → 2 节点 demo + 同步 PostgresSaver + interrupt/resume 实跑验证 → lock 更新；
 - 新增配置（`core/config.py`，全部给默认值，可经 .env 覆盖）：
 
 | 配置 | 默认 | 说明 |
@@ -193,7 +194,7 @@ START
 
 | 图节点 | 复用的现有实现 | v4.0 动作 |
 |---|---|---|
-| planner | 新增（轻量 chat_json，输出计划 JSON，带独立 PROMPT 版本常量） | 新建 |
+| planner | 新增（**v4.0 用规则式**：固定流水线模板 + 入口意图识别，产出与 LLM Planner 同构的 plan JSON；LLM Planner 留 v4.1——单链路场景 LLM 规划只多一次调用与一类失败模式，§14「为拆而拆」风险自查适用） | 新建 |
 | load_resume | tools.resume_lookup 的查询部分 | 下沉 service |
 | analyzer | `analysis_service` + `latest_valid_analysis` + prompts | 直接调 service |
 | matcher | tools.job_match 闭包内逻辑（含 `_run_tool_llm` 限额记账） | **下沉为 service，v1 工具改为调同一函数** |
@@ -307,6 +308,8 @@ START
 
 > 审批过期清理：复用 Celery beat 周期任务扫 `expires_at`（若当前无 beat，则在查询审批时惰性置 expired，并在 PRD 实施时确认任务挂载方式）。
 
+> **LangGraph checkpoint 表的治理（评审补充 D3）**：`PostgresSaver.setup()` 会自建 checkpoints / checkpoint_blobs / checkpoint_writes 三张表，**绕过 Alembic**——与项目铁律冲突。定版方案：M0 在独立 schema（`langgraph` schema）内 `setup()`，Alembic 迁移只记录一条说明性迁移（文档化三表来源与 schema 归属）；checkpoint 数据视为**可再生缓存**（丢失=中断的 run 作废，走 §9 "checkpoint 丢失" 路径），不做备份，不进备份策略。
+
 ---
 
 ## 7. API 设计（新增 `api/agent_v2.py`，前缀 /api/agent-v2，不动 v1）
@@ -318,7 +321,7 @@ START
 | GET `/runs/{id}` | run 详情（状态、plan、各节点产物、待审批信息） |
 | GET `/runs/{id}/stream` | SSE 重连：续跑/刷新后订阅该 run 的后续事件（waiting_approval 时立即推 approval_required） |
 | POST `/runs/{id}/approve` | body `{decision: approved\|rejected, note?}`；校验归属与 pending/TTL，触发 `Command(resume)`，返回 202 并由前端转 `/stream` 续听 |
-| POST `/runs/{id}/retry-node` | fail 后从失败节点重试图（retry 预算重置，计新 run 额度） |
+| POST `/runs/{id}/retry-node` | fail 后重试：**新建 run，并把原 run 已完成节点的产物注入初始 state**（图按「产物已存在」跳过对应节点）。LangGraph 原生只支持从 interrupt 恢复、不支持任意节点重跑（那需要 update_state 高级用法，易错）；retry 计新 run 额度，retry 预算重置 |
 | POST `/runs/{id}/abort` | 主动放弃（run=aborted，审批单 expired） |
 | GET 管理端 `/api/admin/agent-runs`、`/runs/{id}/spans` | run 检索 + trace 树（admin only） |
 
@@ -336,6 +339,15 @@ error{content} / fatal{content}
 ```
 
 前端协议处理复用 v1 的 reset/快照/abort 约定；`approval_required` 是唯一新状态机。
+
+### 7.4 断开重连与事件回放（评审补充 D1，v1 的 queue.Queue 是请求级内存对象，另一个连接看不到）
+
+单进程部署（README 已标注单 worker 限定）下用「**进程内事件总线 + DB 状态兜底**」：
+
+- `services/agent_v2/event_bus.py`：`run_id → list[queue.Queue]` 订阅表 + 每个订阅者挂一个**环形缓冲（deque(maxlen=N)）**；`POST /runs` 与 `POST /runs/{id}/approve` 触发图执行时创建发布者；`GET /runs/{id}/stream` 订阅同一 run_id；
+- 断开重连：`/stream` 订阅后先从 `agent_runs.status` / `agent_approvals` / `agent_spans` **重建当前快照**（补发 node_end/approval_required 的现状事件），再收增量——断开期间错过的 delta 不补（唯一不可重建的是逐字流，重连方拿到的是已完成节点的最终产物）；
+- 跨进程/多 worker 部署（远期）：订阅表换 Redis Pub/Sub，本版不做；
+- 环形缓冲溢出（消费者长期不取）：发布者丢弃最旧事件并置 run 级 `dropped_events` 计数（管理端可见），DB 状态始终是权威。
 
 ---
 
@@ -371,7 +383,7 @@ error{content} / fatal{content}
 ## 10. 安全、权限与合规
 
 1. **归属隔离**：runs/approvals/spans 查询一律走 `deps.owner_clause` / `matches_owner`（登录 user_id；匿名 user_id 为空且 anonymous_id 相等），管理端接口 admin only；
-2. **限额双轨**：`agent_v2_run` 10/日（主流程）+ `agent_tool_llm` 20/日（节点内模型调用），并发用现有咨询锁；
+2. **限额双轨**：`agent_v2_run` 10/日（主流程）+ `agent_tool_llm` 20/日（节点内模型调用），并发用现有咨询锁；**单 run token 熔断**（评审补充 R2）：run 累计 tokens_total 超过 `agent_v2_max_run_tokens`（默认 30000）时 Verifier 直接判 fail 中止——防 Verifier 回环叠加把单 run 成本放大（一次 run 正常 4–5 次调用，回环上限理论上可达 ~15 次）；
 3. **HITL 硬门禁**：风险动作的实际执行函数必须校验存在 approved 审批单，审批与执行在同一归属校验下；测试断言「无审批 → 动作零副作用」；
 4. **隐私**：span/日志不记简历正文、JD 全文、Key；审计快照只记摘要；上传页隐私声明已有，v2 首次使用处补一句「任务过程会调用第三方大模型」；
 5. **提示词版本**：planner/verifier 等新提示词各自独立版本常量（`AGENT_V2_*_PROMPT_VERSION`），**不动 analyses 口径的 PROMPT_VERSION**；
@@ -433,12 +445,12 @@ error{content} / fatal{content}
 
 ## 15. 待 owner 拍板的未决问题
 
-1. **版本**：M0 实测的 langgraph / checkpoint-postgres 具体 pin 版本（M0 后回填本文件）；
-2. **入口形态**：AI 客服页内嵌「一键求职准备」卡片，还是独立菜单项？（PRD 默认内嵌）
-3. **HITL 清单**：§3.3 三个风险动作是否都做，还是 M3 只做 `create_interview_session` 一个？
-4. **v2 限额**：`daily_agent_v2_run_limit=10` 是否合适（一次 run 约含 3~5 次 LLM 调用）；
-5. **匿名用户**：v2 是否允许匿名（HITL 审批归属依赖 anonymous_id，技术可行；但 run 产物跨设备不可见，体验差）——默认允许、登录引导；
-6. **管理端 trace 范围**：M4 是否包含 span 树页面，还是先只落库 + JSON 查看。
+1. **版本**：✅ 已拍板——`langgraph==0.2.76` + `langgraph-checkpoint-postgres==2.0.21`（评估实测零冲突，见 §4.2）；
+2. **入口形态**：✅ 已拍板——AI 客服页内嵌「一键求职准备」卡片（PRD 默认）；
+3. **HITL 清单**：✅ 已拍板——M3 只做 `create_interview_session`（评审 D4：另两个无触发路径，预留 v4.1+）；
+4. **v2 限额**：✅ 已拍板——10/日 + 新增单 run token 熔断 30000（评审 R2）；
+5. **匿名用户**：✅ 已拍板——允许，与 v1 口径一致，审批归属 anonymous_id，首次使用引导登录；
+6. **管理端 trace 范围**：✅ 已拍板——M4 先落库 + JSON 查看，span 树页面后置到 v4.1。
 
 ---
 
