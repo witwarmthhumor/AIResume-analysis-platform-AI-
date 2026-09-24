@@ -29,10 +29,8 @@
 11. answer_review     点评用户贴的一段面试回答（三项打分 + 改进建议）
 """
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import TypeVar
 
 from langchain_core.tools import BaseTool, tool
 from sqlalchemy import and_, func, select
@@ -43,36 +41,39 @@ from app.core.logging import get_logger
 from app.models.interview import InterviewSession
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
-from app.schemas.agent import AnswerReviewReport, JobMatchReport, QuestionGenReport
+from app.schemas.agent import AnswerReviewReport
+from app.services.agent_capabilities import (
+    _POSITION_LABELS,
+    run_job_match,
+    run_question_generation,
+)
+from app.services.agent_capabilities import (
+    CHUNK_CHARS as _TOOL_CHUNK_CHARS,
+)
+from app.services.agent_capabilities import (
+    as_items as _as_items,
+)
+from app.services.agent_capabilities import (
+    kb_retrieve as _kb_retrieve,
+)
+from app.services.agent_capabilities import (
+    run_tool_llm as _run_tool_llm,
+)
 from app.services.ai_client import chat_json
 from app.services.analysis_service import latest_valid_analysis
-from app.services.embedding_service import embed_texts
 from app.services.kb_service import (
     count_chunks_by_document,
     list_documents,
-    search_chunks,
 )
 from app.services.lexical_service import tokenize
 from app.services.prompts import (
     ANSWER_REVIEW_SYSTEM_PROMPT,
-    JOB_MATCH_SYSTEM_PROMPT,
-    QUESTION_GEN_SYSTEM_PROMPT,
     build_answer_review_prompt,
-    build_job_match_prompt,
-    build_question_gen_prompt,
-)
-from app.services.usage_service import (
-    acquire_limit_lock,
-    count_today_usage_by_owner,
-    write_usage,
 )
 
 logger = get_logger(__name__)
 
-_T = TypeVar("_T")
-
 # 单块内容回灌给 LLM 的最大字符数（5 块 × 约 300 字，控制 Agent 上下文体积）
-_TOOL_CHUNK_CHARS = 300
 # 列表类工具单次返回条数上限与片段宽度
 _TOOL_LIST_LIMIT = 5
 _TOOL_SNIPPET_WIDTH = 80
@@ -84,25 +85,11 @@ _TOOL_REPORT_ITEMS = 6
 _TOOL_REPORT_QUESTIONS = 5
 # 知识库清单最多列出的文档数（与 kb_max_documents_per_owner 同量级）
 _TOOL_KB_LIMIT = 20
-# job_match：JD 与简历正文送入模型的长度上限（用户可能贴一整页 JD），
-# 以及渲染回 LLM 时每类关键词/建议的条数上限
-_TOOL_JD_CHARS = 4000
-_TOOL_MATCH_RESUME_CHARS = 6000
-_TOOL_MATCH_ITEMS = 8
-# question_gen：送入模型的平台语料块数（与 kb_search 同样按 _TOOL_CHUNK_CHARS 截块）
-# 与渲染给模型的题目条数上限
-_TOOL_QUESTION_CHUNKS = 3
-_TOOL_QUESTION_LIMIT = 5
+# job_match/question_gen 的长度上限与限额话术已下沉 agent_capabilities.py（v4.0 M1，
+# v1 工具与 v2 节点共用）；此处仅保留 answer_review 的自有上限
 # answer_review：用户贴的回答与渲染出的建议条数上限（建议条数的下限由 schema 卡 min 2）
 _TOOL_ANSWER_CHARS = 2000
 _TOOL_ANSWER_SUGGESTIONS = 4
-# 工具内部自带 LLM 调用的记账口径：与 Agent 主循环的 agent/agent_create 分开统计，
-# 上限独立走 settings.daily_agent_tool_llm_limit
-_TOOL_LLM_ACTION = "agent_tool_llm"
-_TOOL_LLM_LIMIT_REPLY = (
-    "今日工具内 AI 调用已达上限，这个功能今天暂时用不了（次日 0 点自动恢复）。"
-    "不要改用自己编造的内容代替，直接说明该功能今日次数已用完即可。"
-)
 
 # 知识库文档的状态与来源中文名（与前端知识库页的徽章口径一致）
 _KB_STATUS_LABELS = {
@@ -112,17 +99,6 @@ _KB_STATUS_LABELS = {
     "failed": "入库失败",
 }
 _KB_SCOPE_LABELS = {"public": "平台预置", "private": "本人上传"}
-# 检索链路两种失败的话术：向量模型挂了与检索本身出错，对模型要分开说清
-_KB_EMBED_ERROR = (
-    "知识库检索服务（向量模型）暂时不可用，请基于你已有的通用知识谨慎回答，"
-    "并说明未检索平台知识库。"
-)
-_KB_SEARCH_ERROR = (
-    "知识库检索暂时出错，请基于你已有的通用知识谨慎回答，并说明未检索平台知识库。"
-)
-
-# 岗位类型 → 中文难度定位（与前端面试页选项、interview_prompts 的口径一致）
-_POSITION_LABELS = {"intern": "实习", "fresh": "校招", "senior": "社招"}
 _POSITION_DEFAULT = "通用"
 
 # 用量动作的中文名（与前端使用日志的徽章映射保持一致）
@@ -278,51 +254,6 @@ def _snippet(text: str, keyword: str, width: int = _TOOL_SNIPPET_WIDTH) -> str |
     return None
 
 
-def _kb_retrieve(
-    db: Session,
-    query: str,
-    user_id: int | None,
-    anonymous_id: str | None,
-    top_k: int,
-) -> tuple[list[dict], str]:
-    """知识库检索的公共入口（embedding + 混合检索）：kb_search 与 question_gen 共用。
-
-    返回 (命中块, 兜底话术)：检索正常时话术为空串；任一步失败时命中为空、话术为说明文案。
-    之所以返回话术而不是抛异常——两个调用方的处置不同：kb_search 要把"向量模型不可用"
-    与"检索出错"分开告诉模型，question_gen 则把任何检索失败都当成"未收录"，退回模型出题。
-    """
-    try:
-        vectors = embed_texts([query])
-    except Exception:
-        logger.warning("agent 知识库检索 embedding 失败，走无检索兜底", exc_info=True)
-        return [], _KB_EMBED_ERROR
-
-    try:
-        hits = search_chunks(
-            db,
-            vectors[0],
-            user_id,
-            anonymous_id,
-            top_k=top_k,
-            # v3.5：工具入参原文一并交给检索层，走向量 + BM25 混合检索
-            query_text=query,
-        )
-    except Exception:
-        logger.exception("agent 知识库检索失败")
-        return [], _KB_SEARCH_ERROR
-    return hits, ""
-
-
-def _as_items(value, limit: int) -> list[str]:
-    """把报告里的数组字段拍平成非空字符串列表（模型偶尔会给单个字符串）。"""
-    if isinstance(value, str):
-        value = [value]
-    if not isinstance(value, list):
-        return []
-    items = [str(item).strip() for item in value]
-    return [item for item in items if item][:limit]
-
-
 def _score_of(report: dict, key: str) -> float | None:
     """取报告里某个维度的分数，缺失或不是数字返回 None。"""
     value = report.get(key)
@@ -374,79 +305,6 @@ def _platform_reply(topic: str) -> str:
             if any(alias in text for alias in aliases):
                 return reply
     return _PLATFORM_OVERVIEW
-
-
-def _tokens_total(result) -> int | None:
-    """取 ai_client.AnalysisResult 之类结果里的 token 合计；取不到就记 None。"""
-    prompt = getattr(result, "tokens_prompt", None)
-    completion = getattr(result, "tokens_completion", None)
-    if prompt is None and completion is None:
-        return None
-    return int(prompt or 0) + int(completion or 0)
-
-
-def _record_tool_llm_usage(
-    db: Session,
-    user_id: int | None,
-    anonymous_id: str | None,
-    tokens_total: int | None,
-) -> None:
-    """记一条 agent_tool_llm 用量并提交：Agent 后续崩了，这笔消耗也不能丢。
-
-    记账属于旁路，失败只告警（不抛、不回滚掉工具结果）；无归属者的账单没法归因，
-    直接不写，免得污染全站总量统计。
-    """
-    if user_id is None and anonymous_id is None:
-        return
-    try:
-        write_usage(
-            db,
-            anonymous_id,
-            user_id,
-            _TOOL_LLM_ACTION,
-            settings.ai_model,
-            tokens_total,
-            None,
-        )
-        db.commit()
-    except Exception:  # 记账失败不能拖垮工具本身
-        logger.warning("agent 工具内 LLM 用量记账失败", exc_info=True)
-        db.rollback()
-
-
-def _run_tool_llm(
-    db: Session,
-    user_id: int | None,
-    anonymous_id: str | None,
-    call: Callable[[], _T],
-) -> tuple[_T | None, str | None]:
-    """工具内调 LLM 的统一入口：当日限额 → 执行 → 记一条 agent_tool_llm 用量。
-
-    返回 (结果, 兜底话术)，两者只有一个非空：已超限时结果为 None、话术是上限提示，
-    调用方直接把它返回给模型即可；执行成功时结果为 call() 的返回值、话术为 None。
-
-    为什么要单独限额：工具内再调一次模型会让单次提问的实际消耗翻倍，跟主循环的
-    daily_agent_limit 混在一起就没法归因（docs/Agent工具设计.md §六）。
-
-    异常不在这里吞——"JD 太短""回答为空""服务欠费"要给的上下文话术各不相同，由各工具
-    自己 try/except 组织。**失败的调用不记账**（重试仍受主循环 daily_agent_limit 约束）。
-    """
-    try:
-        # 原子化：与主循环限额同样的咨询锁，防并发突破工具内每日上限
-        acquire_limit_lock(db, _TOOL_LLM_ACTION, user_id, anonymous_id)
-        used = count_today_usage_by_owner(
-            db, _TOOL_LLM_ACTION, user_id=user_id, anonymous_id=anonymous_id
-        )
-    except Exception:  # 限额查不到时按不可用处理，不让整轮 Agent 崩
-        logger.exception("agent 工具内 LLM 限额查询失败")
-        return None, "工具内 AI 调用暂时不可用，请稍后再试。"
-
-    if used >= settings.daily_agent_tool_llm_limit:
-        return None, _TOOL_LLM_LIMIT_REPLY
-
-    result = call()
-    _record_tool_llm_usage(db, user_id, anonymous_id, _tokens_total(result))
-    return result, None
 
 
 def make_tools(
@@ -919,83 +777,9 @@ def make_tools(
         要读已有的 AI 分析结论请用 analysis_read（本工具是**现算**的 JD 匹配，不是读旧报告）；
         用户完全没提目标岗位的任何要求（纯聊岗位前景、薪资行情）时才不要调用本工具。
         入参 jd_text 为岗位描述原文或用户口述的岗位要求，超过 4000 字符会截断后分析。"""
-        owner = _owner_filter(Resume, user_id, anonymous_id)
-        if owner is None:
-            return (
-                "当前会话无法识别用户身份，无法做岗位匹配。请提示用户先登录后再提问。"
-            )
-
-        jd = (jd_text or "").strip()
-        if not jd:
-            return (
-                "请让用户把目标岗位的 JD（招聘要求/职位描述）贴进来，我才能做匹配分析。"
-            )
-
-        # 用户可能整页粘贴，超长 JD 会撑爆上下文并让费用翻倍——截断后在输出里说明
-        truncated = len(jd) > _TOOL_JD_CHARS
-        if truncated:
-            jd = jd[:_TOOL_JD_CHARS]
-
-        try:
-            resume = db.scalars(
-                select(Resume)
-                .where(Resume.deleted_at.is_(None), owner)
-                .order_by(Resume.created_at.desc(), Resume.id.desc())
-                .limit(1)
-            ).first()
-        except Exception:
-            logger.exception("agent job_match 简历查询失败")
-            return "简历查询暂时出错，请稍后再试。"
-
-        if resume is None:
-            return "需要先上传简历才能做岗位匹配。请提示用户到首页上传一份 PDF 简历后再来提问。"
-
-        body = (resume.raw_text or "")[:_TOOL_MATCH_RESUME_CHARS]
-        if not body.strip():
-            return (
-                f"简历「{resume.filename}」还没有解析出正文，无法做岗位匹配，"
-                "请让用户重新上传一份文本型 PDF 简历。"
-            )
-
-        def _call():
-            return chat_json(
-                JOB_MATCH_SYSTEM_PROMPT,
-                build_job_match_prompt(jd, body),
-                settings,
-                JobMatchReport.model_validate,
-            )
-
-        try:
-            result, reply = _run_tool_llm(db, user_id, anonymous_id, _call)
-        except Exception:
-            logger.exception("agent job_match AI 调用失败")
-            return "岗位匹配的 AI 服务暂时不可用（可能是服务欠费或超时），请稍后再试。"
-        if reply is not None:  # 达到工具内 AI 调用上限
-            return reply
-
-        report = result.report if result is not None else None
-        if not isinstance(report, dict):
-            return "岗位匹配的 AI 返回结果无法解析，请让用户稍后再试一次。"
-
-        lines = [
-            f"简历「{resume.filename}」与该岗位的匹配分析：",
-            f"整体匹配度：{report['match_score']}/100",
-        ]
-        for key, label in (
-            ("matched_keywords", "已命中关键词"),
-            ("missing_keywords", "缺失关键词"),
-        ):
-            items = _as_items(report.get(key), _TOOL_MATCH_ITEMS)
-            if items:
-                lines.append(f"{label}：" + "、".join(items))
-        suggestions = _as_items(report.get("suggestions"), _TOOL_MATCH_ITEMS)
-        if suggestions:
-            lines.append("针对性建议：" + "；".join(suggestions))
-        if truncated:
-            lines.append(
-                f"（JD 超过 {_TOOL_JD_CHARS} 字符，已按前 {_TOOL_JD_CHARS} 字符分析。）"
-            )
-        return "\n".join(lines)
+        # v4.0 M1：核心逻辑下沉 agent_capabilities.run_job_match（v2 matcher 节点共用）
+        text, _report = run_job_match(db, user_id, anonymous_id, jd_text)
+        return text
 
     @tool
     def question_gen(topic: str, position_type: str) -> str:
@@ -1011,62 +795,11 @@ def make_tools(
         问"模拟面试功能怎么开始"（入口与流程）请用 platform_help。
         入参 topic 为想练习的主题；position_type 取 intern（实习）/ fresh（校招）/
         senior（社招）/ 空字符串，其他值按通用难度处理。"""
-        subject = (topic or "").strip()
-        if not subject:
-            return "请让用户说明想练习哪个主题（例如 MySQL 索引、Redis 缓存、项目深挖），我才能出题。"
-
-        level = _POSITION_LABELS.get(
-            (position_type or "").strip().lower(), _POSITION_DEFAULT
+        # v4.0 M1：核心逻辑下沉 agent_capabilities.run_question_generation（v2 questioner 节点共用）
+        text, _product = run_question_generation(
+            db, user_id, anonymous_id, topic, position_type
         )
-
-        hits, error = _kb_retrieve(
-            db, subject, user_id, anonymous_id, settings.kb_search_top_k
-        )
-        used = hits[:_TOOL_QUESTION_CHUNKS]
-        context = "\n\n".join(
-            f"【来源：{h['title']}（第{h['seq']}块）】\n{h['content'][:_TOOL_CHUNK_CHARS]}"
-            for h in used
-        )
-
-        def _call():
-            return chat_json(
-                QUESTION_GEN_SYSTEM_PROMPT,
-                build_question_gen_prompt(subject, level, context),
-                settings,
-                QuestionGenReport.model_validate,
-            )
-
-        try:
-            result, reply = _run_tool_llm(db, user_id, anonymous_id, _call)
-        except Exception:
-            logger.exception("agent question_gen AI 调用失败")
-            return "出题的 AI 服务暂时不可用（可能是服务欠费或超时），请稍后再试。"
-        if reply is not None:  # 达到工具内 AI 调用上限
-            return reply
-
-        report = result.report if result is not None else None
-        questions = (
-            _as_items(report.get("questions"), _TOOL_QUESTION_LIMIT)
-            if isinstance(report, dict)
-            else []
-        )
-        if not questions:
-            return "出题的 AI 返回结果无法解析，请让用户稍后再试一次。"
-
-        if used:
-            head = f"主题「{subject}」的模拟面试题（难度定位：{level}；依据平台知识库出题）："
-        else:
-            # 未收录与检索失败都退回模型出题，必须在输出里说清题目不来自知识库
-            reason = "平台知识库检索暂时不可用" if error else "平台知识库未收录该主题"
-            head = f"{reason}，以下题目不来自平台知识库（难度定位：{level}）："
-        lines = [head]
-        lines.extend(f"{i}. {q}" for i, q in enumerate(questions, start=1))
-        if used:
-            titles = "、".join(dict.fromkeys(f"《{h['title']}》" for h in used))
-            lines.append(
-                f"（出题依据：{titles}。想看这些题怎么答，可以让我检索平台知识库。）"
-            )
-        return "\n".join(lines)
+        return text
 
     @tool
     def answer_review(question: str, answer: str) -> str:

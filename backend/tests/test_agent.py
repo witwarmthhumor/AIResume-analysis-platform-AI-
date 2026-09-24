@@ -48,7 +48,7 @@ def test_build_history_skips_unknown_role() -> None:
 def test_kb_search_hit_populates_citations(monkeypatch) -> None:
     """命中：ctx.citations 回填来源，返回给 LLM 的文本含资料片段。"""
     monkeypatch.setattr(
-        "app.services.agent.tools.embed_texts", lambda texts: [_FAKE_VEC]
+        "app.services.agent_capabilities.embed_texts", lambda texts: [_FAKE_VEC]
     )
     hits = [
         {
@@ -59,7 +59,9 @@ def test_kb_search_hit_populates_citations(monkeypatch) -> None:
             "similarity": 0.81,
         }
     ]
-    monkeypatch.setattr("app.services.agent.tools.search_chunks", lambda *a, **k: hits)
+    monkeypatch.setattr(
+        "app.services.agent_capabilities.search_chunks", lambda *a, **k: hits
+    )
 
     ctx = ToolContext()
     tools = make_tools(db=None, user_id=None, anonymous_id="anon", ctx=ctx)
@@ -74,9 +76,11 @@ def test_kb_search_hit_populates_citations(monkeypatch) -> None:
 def test_kb_search_empty_clears_citations(monkeypatch) -> None:
     """未命中：清空上一轮残留引用，并提示 Agent 走通用知识。"""
     monkeypatch.setattr(
-        "app.services.agent.tools.embed_texts", lambda texts: [_FAKE_VEC]
+        "app.services.agent_capabilities.embed_texts", lambda texts: [_FAKE_VEC]
     )
-    monkeypatch.setattr("app.services.agent.tools.search_chunks", lambda *a, **k: [])
+    monkeypatch.setattr(
+        "app.services.agent_capabilities.search_chunks", lambda *a, **k: []
+    )
 
     ctx = ToolContext(citations=[{"document_id": 9, "title": "旧", "seq": 0}])
     tools = make_tools(db=None, user_id=None, anonymous_id="anon", ctx=ctx)
@@ -92,7 +96,7 @@ def test_kb_search_embedding_failure_fallback(monkeypatch) -> None:
     def _boom(texts):
         raise RuntimeError("ollama down")
 
-    monkeypatch.setattr("app.services.agent.tools.embed_texts", _boom)
+    monkeypatch.setattr("app.services.agent_capabilities.embed_texts", _boom)
     ctx = ToolContext()
     tools = make_tools(db=None, user_id=None, anonymous_id="anon", ctx=ctx)
     result = tools[0].invoke({"query": "q"})

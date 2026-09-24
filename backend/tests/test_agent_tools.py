@@ -26,12 +26,18 @@ from app.models.resume import Resume
 from app.models.usage_log import UsageLog
 from app.schemas.agent import AnswerReviewReport, JobMatchReport, QuestionGenReport
 from app.services.agent import ToolContext, make_tools
-from app.services.agent.tools import (
-    _TOOL_ANSWER_CHARS,
-    _TOOL_JD_CHARS,
-    _TOOL_LLM_ACTION,
-    _TOOL_LLM_LIMIT_REPLY,
-    _run_tool_llm,
+from app.services.agent.tools import _TOOL_ANSWER_CHARS
+from app.services.agent_capabilities import (
+    JD_MAX_CHARS as _TOOL_JD_CHARS,
+)
+from app.services.agent_capabilities import (
+    TOOL_LLM_ACTION as _TOOL_LLM_ACTION,
+)
+from app.services.agent_capabilities import (
+    TOOL_LLM_LIMIT_REPLY as _TOOL_LLM_LIMIT_REPLY,
+)
+from app.services.agent_capabilities import (
+    run_tool_llm as _run_tool_llm,
 )
 from app.services.ai_client import AIError, AnalysisResult
 from app.services.prompts import (
@@ -938,7 +944,9 @@ def test_run_tool_llm_swallows_limit_query_error(db_session, monkeypatch) -> Non
     def _boom(*args, **kwargs):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr("app.services.agent.tools.count_today_usage_by_owner", _boom)
+    monkeypatch.setattr(
+        "app.services.agent_capabilities.count_today_usage_by_owner", _boom
+    )
 
     result, reply = _run_tool_llm(db_session, None, _OWNER, _fake_result)
 
@@ -953,7 +961,7 @@ def test_run_tool_llm_survives_usage_write_failure(db_session, monkeypatch) -> N
     def _boom(*args, **kwargs):
         raise RuntimeError("write failed")
 
-    monkeypatch.setattr("app.services.agent.tools.write_usage", _boom)
+    monkeypatch.setattr("app.services.agent_capabilities.write_usage", _boom)
 
     result, reply = _run_tool_llm(db_session, None, _OWNER, _fake_result)
 
@@ -1002,6 +1010,9 @@ def _patch_chat_json(monkeypatch, result: AnalysisResult | None = None, error=No
             raise error
         return result if result is not None else _fake_match_result()
 
+    # answer_review 仍在 tools.py，job_match/question_gen 已下沉 capabilities：
+    # 两处 chat_json 都 patch，替身对两类测试都生效
+    monkeypatch.setattr("app.services.agent_capabilities.chat_json", _fake)
     monkeypatch.setattr("app.services.agent.tools.chat_json", _fake)
     return seen
 
@@ -1124,13 +1135,13 @@ def _patch_kb_hits(monkeypatch, hits=None, error: Exception | None = None) -> No
         def _boom(texts):
             raise error
 
-        monkeypatch.setattr("app.services.agent.tools.embed_texts", _boom)
+        monkeypatch.setattr("app.services.agent_capabilities.embed_texts", _boom)
     else:
         monkeypatch.setattr(
-            "app.services.agent.tools.embed_texts", lambda texts: [[0.1] * 8]
+            "app.services.agent_capabilities.embed_texts", lambda texts: [[0.1] * 8]
         )
     monkeypatch.setattr(
-        "app.services.agent.tools.search_chunks",
+        "app.services.agent_capabilities.search_chunks",
         lambda *a, **k: [] if hits is None else hits,
     )
 
