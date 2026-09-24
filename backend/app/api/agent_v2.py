@@ -188,11 +188,9 @@ def create_run(
                         return
                     continue
                 idle = 0
-                yield _sse(event.pop("type"), event)
-                if (
-                    event.get("type") in _TERMINAL_EVENTS
-                    or event["type"] in _TERMINAL_EVENTS
-                ):
+                etype = event.pop("type")
+                yield _sse(etype, event)
+                if etype in _TERMINAL_EVENTS:
                     return
         finally:
             event_bus.unsubscribe(run.id, buf)

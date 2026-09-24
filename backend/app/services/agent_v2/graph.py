@@ -6,21 +6,22 @@
 
 设计约束：
 - 节点只调 service 层（agent_capabilities / ai_client / interview_service），不碰 api；
-- LLM 能力全部经 agent_capabilities（v1 工具同源），测试在该层打桩即可整图离线；
+- LLM 能力全部经 agent_capabilities（v1 工具同源），测试在 graph 模块引用处打桩即整图离线；
 - 图执行线程 + SSE 的断开/记账约定与 v1 executor 相同（PRD §4.4）；
 - risk 动作（create_interview_session）经 hitl_gate interrupt，批准后由 deliver 调
-  interview_service.create_session 执行——零审批零副作用（PRD §10.3）。
-- 依赖注入：LangGraph 节点只接 (state, config)，运行期依赖经 config["configurable"]["deps"]
-  传入（db/recorder/publish/身份），节点内 deps_from_config(config) 取回。
+  interview_service.create_session 执行——零审批零副作用（PRD §10.3）；
+- 依赖注入：LangGraph 节点只接 (state, config)，运行期依赖（db/recorder/publish/身份）
+  经 config["configurable"]["deps"] 传入。
 """
 
 import json
 import time
-from typing import Any
+from typing import TypedDict
 
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -28,8 +29,8 @@ from app.db.session import SessionLocal
 from app.models.agent_v2 import AgentApproval, AgentSpan
 from app.models.analysis import Analysis
 from app.models.resume import Resume
-from app.services.agent_capabilities import run_job_match, run_question_generation
 from app.services.agent_v2 import event_bus
+from app.services.agent_capabilities import run_job_match, run_question_generation
 from app.services.ai_client import analyze_resume
 from app.services.interview_service import create_session
 from app.services.prompts import PROMPT_VERSION
@@ -41,8 +42,37 @@ MAX_RETRIES_PER_NODE = settings.agent_v2_max_retries_per_node
 RISK_CREATE_SESSION = "create_interview_session"
 
 
-class JobPrepState(dict):
-    """共享状态：普通 dict（LangGraph 默认覆盖语义；retry_counts 等整体回写）。"""
+class JobPrepState(TypedDict, total=False):
+    """共享状态 schema（LangGraph 由 TypedDict 推断 channel 集合；全部可选，末值覆盖）。
+
+    用普通 dict 子类会让 LangGraph 推断不出 channel，节点写入抛
+    InvalidUpdateError: Must write to at least one of []。
+    """
+
+    jd_text: str
+    topic: str
+    position_type: str
+    session_id: int | None
+    plan: list[dict]
+    risk_actions: list[str]
+    retry_counts: dict[str, int]
+    resume_id: int
+    resume_filename: str
+    analysis_summary: dict
+    analyzer_error: str
+    match_text: str
+    match_report: dict
+    match_error: str
+    questions: dict
+    questions_text: str
+    questions_error: str
+    verifier_result: dict
+    approval_decision: dict
+    output: dict
+    error: str
+    failed: bool
+    partial_output: dict
+    skip_analysis: bool
 
 
 def _preview(value, limit: int = 200) -> str | None:
@@ -50,6 +80,11 @@ def _preview(value, limit: int = 200) -> str | None:
         return None
     text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
     return text[:limit]
+
+
+def deps_from_config(config: dict):
+    """节点内取回运行期依赖（db/recorder/publish/身份）。"""
+    return config["configurable"]["deps"]
 
 
 class RunRecorder:
@@ -66,8 +101,10 @@ class RunRecorder:
         self, status: str, node: str | None = None, error: str | None = None
     ) -> None:
         self.db.execute(
-            "UPDATE agent_runs SET status = :s, current_node = :n, error = :e, "
-            "updated_at = now() WHERE id = :id",
+            text(
+                "UPDATE agent_runs SET status = :s, current_node = :n, error = :e, "
+                "updated_at = now() WHERE id = :id"
+            ),
             {"s": status, "n": node, "e": error, "id": self.run_id},
         )
         self.db.commit()
@@ -104,10 +141,13 @@ class RunRecorder:
         self, status: str, error: str | None = None, output: dict | None = None
     ) -> None:
         self.db.execute(
-            "UPDATE agent_runs SET status = :s, error = :e, output_json = :o, "
-            "tokens_total = :t, duration_ms = :d, iterations = "
-            "(SELECT count(*) FROM agent_spans WHERE run_id = :id AND span_type = 'agent_node'), "
-            "completed_at = now(), updated_at = now() WHERE id = :id",
+            text(
+                "UPDATE agent_runs SET status = :s, error = :e, output_json = :o, "
+                "tokens_total = :t, duration_ms = :d, iterations = "
+                "(SELECT count(*) FROM agent_spans WHERE run_id = :id "
+                "AND span_type = 'agent_node'), "
+                "completed_at = now(), updated_at = now() WHERE id = :id"
+            ),
             {
                 "s": status,
                 "e": error,
@@ -120,13 +160,8 @@ class RunRecorder:
         self.db.commit()
 
 
-def deps_from_config(config: dict) -> Any:
-    """节点内取回运行期依赖（db/recorder/publish/身份）。"""
-    return config["configurable"]["deps"]
-
-
 def _make_nodes(deps):
-    """真实节点实现（闭包注入 deps）。"""
+    """真实节点实现（闭包注入 deps：db / user_id / anonymous_id / recorder / publish）。"""
 
     def planner(state: JobPrepState) -> dict:
         # 规则式 Planner（PRD 定稿）：单链路固定计划 + 入口意图识别；
@@ -164,20 +199,31 @@ def _make_nodes(deps):
             }
         return {"resume_id": resume.id, "resume_filename": resume.filename}
 
+    def need_analysis(state: JobPrepState) -> dict:
+        """pass-through 节点：查"是否已有有效分析"，写 skip_analysis 供条件边路由。"""
+        existing = (
+            deps.db.query(Analysis)
+            .filter(
+                Analysis.resume_id == (state.get("resume_id") or 0),
+                Analysis.valid_json.is_(True),
+            )
+            .first()
+        )
+        return {"skip_analysis": existing is not None}
+
     def analyzer(state: JobPrepState) -> dict:
         existing = (
             deps.db.query(Analysis)
             .filter(
-                Analysis.resume_id == state["resume_id"],
+                Analysis.resume_id == (state.get("resume_id") or 0),
                 Analysis.valid_json.is_(True),
             )
-            .order_by(Analysis.id.desc())
             .first()
         )
         if existing is not None:
             return {"analysis_summary": existing.result_json}
 
-        resume = deps.db.get(Resume, state["resume_id"])
+        resume = deps.db.get(Resume, state.get("resume_id") or 0)
         try:
             result = analyze_resume(resume.raw_text, settings)
         except Exception as exc:  # noqa: BLE001  AIError/网络异常都转成可回环的失败原因
@@ -367,6 +413,7 @@ def _make_nodes(deps):
     return {
         "planner": planner,
         "load_resume": load_resume,
+        "need_analysis": need_analysis,
         "analyzer": analyzer,
         "matcher": matcher,
         "questioner": questioner,
@@ -379,21 +426,6 @@ def _make_nodes(deps):
 
 def route_after_planner(state: JobPrepState) -> str:
     return "load_resume" if state.get("plan") else "fail"
-
-
-def need_analysis(state: JobPrepState, config: dict) -> dict:
-    """pass-through 节点：查"是否已有有效分析"，写 skip_analysis 标志供条件边路由。"""
-
-    deps = deps_from_config(config)
-    existing = (
-        deps.db.query(Analysis)
-        .filter(
-            Analysis.resume_id == state["resume_id"],
-            Analysis.valid_json.is_(True),
-        )
-        .first()
-    )
-    return {"skip_analysis": existing is not None}
 
 
 def route_need_analysis(state: JobPrepState) -> str:
@@ -409,7 +441,7 @@ def route_after_verifier(state: JobPrepState) -> str:
     return v.get("retry_node") or "fail"
 
 
-def _node(name: str, fn):
+def _wrap_node(name: str):
     """节点薄壳：发布 node_start/end、写 span、维护 run.current_node。"""
 
     def _inner(state: JobPrepState, config: dict) -> dict:
@@ -418,7 +450,7 @@ def _node(name: str, fn):
         deps.publish({"type": "node_start", "node": name})
         deps.recorder.status("running", node=name)
         try:
-            result = fn(state)
+            result = _make_nodes(deps)[name](state)
         except Exception as exc:
             deps.recorder.span(
                 "agent_node",
@@ -442,54 +474,25 @@ def _node(name: str, fn):
     return _inner
 
 
+_NODE_NAMES = (
+    "planner",
+    "load_resume",
+    "need_analysis",
+    "analyzer",
+    "matcher",
+    "questioner",
+    "verifier",
+    "hitl_gate",
+    "deliver",
+    "fail",
+)
+
+
 def build_job_prep_graph(checkpointer):
     """编译主链路图。interrupt/resume 经 checkpointer 支持（PRD FR-8）。"""
     builder = StateGraph(JobPrepState)
-
-    def wrapped(name: str):
-        def _inner(state: JobPrepState, config: dict) -> dict:
-            deps = deps_from_config(config)
-            t0 = time.monotonic()
-            deps.publish({"type": "node_start", "node": name})
-            deps.recorder.status("running", node=name)
-            try:
-                result = _make_nodes(deps)[name](state)
-            except Exception as exc:
-                deps.recorder.span(
-                    "agent_node",
-                    name,
-                    status="error",
-                    error_type=type(exc).__name__,
-                    duration_ms=int((time.monotonic() - t0) * 1000),
-                )
-                raise
-            deps.recorder.span(
-                "agent_node",
-                name,
-                duration_ms=int((time.monotonic() - t0) * 1000),
-                output_preview=_preview(result),
-            )
-            deps.publish(
-                {"type": "node_end", "node": name, "preview": _preview(result) or ""}
-            )
-            return result
-
-        return _inner
-
-    for name in (
-        "planner",
-        "load_resume",
-        "need_analysis",
-        "analyzer",
-        "matcher",
-        "questioner",
-        "verifier",
-        "hitl_gate",
-        "deliver",
-        "fail",
-    ):
-        builder.add_node(name, wrapped(name))
-
+    for name in _NODE_NAMES:
+        builder.add_node(name, _wrap_node(name))
     builder.add_edge(START, "planner")
     builder.add_conditional_edges(
         "planner", route_after_planner, {"load_resume": "load_resume", "fail": "fail"}
@@ -520,50 +523,55 @@ def build_job_prep_graph(checkpointer):
     return builder.compile(checkpointer=checkpointer)
 
 
+def _make_deps(db, run_id: int, trace_id: str, user_id, anonymous_id):
+    """构造图执行线程的运行期依赖（publish 走事件总线）。"""
+
+    class _Deps:
+        pass
+
+    deps = _Deps()
+    deps.db = db
+    deps.user_id = user_id
+    deps.anonymous_id = anonymous_id
+    deps.run_id = run_id
+    deps.trace_id = trace_id
+    deps.recorder = RunRecorder(run_id, trace_id, db)
+    deps.ip = None
+    deps.publish = lambda event: event_bus.publish(run_id, event)
+    return deps
+
+
+def _dsn() -> str:
+    base = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
+    return f"{base}?options=-csearch_path%3Dlanggraph%2Cpublic"
+
+
 def run_job_prep(
     run_id: int,
     trace_id: str,
     user_id: int | None,
     anonymous_id: str | None,
     input_state: dict,
-    config_extra: dict | None = None,
 ) -> None:
     """图执行线程入口：跑 stream 并把事件发布到 event_bus（PRD §4.4 / D1）。
 
     挂起（interrupt）时流正常结束，run 置 waiting_approval，等 approve/reject
     用 Command(resume) 续跑；断开的消费者靠 event_bus 缓冲 + /stream 重连补发。
     """
-    base_dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
-    dsn = f"{base_dsn}?options=-csearch_path%3Dlanggraph%2Cpublic"
-    thread_id = f"run-{run_id}"
-
     with SessionLocal() as db:
         recorder = RunRecorder(run_id, trace_id, db)
+        deps = _make_deps(db, run_id, trace_id, user_id, anonymous_id)
+        config = {"configurable": {"thread_id": f"run-{run_id}", "deps": deps}}
 
-        class _Deps:
-            pass
-
-        deps = _Deps()
-        deps.db = db
-        deps.user_id = user_id
-        deps.anonymous_id = anonymous_id
-        deps.run_id = run_id
-        deps.trace_id = trace_id
-        deps.recorder = recorder
-        deps.ip = None
-        deps.publish = lambda event: event_bus.publish(run_id, event)
-
-        config = {"configurable": {"thread_id": thread_id, "deps": deps}}
-
-        with PostgresSaver.from_conn_string(dsn) as checkpointer:
+        with PostgresSaver.from_conn_string(_dsn()) as checkpointer:
             checkpointer.setup()
             graph = build_job_prep_graph(checkpointer)
             try:
                 last: dict = {}
                 for chunk in graph.stream(input_state, config, stream_mode="values"):
                     last = chunk
-                st = graph.get_state(config)
-                if st.next:
+                state = graph.get_state(config)
+                if state.next:
                     recorder.status("waiting_approval", node="hitl_gate")
                     event_bus.publish(
                         run_id, {"type": "stream_closed", "reason": "waiting_approval"}
@@ -579,7 +587,7 @@ def run_job_prep(
                         {"type": "fatal", "content": last.get("error") or "任务失败"},
                     )
                 else:
-                    recorder.status(
+                    recorder.finish(
                         "completed",
                         output={
                             "analysis": last.get("analysis_summary") or {},
@@ -590,7 +598,7 @@ def run_job_prep(
                     )
             except Exception as exc:
                 logger.exception("agent_v2 run %s 执行失败", run_id)
-                recorder.status("failed", error=f"任务执行失败：{type(exc).__name__}")
+                recorder.finish("failed", error=f"任务执行失败：{type(exc).__name__}")
                 event_bus.publish(
                     run_id, {"type": "fatal", "content": "任务执行失败，请稍后重试。"}
                 )
@@ -604,28 +612,12 @@ def resume_job_prep(
     decision: dict,
 ) -> None:
     """审批后续跑：Command(resume=decision) 从 hitl_gate 的断点继续（PRD FR-8）。"""
-    base_dsn = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
-    dsn = f"{base_dsn}?options=-csearch_path%3Dlanggraph%2Cpublic"
-    thread_id = f"run-{run_id}"
-
     with SessionLocal() as db:
         recorder = RunRecorder(run_id, trace_id, db)
+        deps = _make_deps(db, run_id, trace_id, user_id, anonymous_id)
+        config = {"configurable": {"thread_id": f"run-{run_id}", "deps": deps}}
 
-        class _Deps:
-            pass
-
-        deps = _Deps()
-        deps.db = db
-        deps.user_id = user_id
-        deps.anonymous_id = anonymous_id
-        deps.run_id = run_id
-        deps.trace_id = trace_id
-        deps.recorder = recorder
-        deps.ip = None
-        deps.publish = lambda event: event_bus.publish(run_id, event)
-        config = {"configurable": {"thread_id": thread_id, "deps": deps}}
-
-        with PostgresSaver.from_conn_string(dsn) as checkpointer:
+        with PostgresSaver.from_conn_string(_dsn()) as checkpointer:
             checkpointer.setup()
             graph = build_job_prep_graph(checkpointer)
             try:
@@ -645,7 +637,7 @@ def resume_job_prep(
                         {"type": "fatal", "content": last.get("error") or "任务失败"},
                     )
                     return
-                recorder.status(
+                recorder.finish(
                     "completed",
                     output={
                         "analysis": last.get("analysis_summary") or {},
@@ -657,7 +649,7 @@ def resume_job_prep(
                 )
             except Exception as exc:
                 logger.exception("agent_v2 run %s 续跑失败", run_id)
-                recorder.status("failed", error=f"续跑失败：{type(exc).__name__}")
+                recorder.finish("failed", error=f"续跑失败：{type(exc).__name__}")
                 event_bus.publish(
                     run_id, {"type": "fatal", "content": "续跑失败，请稍后重试。"}
                 )
