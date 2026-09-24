@@ -155,6 +155,8 @@ def _make_nodes(deps):
     def load_resume(state: JobPrepState) -> dict:
         from app.services.agent_capabilities import find_latest_resume
 
+        if state.get("resume_id"):
+            return {}  # retry 注入：产物已存在，跳过（D2 语义）
         resume = find_latest_resume(deps.db, deps.user_id, deps.anonymous_id)
         if resume is None or not (resume.raw_text or "").strip():
             return {
@@ -211,6 +213,8 @@ def _make_nodes(deps):
         return {"analysis_summary": result.report}
 
     def matcher(state: JobPrepState) -> dict:
+        if state.get("match_report"):
+            return {}  # retry 注入：匹配报告已存在，跳过（D2 语义）
         text, report = run_job_match(
             deps.db, deps.user_id, deps.anonymous_id, state.get("jd_text") or ""
         )
@@ -221,6 +225,8 @@ def _make_nodes(deps):
         }
 
     def questioner(state: JobPrepState) -> dict:
+        if (state.get("questions") or {}).get("questions"):
+            return {}  # retry 注入：题目已存在，跳过（D2 语义）
         topic = (state.get("topic") or "").strip() or (
             state.get("jd_text") or ""
         ).strip()[:50]
@@ -348,7 +354,15 @@ def _make_nodes(deps):
 
     def fail(state: JobPrepState) -> dict:
         deps.publish({"type": "fatal", "content": state.get("error") or "任务失败"})
-        return {}
+        # 保留已完成节点的产物：retry-node 用它们注入新 run 的初始 state（D2）
+        return {
+            "failed": True,
+            "partial_output": {
+                k: state[k]
+                for k in ("match_report", "match_text", "analysis_summary", "questions")
+                if state.get(k) is not None
+            },
+        }
 
     return {
         "planner": planner,
@@ -554,6 +568,16 @@ def run_job_prep(
                     event_bus.publish(
                         run_id, {"type": "stream_closed", "reason": "waiting_approval"}
                     )
+                elif last.get("failed"):
+                    recorder.finish(
+                        "failed",
+                        error=last.get("error") or "任务失败",
+                        output=last.get("partial_output") or {},
+                    )
+                    event_bus.publish(
+                        run_id,
+                        {"type": "fatal", "content": last.get("error") or "任务失败"},
+                    )
                 else:
                     recorder.status(
                         "completed",
@@ -610,6 +634,17 @@ def resume_job_prep(
                     Command(resume=decision), config, stream_mode="values"
                 ):
                     last = chunk
+                if last.get("failed"):
+                    recorder.finish(
+                        "failed",
+                        error=last.get("error") or "任务失败",
+                        output=last.get("partial_output") or {},
+                    )
+                    event_bus.publish(
+                        run_id,
+                        {"type": "fatal", "content": last.get("error") or "任务失败"},
+                    )
+                    return
                 recorder.status(
                     "completed",
                     output={
