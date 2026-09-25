@@ -8,6 +8,7 @@ analyze_resume 模块引用，测试 patch app.services.agent_v2.graph.* 即整�
 import json
 import time
 import uuid
+from typing import ClassVar
 
 import pytest
 from fastapi.testclient import TestClient
@@ -114,7 +115,7 @@ def _fake_llm(monkeypatch):
     )
 
     class _R:
-        report = {"target_position": "后端"}
+        report: ClassVar[dict] = {"target_position": "后端"}
         valid = True
         model_name = "fake"
         tokens_prompt = 10
@@ -346,7 +347,7 @@ def test_run_owner_isolation(_fake_llm):
     a, uid_a, _ = _register("av2-")
     _create_resume_for(uid_a, _marker())
     resp = a.post("/api/agent-v2/runs", json={"jd_text": "x"})
-    events = _drain_events(resp, until=("fatal", "done"))
+    _drain_events(resp, until=("fatal", "done"))
     with engine.begin() as conn:
         run_id = conn.execute(
             text(
@@ -365,3 +366,14 @@ def test_agent_v2_disabled_returns_503(monkeypatch):
     r = client.post("/api/agent-v2/runs", json={"jd_text": "x"})
     assert r.status_code == 503
     assert "对话框" in r.json()["message"]
+
+
+def test_run_daily_limit_429(monkeypatch):
+    """v2 独立限额：达 daily_agent_v2_run_limit 后发起返回 429（与 v1 口径分开）。"""
+    from app.core.config import settings
+
+    c, _, _ = _register("av2-")
+    monkeypatch.setattr(settings, "daily_agent_v2_run_limit", 0)
+    r = c.post("/api/agent-v2/runs", json={"jd_text": "x"})
+    assert r.status_code == 429
+    assert "每日上限" in r.json()["message"]

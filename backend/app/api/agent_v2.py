@@ -18,17 +18,25 @@ from sqlalchemy.orm import Session
 
 from app.api.admin import _admin_only
 from app.api.auth_deps import get_optional_current_user
-from app.api.deps import get_anonymous_id, matches_owner, owner_clause
+from app.api.deps import (
+    enforce_daily_limit,
+    get_anonymous_id,
+    matches_owner,
+    owner_clause,
+)
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.agent_v2 import AgentApproval, AgentRun, AgentSpan, AuditLog
 from app.models.user import User
 from app.services.agent_v2 import event_bus
 from app.services.agent_v2.graph import resume_job_prep, run_job_prep
+from app.services.usage_service import write_usage
 
 router = APIRouter(prefix="/api/agent-v2", tags=["agent_v2"])
 
 _TERMINAL_EVENTS = {"done", "fatal", "stream_closed"}
+# v2 run 的记账口径（usage_logs.action_type）：限额与用量统计都按它聚合
+V2_RUN_ACTION = "agent_run_v2"
 
 
 def _require_enabled() -> None:
@@ -119,6 +127,24 @@ def create_run(
 ):
     """发起一键求职准备：建 run → 后台线程跑图 → 返回 SSE 流（事件含 plan/节点流转/结果）。"""
     _require_enabled()
+    # v2 独立限额（daily_agent_v2_run_limit，与 v1 的 agent/analysis 口径分开）；
+    # 按发起次数计（含后续失败的 run），lock→count→记账 与 run 落库同事务串行化
+    enforce_daily_limit(
+        db,
+        anonymous_id,
+        settings.daily_agent_v2_run_limit,
+        action_type=V2_RUN_ACTION,
+        user_id=user.id if user else None,
+    )
+    write_usage(
+        db,
+        anonymous_id=anonymous_id,
+        user_id=user.id if user else None,
+        action_type=V2_RUN_ACTION,
+        model_name=None,
+        tokens_total=0,
+        ip_address=request.client.host if request.client else None,
+    )
     trace_id = uuid.uuid4().hex
     run = AgentRun(
         user_id=user.id if user else None,
