@@ -600,9 +600,11 @@ def run_job_prep(
         config = {"configurable": {"thread_id": f"run-{run_id}", "deps": deps}}
 
         with PostgresSaver.from_conn_string(_dsn()) as checkpointer:
-            checkpointer.setup()
-            graph = build_job_prep_graph(checkpointer)
             try:
+                # setup() 必须在 try 内：它失败时要把 fatal 发出去，
+                # 而不是让线程静默死亡（表现为 SSE 只剩防御性断流）
+                checkpointer.setup()
+                graph = build_job_prep_graph(checkpointer)
                 last: dict = {}
                 for chunk in graph.stream(input_state, config, stream_mode="values"):
                     last = chunk
@@ -654,9 +656,10 @@ def resume_job_prep(
         config = {"configurable": {"thread_id": f"run-{run_id}", "deps": deps}}
 
         with PostgresSaver.from_conn_string(_dsn()) as checkpointer:
-            checkpointer.setup()
-            graph = build_job_prep_graph(checkpointer)
             try:
+                # setup() 必须在 try 内（同 run_job_prep：失败要发 fatal 而非静默）
+                checkpointer.setup()
+                graph = build_job_prep_graph(checkpointer)
                 # invoke 的返回值就是最终状态 dict（不是迭代器，勿 for 遍历）
                 last = graph.invoke(Command(resume=decision), config)
                 if last.get("failed"):

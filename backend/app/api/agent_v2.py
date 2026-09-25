@@ -168,6 +168,10 @@ def create_run(
     run.thread_id = f"run-{run.id}"
     db.commit()
     db.refresh(run)
+    # 必须结束本次请求事务（refresh 后会话处于 idle in transaction）：
+    # 流式响应期间依赖不会收尾，图线程 setup() 的 CREATE INDEX CONCURRENTLY
+    # 会等在途事务结束 → 与本会话互等死锁（CI 冷库实测踩坑）
+    db.commit()
 
     # 订阅必须先于线程启动：否则线程早期发布的事件会丢失（D1）
     buf = event_bus.subscribe_with_replay(run.id)
