@@ -407,11 +407,11 @@ error{content} / fatal{content}
 
 | 阶段 | 内容 | 验收（出口条件） |
 |---|---|---|
-| **M0 版本门控** | 分支 `feature/v4-langgraph`；装依赖；2 节点 demo + 同步 PostgresSaver + interrupt/resume 脚本；核实版本矩阵；更新 lock | demo 脚本可跑通中断/续跑；兼容性结论写入 PROGRESS；不兼容 → 评审 §14 回退 |
-| **M1 能力下沉** | job_match/question_gen（含 _kb_retrieve 调用部分）下沉 service；v1 工具改调 service | 行为零变化；pytest 全绿；routing 33/33、RAG 基线持平；ruff format 干净 |
-| **M2 图骨架** | 4 张表 + Alembic；StateGraph（planner/load/analyzer?/matcher/questioner/verifier/deliver/fail）；/runs + SSE；步骤条前端 | 黄金任务正常链路端到端跑通；坏输出回环可复现；trace span 落库 |
-| **M3 HITL** | approvals/audit；interrupt + approve/reject + TTL；/stream 重连；审批卡前端 | FR-7/FR-8 全部用例通过；无审批零副作用断言通过；刷新/关窗续跑实测 |
-| **M4 观测与评测** | 管理端 trace 树 + 指标；eval_agent_e2e；文档（README/AGENTS/工具设计/后续规划）升版 | §2.3 指标达标；评测 ≥90%；v1 两基线不回归；打 tag v4.0.0，更新 PROJECT-PLAN |
+| ✅ **M0 版本门控**（2026-09-24） | 分支 `feature/v4-langgraph`；装依赖；2 节点 demo + 同步 PostgresSaver + interrupt/resume 脚本；核实版本矩阵；更新 lock | demo 脚本可跑通中断/续跑；兼容性结论写入 PROGRESS；不兼容 → 评审 §14 回退 |
+| ✅ **M1 能力下沉**（2026-09-24） | job_match/question_gen（含 _kb_retrieve 调用部分）下沉 service；v1 工具改调 service | 行为零变化；pytest 全绿；routing 33/33、RAG 基线持平；ruff format 干净 |
+| ✅ **M2 图骨架**（2026-09-25） | 4 张表 + Alembic；StateGraph（planner/load/analyzer?/matcher/questioner/verifier/deliver/fail）；/runs + SSE；步骤条前端 | 黄金任务正常链路端到端跑通；坏输出回环可复现；trace span 落库 |
+| ✅ **M3 HITL**（2026-09-25） | approvals/audit；interrupt + approve/reject + TTL；/stream 重连；审批卡前端 | FR-7/FR-8 全部用例通过；无审批零副作用断言通过；刷新/关窗续跑实测 |
+| ✅ **M4 观测与评测**（2026-09-25） | 管理端 trace 树 + 指标；eval_agent_e2e；文档（README/AGENTS/工具设计/后续规划）升版 | §2.3 指标达标；评测 ≥90%；v1 两基线不回归；打 tag v4.0.0，更新 PROJECT-PLAN |
 
 > 每个 M 阶段独立提交、独立可回滚；M2 结束前 v2 入口不对匿名以外的真实使用开放（可挂 feature flag 灰度）。
 
