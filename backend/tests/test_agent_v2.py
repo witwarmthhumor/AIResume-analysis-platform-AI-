@@ -177,9 +177,6 @@ def _wait_status(run_id: int, target: str, timeout_s: float = 15.0) -> str:
     return status
 
 
-@pytest.mark.skip(
-    reason="调试中：认证 cookie 在直驱图线程的测试上下文未传递（user_id=None），需排查 TestClient cookie 与 get_optional_current_user 交互"
-)
 def test_run_happy_path_with_hitl_approval(_fake_llm):
     """主链路端到端：正常完成 → HITL 挂起 → 批准 → 创建面试场次（M2+M3 核心）。"""
     marker = _marker()
@@ -239,9 +236,6 @@ def test_run_happy_path_with_hitl_approval(_fake_llm):
     assert audit == "approval_approved"
 
 
-@pytest.mark.skip(
-    reason="调试中：认证 cookie 在直驱图线程的测试上下文未传递（user_id=None），需排查 TestClient cookie 与 get_optional_current_user 交互"
-)
 def test_run_rejected_creates_no_session(_fake_llm):
     """拒绝审批：run 照常交付（无场次），审批单 rejected，零副作用。"""
     marker = _marker()
@@ -262,26 +256,17 @@ def test_run_rejected_creates_no_session(_fake_llm):
     assert after == before
 
 
-@pytest.mark.skip(
-    reason="调试中：认证 cookie 在直驱图线程的测试上下文未传递（user_id=None），需排查 TestClient cookie 与 get_optional_current_user 交互"
-)
 def test_run_without_resume_fails_with_guidance():
     """无简历：load_resume 直接 fail，给引导话术（PRD：不调模型不耗额度）。"""
-    _register("av2-")
+    c, _, _ = _register("av2-")
     resp = c.post("/api/agent-v2/runs", json={"jd_text": "招后端"})
     events = _drain_events(resp, until=("fatal",))
     types = [e for e, _ in events]
     assert "fatal" in types
     payload = dict(events)["fatal"]
     assert "上传" in payload["content"]
-    with engine.begin() as conn:
-        status = conn.execute(
-            text(
-                "SELECT status FROM agent_runs WHERE anonymous_id LIKE 'av2-%' "
-                "ORDER BY id DESC LIMIT 1"
-            )
-        ).scalar()
-    assert status == "failed"
+    # 登录用户的 run 记 user_id（anonymous_id 为空），按全局最新 run 查状态
+    assert _wait_status(_last_run_id(), "failed") == "failed"
 
 
 def test_verifier_retries_then_recovers(_fake_llm, monkeypatch):

@@ -621,11 +621,8 @@ def resume_job_prep(
             checkpointer.setup()
             graph = build_job_prep_graph(checkpointer)
             try:
-                last: dict = {}
-                for chunk in graph.invoke(
-                    Command(resume=decision), config, stream_mode="values"
-                ):
-                    last = chunk
+                # invoke 的返回值就是最终状态 dict（不是迭代器，勿 for 遍历）
+                last = graph.invoke(Command(resume=decision), config)
                 if last.get("failed"):
                     recorder.finish(
                         "failed",
