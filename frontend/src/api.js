@@ -78,3 +78,24 @@ export function parseSseBlock(block) {
     return null
   }
 }
+
+/* GET 版 SSE（v4.0 任务续听）：approve 返回 202 后前端转 /runs/{id}/stream 收增量。
+   返回 { reader, abort }，与 streamChat 同构。 */
+export function streamGet(url) {
+  const controller = new AbortController()
+  const promise = fetch(BASE + url, { method: 'GET', credentials: 'include', signal: controller.signal })
+  return {
+    reader: promise.then(async (r) => {
+      if (!r.ok) {
+        let message = `请求失败 (${r.status})`
+        try {
+          const b = await r.json()
+          message = b.message || message
+        } catch {}
+        throw new Error(message)
+      }
+      return r.body.getReader()
+    }),
+    abort: () => controller.abort(),
+  }
+}

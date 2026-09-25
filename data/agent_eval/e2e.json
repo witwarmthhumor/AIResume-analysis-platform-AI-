@@ -44,6 +44,12 @@
       "expected": "need_analysis 路由到 analyzer 补跑分析（node_start 含 analyzer），完成后 analysis 输出非空"
     },
     {
+      "id": "skip_analysis",
+      "name": "已有分析跳过",
+      "scenario": "简历已带有效分析报告再次发起",
+      "expected": "need_analysis 直接路由 matcher（不出现 analyzer 节点），链路照常走到审批"
+    },
+    {
       "id": "kb_degraded",
       "name": "检索不可用降级",
       "scenario": "kb_retrieve 返回检索失败，走真实 run_question_generation 降级路径",

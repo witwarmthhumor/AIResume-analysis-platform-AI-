@@ -370,6 +370,24 @@ def task_no_report_reanalyze() -> tuple[bool, str]:
     return True, "need_analysis 命中补跑 analyzer，链路继续"
 
 
+def task_skip_analysis() -> tuple[bool, str]:
+    """已有有效分析：need_analysis 直接跳过 analyzer 走 matcher（条件边映射曾错位 KeyError）。"""
+    c, uid = _register()
+    _create_resume(uid, with_analysis=True)
+    events = _drain_events(c.post("/api/agent-v2/runs", json={"jd_text": "招后端"}))
+    types = _event_types(events)
+    analyzer_starts = [
+        payload["node"]
+        for etype, payload in events
+        if etype == "node_start" and payload["node"] == "analyzer"
+    ]
+    if analyzer_starts:
+        return False, "已有有效分析仍跑了 analyzer（应跳过）"
+    if "approval_required" not in types:
+        return False, f"跳过分析后未走到审批：{types}"
+    return True, "已有有效分析跳过 analyzer，直达匹配出题"
+
+
 def task_kb_degraded() -> tuple[bool, str]:
     """检索不可用降级：走真实 run_question_generation，只桩其内部依赖。"""
     c, uid = _register()
@@ -584,6 +602,7 @@ def main() -> int:
         "no_resume_guidance": task_no_resume_guidance,
         "bad_output_retry": task_bad_output_retry,
         "no_report_reanalyze": task_no_report_reanalyze,
+        "skip_analysis": task_skip_analysis,
         "kb_degraded": task_kb_degraded,
         "daily_limit_429": task_daily_limit_429,
         "owner_isolation": task_owner_isolation,

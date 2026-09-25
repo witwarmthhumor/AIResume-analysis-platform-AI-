@@ -94,6 +94,48 @@ function fmtDateTime(iso) {
 }
 
 onMounted(load)
+onMounted(loadV2)
+
+// —— Agent 任务追踪（v4.0 LangGraph 试点）：近 20 条 run + 展开看 span/审批 ——
+const v2Runs = ref([])
+const v2Stats = ref(null)
+const v2ExpandedId = ref(null)
+const v2Spans = ref([])
+const V2_STATUS_LABELS = {
+  running: '运行中',
+  waiting_approval: '待审批',
+  completed: '已完成',
+  failed: '已失败',
+  aborted: '已放弃',
+}
+async function loadV2() {
+  try {
+    const [runs, stats] = await Promise.all([
+      get('/api/agent-v2/admin/runs?page=1'),
+      get('/api/agent-v2/admin/runs/stats'),
+    ])
+    v2Runs.value = runs.items || []
+    v2Stats.value = stats
+  } catch (e) {
+    // v4.0 功能对老部署可能未启用，静默降级不阻塞主看板
+    console.warn('Agent 任务追踪加载失败', e)
+  }
+}
+async function toggleV2Spans(run) {
+  if (v2ExpandedId.value === run.id) {
+    v2ExpandedId.value = null
+    v2Spans.value = []
+    return
+  }
+  v2ExpandedId.value = run.id
+  v2Spans.value = []
+  try {
+    const detail = await get(`/api/agent-v2/admin/runs/${run.id}/spans`)
+    v2Spans.value = detail.spans || []
+  } catch (e) {
+    console.warn('span 加载失败', e)
+  }
+}
 </script>
 
 <template>
@@ -207,6 +249,54 @@ onMounted(load)
           </div>
           <div class="chart-desc">Token 消耗趋势（近 7 日，全量显示）</div>
         </div>
+      </div>
+    </div>
+
+    <!-- —— Agent 任务追踪（v4.0 LangGraph 试点） —— -->
+    <div v-if="v2Stats" class="panel-card">
+      <div class="panel-head">
+        <h3>🤖 Agent 任务追踪（近 7 日）</h3>
+      </div>
+      <div class="v2-stats-row">
+        <span>任务数 <b>{{ v2Stats.total_runs ?? 0 }}</b></span>
+        <span>成功率 <b>{{ v2Stats.success_rate != null ? Math.round(v2Stats.success_rate * 100) + '%' : '-' }}</b></span>
+        <span>延迟 P50 <b>{{ v2Stats.p50_ms ?? '-' }}ms</b></span>
+        <span>P95 <b>{{ v2Stats.p95_ms ?? '-' }}ms</b></span>
+        <span>Token <b>{{ fmtNum(v2Stats.tokens_total ?? 0) }}</b></span>
+        <span>重试率 <b>{{ v2Stats.retry_rate != null ? Math.round(v2Stats.retry_rate * 100) + '%' : '-' }}</b></span>
+        <span>审批（批准/拒绝/超时）<b>{{ v2Stats.approvals?.approved ?? 0 }}/{{ v2Stats.approvals?.rejected ?? 0 }}/{{ v2Stats.approvals?.expired ?? 0 }}</b></span>
+      </div>
+      <div class="table-scroll">
+        <table class="tbl">
+          <thead>
+            <tr><th>Run</th><th>状态</th><th>归属</th><th>Token</th><th>耗时</th><th>创建时间</th><th>错误</th></tr>
+          </thead>
+          <tbody>
+            <template v-for="r in v2Runs" :key="r.id">
+              <tr class="v2-run-row" @click="toggleV2Spans(r)">
+                <td class="mono">#{{ r.id }}</td>
+                <td><span class="v2-badge" :class="r.status">{{ V2_STATUS_LABELS[r.status] || r.status }}</span></td>
+                <td>{{ r.user_id ? `用户 ${r.user_id}` : `匿名 ${String(r.anonymous_id || '').slice(0, 8)}…` }}</td>
+                <td class="token-cell">{{ fmtNum(r.tokens_total || 0) }}</td>
+                <td>{{ r.duration_ms != null ? `${r.duration_ms}ms` : '-' }}</td>
+                <td>{{ fmtDateTime(r.created_at) }}</td>
+                <td class="v2-err">{{ r.error || '-' }}</td>
+              </tr>
+              <tr v-if="v2ExpandedId === r.id">
+                <td colspan="7" class="v2-span-cell">
+                  <div v-if="!v2Spans.length" class="v2-empty">加载中…</div>
+                  <div v-for="(s, i) in v2Spans" :key="i" class="v2-span">
+                    <span class="v2-span-name">{{ s.name }}</span>
+                    <span class="v2-badge" :class="s.status">{{ s.status }}</span>
+                    <span class="v2-span-meta">{{ s.span_type }} · {{ s.attempt ? `第${s.attempt}次` : '' }} {{ s.duration_ms != null ? `${s.duration_ms}ms` : '' }}</span>
+                    <span v-if="s.error_type" class="v2-span-err">{{ s.error_type }}</span>
+                  </div>
+                </td>
+              </tr>
+            </template>
+            <tr v-if="!v2Runs.length"><td colspan="7" class="v2-empty">近 7 日暂无任务记录</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </section>
@@ -528,5 +618,90 @@ onMounted(load)
     padding-left: 0;
     padding-top: 12px;
   }
+}
+
+/* —— Agent 任务追踪（v4.0） —— */
+.v2-stats-row {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: #6b7280;
+  margin-bottom: 10px;
+}
+.v2-stats-row b {
+  color: #1f2937;
+}
+.v2-run-row {
+  cursor: pointer;
+}
+.v2-run-row:hover {
+  background: rgb(59 130 246 / 5%);
+}
+.v2-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  background: rgb(156 163 175 / 12%);
+  color: #6b7280;
+}
+.v2-badge.completed {
+  background: rgb(16 185 129 / 12%);
+  color: #059669;
+}
+.v2-badge.failed {
+  background: rgb(239 68 68 / 10%);
+  color: #dc2626;
+}
+.v2-badge.waiting_approval,
+.v2-badge.pending {
+  background: rgb(245 158 11 / 14%);
+  color: #b45309;
+}
+.v2-badge.running,
+.v2-badge.ok {
+  background: rgb(59 130 246 / 12%);
+  color: #2563eb;
+}
+.v2-badge.retried,
+.v2-badge.expired {
+  background: rgb(245 158 11 / 14%);
+  color: #b45309;
+}
+.v2-err {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #dc2626;
+  font-size: 12px;
+}
+.v2-span-cell {
+  background: rgb(249 250 251);
+  padding: 8px 16px !important;
+}
+.v2-span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: #374151;
+}
+.v2-span-name {
+  font-weight: 600;
+  min-width: 140px;
+}
+.v2-span-meta {
+  color: #9ca3af;
+}
+.v2-span-err {
+  color: #dc2626;
+}
+.v2-empty {
+  text-align: center;
+  color: #9ca3af;
+  font-size: 12.5px;
+  padding: 12px 0;
 }
 </style>

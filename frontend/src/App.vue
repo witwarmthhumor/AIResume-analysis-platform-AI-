@@ -172,10 +172,10 @@ onMounted(loadUser)
 
       <main class="content">
         <div class="page" :class="{ wide: ['admin', 'agent', 'profile'].includes(activeView) }">
-          <!-- 视图统一保活切换 -->
-          <KeepAlive>
-            <component :is="currentViewComponent" :key="viewEpoch" ref="viewRef" @logout="logout" />
-          </KeepAlive>
+          <!-- 视图切换：不用 KeepAlive —— 实测 KeepAlive+动态组件在本项目下
+               切换时 patch 崩溃（deactivate is not a function），主区停在旧视图；
+               移除后恢复。代价是切视图丢组件内状态，各视图 onMounted 自行刷新。 -->
+          <component :is="currentViewComponent" :key="viewEpoch" ref="viewRef" @logout="logout" />
         </div>
       </main>
     </div>

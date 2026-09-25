@@ -374,6 +374,10 @@ def _make_nodes(deps):
                         "approval_id": approval.id,
                         "action_key": RISK_CREATE_SESSION,
                         "summary": "按本次出题结果创建模拟面试场次（产生持久数据并消耗面试额度）",
+                        # 前端审批卡倒计时数据源（ISO 串；get_run 详情同口径）
+                        "expires_at": approval.expires_at.isoformat()
+                        if approval.expires_at
+                        else None,
                     }
                 )
             payload = {
@@ -531,7 +535,9 @@ def build_job_prep_graph(checkpointer):
     builder.add_conditional_edges(
         "need_analysis",
         route_need_analysis,
-        {"skip": "matcher", "analyzer": "analyzer"},
+        # 键必须与 route_need_analysis 的返回值一致（"matcher"/"analyzer"），
+        # 错位会在"已有有效分析"跳过路径上 KeyError
+        {"matcher": "matcher", "analyzer": "analyzer"},
     )
     builder.add_edge("analyzer", "matcher")
     builder.add_edge("matcher", "questioner")
