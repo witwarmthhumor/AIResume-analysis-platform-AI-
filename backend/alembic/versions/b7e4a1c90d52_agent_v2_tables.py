@@ -11,6 +11,7 @@ langgraph schema 内幂等创建（PRD v4.0 评审 D3 方案：checkpoint 是可
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "b7e4a1c90d52"
@@ -22,7 +23,9 @@ depends_on: str | Sequence[str] | None = None
 def _ts_columns() -> list[sa.Column]:
     return [
         sa.Column("id", sa.BigInteger(), primary_key=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now()
+        ),
     ]
 
 
@@ -35,7 +38,12 @@ def upgrade() -> None:
         sa.Column("trace_id", sa.String(64), nullable=False, unique=True),
         sa.Column("thread_id", sa.String(64), nullable=False, unique=True),
         sa.Column("session_id", sa.BigInteger(), nullable=True),
-        sa.Column("run_type", sa.String(50), nullable=False, server_default="job_prep_pipeline"),
+        sa.Column(
+            "run_type",
+            sa.String(50),
+            nullable=False,
+            server_default="job_prep_pipeline",
+        ),
         sa.Column("input_json", sa.Text(), nullable=True),
         sa.Column("plan_json", sa.Text(), nullable=True),
         sa.Column("status", sa.String(30), nullable=False, server_default="planning"),
@@ -97,7 +105,9 @@ def upgrade() -> None:
     op.create_index("ix_agent_approvals_run_id", "agent_approvals", ["run_id"])
     op.create_index("ix_agent_approvals_trace_id", "agent_approvals", ["trace_id"])
     op.create_index("ix_agent_approvals_user_id", "agent_approvals", ["user_id"])
-    op.create_index("ix_agent_approvals_anonymous_id", "agent_approvals", ["anonymous_id"])
+    op.create_index(
+        "ix_agent_approvals_anonymous_id", "agent_approvals", ["anonymous_id"]
+    )
     op.create_index(
         "ix_agent_approvals_status_pending",
         "agent_approvals",

@@ -102,10 +102,14 @@ class Settings(BaseSettings):
     app_env: str = "dev"
 
     # v4.0：Agent v2（LangGraph 试点，PRD §4.2）
-    agent_v2_enabled: bool = True  # 总开关：异常时可一键关 v2 回退 v1（入口隐藏 + 接口 503）
+    agent_v2_enabled: bool = (
+        True  # 总开关：异常时可一键关 v2 回退 v1（入口隐藏 + 接口 503）
+    )
     daily_agent_v2_run_limit: int = 10  # 每归属者每日 v2 运行次数（与 v1 的 30 次分开）
     agent_v2_max_retries_per_node: int = 2  # Verifier 回环每节点最大重试次数
-    agent_v2_max_run_tokens: int = 30000  # 单 run token 熔断（评审 R2：防回环叠加放大成本）
+    agent_v2_max_run_tokens: int = (
+        30000  # 单 run token 熔断（评审 R2：防回环叠加放大成本）
+    )
     agent_approval_ttl_minutes: int = 30  # 审批单超时，超时自动 expired
     langsmith_enabled: bool = False  # 强制默认关闭（简历隐私不外传，PRD §10.4）
 

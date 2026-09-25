@@ -29,8 +29,8 @@ from app.db.session import SessionLocal
 from app.models.agent_v2 import AgentApproval, AgentSpan
 from app.models.analysis import Analysis
 from app.models.resume import Resume
-from app.services.agent_v2 import event_bus
 from app.services.agent_capabilities import run_job_match, run_question_generation
+from app.services.agent_v2 import event_bus
 from app.services.ai_client import analyze_resume
 from app.services.interview_service import create_session
 from app.services.prompts import PROMPT_VERSION
