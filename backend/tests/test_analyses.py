@@ -124,11 +124,15 @@ def test_analyze_success_and_usage_logged(monkeypatch) -> None:
             ).scalar()
             == 1
         )
+        # 断言必须按本用例身份限定作用域：库里有历史/其他文件残留的 analysis 记账行，
+        # 全局 fetchone 会捞到别人的行（实测踩坑）
+        aids = [c.value for c in client.cookies.jar if c.name == "anonymous_id"]
         row = conn.execute(
             text(
                 "SELECT tokens_total, action_type FROM usage_logs "
-                "WHERE action_type = 'analysis'"
-            )
+                "WHERE anonymous_id = ANY(:a) AND action_type = 'analysis'"
+            ),
+            {"a": aids},
         ).fetchone()
     assert row.action_type == "analysis" and row.tokens_total == 300
 

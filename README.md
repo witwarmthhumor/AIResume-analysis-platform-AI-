@@ -12,6 +12,7 @@
 - 用户注册/登录、JWT、用户数据隔离、个人中心（本人五卡统计 + 近 7 日用量）
 - 🧪 **知识库问答 / 在线对话**（v3.0 → v3.1 → v3.5）：基于预置语料库（面试题/八股文/岗位 JD）+ 用户上传文档，**混合检索（向量 + BM25，RRF 融合）** + RAG 流式回答，带引用来源；**多会话管理**（新建/切换/删除，标题自动生成）
 - 🤖 **AI 客服 Agent**（v3.4 → v3.6）：基于 LangChain 0.3 ReAct Agent，**SSE 流式输出 + 工具调用过程可见**，会话历史持久化；**11 个工具**——检索/查询类 7 个（知识库检索 / 我的简历 / 我的面试记录 / 评分趋势 / 我的用量 / 读分析报告 / 语料清单）+ 平台功能说明 1 个 + 工具内 LLM 类 3 个（岗位匹配 job_match / 出题 question_gen / 回答点评 answer_review，独立限额）；工具路由实测 33/33 = 100%；用户端整页形态 + 管理端右下角悬浮形态
+- 🚀 **一键求职准备**（v4.0 LangGraph 试点）：AI 客服页新页签，贴入 JD 后自动串起「读简历 →（补）AI 分析 → 岗位匹配 → 定制出题 → 整理交付」，步骤条实时流转；**创建面试场次前先弹审批卡（TTL 倒计时，批准才建场次）**；失败自动回环重试（≤2 次）并可从失败节点续跑；结果分区展示分析/匹配（命中词、缺口词）/出题（含出题依据）；LangGraph 0.2.76 + PostgresSaver 断点续跑，全程 trace span 落库可回看
 - 📊 **数据看板**（v3.2）与 📋 **使用日志**（v3.3）：五卡统计 + 用户列表分页 + 近 7 日用量柱状图；使用明细支持动作/模型/IP/日期范围筛选与后端分页
 - 📈 **面试复盘雷达图**（v3.5）：结束评价的四维度评分可视化，可叠加本人历史场次对比
 - 🔀 **分析版本对比**（v3.5）：同一份简历历次分析（不同提示词版本）并排对比，标出各自独有条目
@@ -25,7 +26,8 @@
 - 前端：Vue 3 + Vite（零 UI 框架，手写 CSS 设计系统），生产环境由 Nginx 提供静态文件并反代 `/api`
 - 异步：Redis 7 + Celery
 - AI：国产大模型 OpenAI 兼容协议（当前 DeepSeek，可切换通义）
-- Agent（v3.4）：LangChain 0.3 稳定线（`langchain` / `langchain-openai` 锁 `<0.4`）+ ReAct AgentExecutor，SSE 流式；**不引入 langgraph**
+- Agent（v3.4）：LangChain 0.3 稳定线（`langchain` / `langchain-openai` 锁 `<0.4`）+ ReAct AgentExecutor，SSE 流式
+- Agent v2（v4.0 试点）：**LangGraph 0.2.76**（pin，不升 1.x）+ PostgresSaver 断点持久化 + interrupt/Command 人机协同；与 v1 双轨并存（`agent_v2_enabled` 开关，v2 异常不影响 v1）
 - Embedding（v3.0）：Ollama 本地 nomic-embed-text（768 维，OpenAI 兼容 API），pgvector HNSW 向量检索；可切云端 embedding
 
 ## 生产 Docker 一键启动
@@ -185,3 +187,5 @@ npm run build
 - **143 个 pytest 全量覆盖**：上传校验、分析、面试（SSE/状态机）、认证、任务、隔离、软删除、知识库（切块器/检索/owner 隔离/Playground SSE）、**混合检索（BM25 分词/排序/阈值回退）**、在线对话（多会话 CRUD/隔离/标题自动生成）、管理端语料库、使用日志筛选分页、Agent（工具命中/未命中兜底/回调事件/SSE 编排/归属校验/限额/503）、**Agent 个人数据工具（归属隔离/无身份拒绝/聚合口径）**、**面试评分列表与分析版本列表**；全部 mock AI/embedding 不烧额度
 - ruff 全绿、npm build 通过
 - **RAG 有量化基线**：`scripts/eval_rag.py` 跑 49 题黄金问答集并排对比「纯向量 / 混合」，改检索逻辑必须对比 `data/kb_eval/report.md`
+- **工具路由有量化基线**：`scripts/eval_agent_routing.py` 33 题 33/33 = 100%（`data/agent_eval/report.md`），改工具描述/增删工具必须对比
+- **Agent v2 有端到端基线**：`scripts/eval_agent_e2e.py` 11 个黄金任务离线确定性全过（`data/agent_eval/e2e_report.md`），改图结构/节点逻辑必须对比

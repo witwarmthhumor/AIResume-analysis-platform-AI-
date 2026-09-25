@@ -1,10 +1,13 @@
 <script setup>
 /* AgentChatView —— 用户端「AI 客服」整页（v3.4）
-   左侧历史会话列表（新建/切换/删除，持久化），右侧 AgentChatCore。 */
+   左侧历史会话列表（新建/切换/删除，持久化），右侧 AgentChatCore；
+   v4.0 增加页签模式：「AI 对话」与「🚀 一键求职准备」（AgentRunView）互切。 */
 import { onMounted, ref } from 'vue'
 import { del, get, post } from '../../api.js'
 import AgentChatCore from './AgentChatCore.vue'
+import AgentRunView from './AgentRunView.vue'
 
+const mode = ref('chat') // chat=普通对话框 run=一键求职准备
 const sessions = ref([])
 const activeSessionId = ref(null)
 const loading = ref(false)
@@ -60,6 +63,18 @@ onMounted(loadSessions)
   <section class="agent-view">
     <aside class="av-sidebar">
       <button class="av-new" @click="newSession"><span class="plus">＋</span> 新建对话</button>
+      <div class="av-mode">
+        <button
+          class="av-tab"
+          :class="{ active: mode === 'chat' }"
+          @click="mode = 'chat'"
+        >💬 对话</button>
+        <button
+          class="av-tab"
+          :class="{ active: mode === 'run' }"
+          @click="mode = 'run'"
+        >🚀 一键求职准备</button>
+      </div>
       <div class="av-list">
         <div v-if="loading" class="av-empty">加载中…</div>
         <div v-else-if="listError" class="av-empty error">{{ listError }}</div>
@@ -80,7 +95,9 @@ onMounted(loadSessions)
     </aside>
 
     <div class="av-main">
+      <AgentRunView v-if="mode === 'run'" />
       <AgentChatCore
+        v-else
         :session-id="activeSessionId"
         @session-created="onSessionCreated"
         @title-updated="loadSessions"
@@ -125,6 +142,32 @@ onMounted(loadSessions)
 }
 .av-new:hover {
   background: rgb(16 185 129 / 14%);
+}
+.av-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+.av-tab {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--c-text-2, #374151);
+  font-size: 12.5px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.av-tab:hover {
+  background: rgb(16 185 129 / 6%);
+}
+.av-tab.active {
+  background: linear-gradient(135deg, rgb(16 185 129 / 14%), rgb(16 185 129 / 6%));
+  color: var(--c-primary-dark, #059669);
+  font-weight: 600;
 }
 .av-list {
   flex: 1;
