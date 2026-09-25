@@ -136,10 +136,15 @@ def _create_resume_for(uid: int, marker: str) -> int:
 
 
 def _drain_events(resp, until=()):
-    """读 SSE 流直到遇到 until 中的事件类型，返回 [(类型, payload)]。"""
+    """读 SSE 流直到遇到 until 中的事件类型，返回 [(类型, payload)]。
+
+    TestClient 的流式读取对长连接不可靠（实测只收到部分事件就断开），
+    改用同步 POST 收完整响应体后按 SSE 格式解析。
+    """
+    body = resp.text
     events = []
     last = None
-    for line in resp.iter_lines():
+    for line in body.split(chr(10)):
         if line.startswith("event: "):
             last = line[len("event: ") :]
         elif line.startswith("data: ") and last:
@@ -178,13 +183,13 @@ def test_run_happy_path_with_hitl_approval(_fake_llm):
     c, uid, _ = _register("av2-")
     _create_resume_for(uid, marker)
 
-    with client.stream(
-        "POST",
+    resp = c.post(
         "/api/agent-v2/runs",
         json={"jd_text": "招后端，要求 Python 与 MySQL", "position_type": "fresh"},
-    ) as resp:
-        assert resp.status_code == 200  # StreamingResponse 忽略装饰器 status_code
-        events = _drain_events(resp, until=("approval_required", "fatal"))
+        # 同步 POST 等 30s 超时后返回全部事件文本（v2 stream 会自动关流）
+    )
+    assert resp.status_code == 200  # StreamingResponse 忽略装饰器 status_code
+    events = _drain_events(resp, until=("approval_required", "fatal"))
 
     types = [e for e, _ in events]
     assert "plan" in types and "approval_required" in types, types
@@ -236,10 +241,8 @@ def test_run_rejected_creates_no_session(_fake_llm):
     marker = _marker()
     c, uid, _ = _register("av2-")
     _create_resume_for(uid, marker)
-    with client.stream(
-        "POST", "/api/agent-v2/runs", json={"jd_text": "招后端"}
-    ) as resp:
-        _drain_events(resp, until=("approval_required",))
+    resp = c.post("/api/agent-v2/runs", json={"jd_text": "招后端"})
+    _drain_events(resp, until=("approval_required",))
     run_id = _last_run_id()
     with engine.begin() as conn:
         before = conn.execute(text("SELECT count(*) FROM interview_sessions")).scalar()
@@ -256,10 +259,8 @@ def test_run_rejected_creates_no_session(_fake_llm):
 def test_run_without_resume_fails_with_guidance():
     """无简历：load_resume 直接 fail，给引导话术（PRD：不调模型不耗额度）。"""
     _register("av2-")
-    with client.stream(
-        "POST", "/api/agent-v2/runs", json={"jd_text": "招后端"}
-    ) as resp:
-        events = _drain_events(resp, until=("fatal",))
+    resp = c.post("/api/agent-v2/runs", json={"jd_text": "招后端"})
+    events = _drain_events(resp, until=("fatal",))
     types = [e for e, _ in events]
     assert "fatal" in types
     payload = dict(events)["fatal"]
@@ -298,10 +299,8 @@ def test_verifier_retries_then_recovers(_fake_llm, monkeypatch):
         )
 
     monkeypatch.setattr(g, "run_job_match", flaky)
-    with client.stream(
-        "POST", "/api/agent-v2/runs", json={"jd_text": "招后端"}
-    ) as resp:
-        events = _drain_events(resp, until=("approval_required", "fatal"))
+    resp = c.post("/api/agent-v2/runs", json={"jd_text": "招后端"})
+    events = _drain_events(resp, until=("approval_required", "fatal"))
     types = [e for e, _ in events]
     assert types.count("retry") == 2, types
     assert "approval_required" in types  # 恢复后走到 HITL
@@ -321,8 +320,8 @@ def test_abort_waiting_run(_fake_llm):
     marker = _marker()
     c, uid, _ = _register("av2-")
     _create_resume_for(uid, marker)
-    with client.stream("POST", "/api/agent-v2/runs", json={"jd_text": "x"}) as resp:
-        _drain_events(resp, until=("approval_required",))
+    resp = c.post("/api/agent-v2/runs", json={"jd_text": "x"})
+    _drain_events(resp, until=("approval_required",))
     run_id = _last_run_id()
     r = c.post(f"/api/agent-v2/runs/{run_id}/abort")
     assert r.status_code == 200
@@ -345,8 +344,8 @@ def test_run_owner_isolation():
     """越权 404：用户 B 不能读用户 A 的 run（matches_owner 口径）。"""
     a, uid_a, _ = _register("av2-")
     _create_resume_for(uid_a, _marker())
-    with client.stream("POST", "/api/agent-v2/runs", json={"jd_text": "x"}) as resp:
-        _drain_events(resp, until=("fatal", "done"))
+    resp = a.post("/api/agent-v2/runs", json={"jd_text": "x"})
+    events = _drain_events(resp, until=("fatal", "done"))
     with engine.begin() as conn:
         run_id = conn.execute(
             text(
