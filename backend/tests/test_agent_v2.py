@@ -52,6 +52,13 @@ def _seed_placeholder_and_clean():
     )
     yield
     with engine.begin() as conn:
+        # 记账行先于用户删除（图 analyzer/工具会写 usage_logs，漏删会污染他文件断言）
+        conn.execute(
+            text(
+                "DELETE FROM usage_logs WHERE user_id IN "
+                "(SELECT id FROM users WHERE email LIKE 'av2-%')"
+            )
+        )
         conn.execute(
             text(
                 "DELETE FROM audit_logs WHERE run_id IN (SELECT id FROM agent_runs "
@@ -334,7 +341,7 @@ def test_abort_waiting_run(_fake_llm):
     assert approval_status == "expired"
 
 
-def test_run_owner_isolation():
+def test_run_owner_isolation(_fake_llm):
     """越权 404：用户 B 不能读用户 A 的 run（matches_owner 口径）。"""
     a, uid_a, _ = _register("av2-")
     _create_resume_for(uid_a, _marker())
