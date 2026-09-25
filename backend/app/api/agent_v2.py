@@ -209,7 +209,7 @@ def create_run(
                 except IndexError:
                     time.sleep(0.05)
                     idle += 1
-                    if idle > 600:  # 30s 无事件且未结束：防御性断流，客户端可重连
+                    if idle > 1800:  # 90s 无事件且未结束：防御性断流，客户端可重连（CI 冷启动建 checkpoint schema 可能超 30s，实测踩坑）
                         yield _sse("stream_closed", {"reason": "timeout"})
                         return
                     continue
@@ -363,7 +363,7 @@ def stream_run(
             except IndexError:
                 time.sleep(0.05)
                 idle += 1
-                if idle > 600:
+                if idle > 1800:  # 90s（同上：防 CI 冷启动假超时）
                     yield _sse("stream_closed", {"reason": "timeout"})
                     return
                 continue
@@ -500,7 +500,7 @@ def retry_run(
             except IndexError:
                 time.sleep(0.05)
                 idle += 1
-                if idle > 600:
+                if idle > 1800:  # 90s（同上：防 CI 冷启动假超时）
                     yield _sse("stream_closed", {"reason": "timeout"})
                     return
                 continue
