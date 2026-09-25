@@ -1,0 +1,65 @@
+{
+  "description": "Agent v2 端到端黄金任务集（PRD FR-12）：改图结构/节点逻辑后用 scripts/eval_agent_e2e 回归。执行逻辑在 backend/scripts/eval_agent_e2e.py，本文件只做任务目录与预期口径的声明，报告写同目录 e2e_report.md。任务全部离线确定性执行（能力层打桩，不烧 LLM 额度），≥90% 为发布门槛。",
+  "tasks": [
+    {
+      "id": "normal_full_flow",
+      "name": "正常链路",
+      "scenario": "登录用户有简历，发起 run，能力层返回正常产物",
+      "expected": "事件含 plan/analyzer 等 node_start，走到 approval_required；批准后 completed，输出含 match_score=80、3 道题、session_id 非空"
+    },
+    {
+      "id": "approve_side_effect",
+      "name": "审批通过副作用",
+      "scenario": "同正常链路，聚焦零副作用门禁",
+      "expected": "批准前 interview_sessions 数不变；批准后 +1，audit_logs 落 approval_approved"
+    },
+    {
+      "id": "reject_no_session",
+      "name": "审批拒绝",
+      "scenario": "走到审批后选择拒绝",
+      "expected": "run 照常 completed（match/题目照常交付），session_id 为空，场次 +0，审批单 rejected"
+    },
+    {
+      "id": "approval_expired",
+      "name": "审批超时",
+      "scenario": "agent_approval_ttl_minutes=0，审批单立即过期",
+      "expected": "approve 返回 410 审批单已过期；abort 后 run=aborted、审批单=expired"
+    },
+    {
+      "id": "no_resume_guidance",
+      "name": "无简历",
+      "scenario": "登录用户无任何简历即发起",
+      "expected": "load_resume 直接 fail（不调模型不耗额度），fatal 话术含「上传」，run=failed"
+    },
+    {
+      "id": "bad_output_retry",
+      "name": "坏输出回环",
+      "scenario": "matcher 前两次返回空产物，第三次恢复",
+      "expected": "恰好 2 个 retry 事件，agent_spans 落 2 条 retried，恢复后仍到 approval_required"
+    },
+    {
+      "id": "no_report_reanalyze",
+      "name": "无报告补分析",
+      "scenario": "简历已解析但没有有效分析报告",
+      "expected": "need_analysis 路由到 analyzer 补跑分析（node_start 含 analyzer），完成后 analysis 输出非空"
+    },
+    {
+      "id": "kb_degraded",
+      "name": "检索不可用降级",
+      "scenario": "kb_retrieve 返回检索失败，走真实 run_question_generation 降级路径",
+      "expected": "题目照常产出，话术含「平台知识库检索暂时不可用」，question_sources 为空（kb_backed=false）"
+    },
+    {
+      "id": "daily_limit_429",
+      "name": "限额命中",
+      "scenario": "归属者当日 agent_run_v2 记账已达 daily_agent_v2_run_limit",
+      "expected": "POST /runs 返回 429，话术含「每日上限」，不建 run 行"
+    },
+    {
+      "id": "owner_isolation",
+      "name": "越权访问",
+      "scenario": "用户 B 读/审批用户 A 的 run",
+      "expected": "GET 详情与 POST approve 均 404（matches_owner 口径，不泄露存在性）"
+    }
+  ]
+}

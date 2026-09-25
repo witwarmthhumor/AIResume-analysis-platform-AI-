@@ -16,6 +16,7 @@
 
 import json
 import time
+from datetime import datetime, timedelta, timezone
 from typing import TypedDict
 
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -337,30 +338,49 @@ def _make_nodes(deps):
     def hitl_gate(state: JobPrepState) -> dict:
         """风险动作门禁：建 pending 审批单 → interrupt 挂起；resume 时带决定回写。"""
         if RISK_CREATE_SESSION in (state.get("risk_actions") or []):
-            approval = AgentApproval(
-                run_id=deps.run_id,
-                trace_id=deps.trace_id,
-                user_id=deps.user_id,
-                anonymous_id=deps.anonymous_id,
-                action_key=RISK_CREATE_SESSION,
-                payload_json=json.dumps(
-                    {
-                        "resume_id": state.get("resume_id"),
-                        "position_type": state.get("position_type"),
-                    },
-                    ensure_ascii=False,
-                ),
-                status="pending",
+            # langgraph resume 时会从头重执行本节点：审批单创建/事件发布必须幂等，
+            # 否则每次续跑都多出一张 pending 僵尸审批单
+            approval = (
+                deps.db.query(AgentApproval)
+                .filter(AgentApproval.run_id == deps.run_id)
+                .order_by(AgentApproval.id.desc())
+                .first()
             )
-            deps.db.add(approval)
-            deps.db.commit()
-            deps.db.refresh(approval)
+            if approval is None:
+                approval = AgentApproval(
+                    run_id=deps.run_id,
+                    trace_id=deps.trace_id,
+                    user_id=deps.user_id,
+                    anonymous_id=deps.anonymous_id,
+                    action_key=RISK_CREATE_SESSION,
+                    payload_json=json.dumps(
+                        {
+                            "resume_id": state.get("resume_id"),
+                            "position_type": state.get("position_type"),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    status="pending",
+                    # TTL 到点后 approve 接口视同失效（_pending_approval 判过期），防僵尸审批单
+                    expires_at=datetime.now(timezone.utc)
+                    + timedelta(minutes=settings.agent_approval_ttl_minutes),
+                )
+                deps.db.add(approval)
+                deps.db.commit()
+                deps.db.refresh(approval)
+                deps.publish(
+                    {
+                        "type": "approval_required",
+                        "approval_id": approval.id,
+                        "action_key": RISK_CREATE_SESSION,
+                        "summary": "按本次出题结果创建模拟面试场次（产生持久数据并消耗面试额度）",
+                    }
+                )
             payload = {
                 "approval_id": approval.id,
                 "action_key": RISK_CREATE_SESSION,
                 "summary": "按本次出题结果创建模拟面试场次（产生持久数据并消耗面试额度）",
             }
-            deps.publish({"type": "approval_required", **payload})
             decision = interrupt(payload)  # 图在此挂起；resume 值即审批决定
             if isinstance(decision, dict) and decision:
                 return {"approval_decision": decision}
@@ -432,6 +452,12 @@ def route_need_analysis(state: JobPrepState) -> str:
     return "matcher" if state.get("skip_analysis") else "analyzer"
 
 
+def route_after_load(state: JobPrepState) -> str:
+    # load_resume 只写 error 不抛异常，必须在边上路由掉：
+    # 否则无简历会继续冲 analyzer/matcher/questioner（违背"不调模型不耗额度"）
+    return "fail" if state.get("error") else "need_analysis"
+
+
 def route_after_verifier(state: JobPrepState) -> str:
     v = state.get("verifier_result") or {}
     if v.get("ok"):
@@ -497,7 +523,11 @@ def build_job_prep_graph(checkpointer):
     builder.add_conditional_edges(
         "planner", route_after_planner, {"load_resume": "load_resume", "fail": "fail"}
     )
-    builder.add_edge("load_resume", "need_analysis")
+    builder.add_conditional_edges(
+        "load_resume",
+        route_after_load,
+        {"need_analysis": "need_analysis", "fail": "fail"},
+    )
     builder.add_conditional_edges(
         "need_analysis",
         route_need_analysis,
