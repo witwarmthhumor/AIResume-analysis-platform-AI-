@@ -855,6 +855,53 @@ def test_usage_stats_isolates_other_owner(db_session) -> None:
     assert "没有用量记录" in out
 
 
+def test_usage_stats_filters_by_action(db_session) -> None:
+    """指定 action 时只统计该动作，合计也只含该动作（不得混入其他动作）。"""
+    db = db_session
+    _add_usage(db, "analysis", 1200)
+    _add_usage(db, "analysis", 800)
+    _add_usage(db, "interview_message", 500)
+
+    out = _tool(db, "usage_stats").invoke({"days": 7, "action": "analysis"})
+
+    assert "AI 简历分析：2 次，2000 tokens" in out
+    assert "模拟面试对话" not in out
+    assert "合计消耗 2000 tokens" in out
+
+
+def test_usage_stats_rejects_unknown_action(db_session) -> None:
+    """非法 action 不抛异常，改为列出可用动作中文名供模型引导用户。"""
+    out = _tool(db_session, "usage_stats").invoke({"days": 7, "action": "nope"})
+
+    assert "nope" in out
+    assert "AI 简历分析" in out
+    assert "模拟面试对话" in out
+
+
+def test_usage_stats_empty_after_action_filter(db_session) -> None:
+    """有记录但都不是指定动作时，文案要说明「该动作没有记录」。"""
+    db = db_session
+    _add_usage(db, "analysis", 300)
+
+    out = _tool(db, "usage_stats").invoke({"days": 7, "action": "interview_message"})
+
+    assert "模拟面试对话" in out
+    assert "没有记录" in out
+
+
+def test_usage_stats_without_action_keeps_all(db_session) -> None:
+    """不传 action 时旧行为不回归：多动作仍分组统计并合计。"""
+    db = db_session
+    _add_usage(db, "analysis", 1200)
+    _add_usage(db, "agent", 500)
+
+    out = _tool(db, "usage_stats").invoke({"days": 7})
+
+    assert "AI 简历分析：1 次，1200 tokens" in out
+    assert "AI 客服问答：1 次，500 tokens" in out
+    assert "合计消耗 1700 tokens" in out
+
+
 # —— analysis_read ——
 
 

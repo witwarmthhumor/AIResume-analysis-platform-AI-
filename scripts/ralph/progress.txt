@@ -124,3 +124,18 @@ Started: 2026-09-27
 
 ---
 
+## 2026-09-27 · US-004 usage_stats 支持按动作类型过滤（可选 action 参数）
+
+- **实现**：`usage_stats(days: int = 7, action: str = "")`——`action` 非空时按 `UsageLog.action_type` **精确**过滤（`action_type == wanted`），分组统计仍按 `action_type`、合计 token 只含该动作；`action` 取值沿用现有英文枚举，命中后复用 `_ACTION_LABELS` 渲染中文。非法 `action` 不抛异常，返回「没有「x」这个动作类型。可用动作有：…」（列全部中文名供模型引导用户）；过滤后无记录返回「最近 N 天「中文名」没有记录。」；不传 `action` 时行为与改造前**完全一致**。
+- **文件**：
+  - `backend/app/services/agent/tools.py`：`usage_stats` 加可选 `action` 参数 + 三条分支（非法值 / 过滤空 / 正常）+ docstring 补 `action` 说明与合法值枚举（含中英对照）；查询条件用 `conditions` 列表按需 append `action_type == wanted`，其余 select/group_by/order_by 不动。
+  - `backend/tests/test_agent_tools.py`：4 条新用例（按动作过滤且合计不含他动作 / 非法动作友好提示 / 过滤后为空 / 不传 action 旧行为不回归）。
+- **Learnings for future iterations：**
+  - 给已有工具**加可选参数**是低回归风险改法（与 US-003 的 `document` 同型）：旧调用 `invoke({"days": 7})` 不受影响，`make_tools(None, ...)` 取描述也照旧——不必改任何既有用例。
+  - **「非法枚举值」分支要排在查库之前**：`wanted not in _ACTION_LABELS` 直接返回引导文案，避免拿脏值去查库（也顺带省一次 DB 往返）；这类「参数白名单」校验同样不该抛异常（工具不能返回 HTTP 状态码）。
+  - 「过滤后为空」与「整库为空」要**给不同话术**：前者是「最近 N 天「X」没有记录」，后者才是「最近 N 天没有用量记录」——用户问的是某动作却得到泛泛的"没有记录"会以为查错了。
+- **验证**：`ruff check app/services/agent/tools.py tests/test_agent_tools.py` 通过（未整文件 format）；`pytest -q` **330 passed**（US-003 基线 326 + 4）。
+- **未做（留给后续 story，勿在本轮补）**：`docs/Agent工具设计.md` §一/§二/§四 同步 → US-005；`scripts.eval_agent_routing` 真机复跑与报告刷新（需真调模型、烧额度）→ US-006。
+
+---
+

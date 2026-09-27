@@ -87,7 +87,7 @@
         "`pytest -q` 全绿"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

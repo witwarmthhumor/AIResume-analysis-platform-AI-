@@ -829,30 +829,43 @@ def make_tools(
         return "\n".join(parts)
 
     @tool
-    def usage_stats(days: int = 7) -> str:
+    def usage_stats(days: int = 7, action: str = "") -> str:
         """统计当前用户自己在本平台的用量：近 N 天各动作（解析、分析、面试、问答等）
         的调用次数与 token 消耗合计。
 
-        什么时候用：用户问"我用了多少次""消耗了多少 token""最近用得多不多"。
+        什么时候用：用户问"我用了多少次""消耗了多少 token""最近用得多不多"，
+        或想只看**某一类动作**（如"我这周光面试花了多少 token""分析消耗了多少"）。
         什么时候不用：问的是"在哪能看到用量""使用日志页怎么筛选"（功能入口与界面说明）
         请用 platform_help；要的是简历/面试的**条数**请用 resume_lookup / interview_history。
-        入参 days 为统计天数，默认 7，最大 90。"""
+        入参 days 为统计天数，默认 7，最大 90；action 为可选的动作类型过滤，
+        留空表示统计全部动作。action 合法取值（英文枚举）：parse（简历解析）、
+        analysis（AI 简历分析）、interview_message（模拟面试对话）、kb_upload（知识库上传）、
+        playground（在线对话问答）、chat_create（新建对话）、agent（AI 客服问答）、
+        agent_create（新建客服会话）、agent_tool_llm（工具内 AI 调用）。"""
         owner = _owner_filter(UsageLog, user_id, anonymous_id)
         if owner is None:
             return (
                 "当前会话无法识别用户身份，查不到用量数据。请提示用户先登录后再提问。"
             )
 
+        wanted = (action or "").strip()
+        if wanted and wanted not in _ACTION_LABELS:
+            available = "、".join(_ACTION_LABELS.values())
+            return f"没有「{wanted}」这个动作类型。可用动作有：{available}。"
+
         try:
             span = max(1, min(int(days or 7), 90))
             since = datetime.now(timezone.utc) - timedelta(days=span)
+            conditions = [owner, UsageLog.created_at >= since]
+            if wanted:
+                conditions.append(UsageLog.action_type == wanted)
             rows = db.execute(
                 select(
                     UsageLog.action_type,
                     func.count(),
                     func.coalesce(func.sum(UsageLog.tokens_total), 0),
                 )
-                .where(owner, UsageLog.created_at >= since)
+                .where(*conditions)
                 .group_by(UsageLog.action_type)
                 .order_by(func.count().desc())
             ).all()
@@ -861,6 +874,8 @@ def make_tools(
             return "用量统计查询暂时出错，请稍后再试。"
 
         if not rows:
+            if wanted:
+                return f"最近 {span} 天「{_ACTION_LABELS[wanted]}」没有记录。"
             return f"最近 {span} 天没有用量记录。"
 
         total_tokens = 0
