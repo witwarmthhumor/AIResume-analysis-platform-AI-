@@ -151,10 +151,10 @@ Router → Service → Model 单向依赖，反向引用会让路由层无法独
 
 ## 五、工具路由评测（准确率怎么量）
 
-工具从 4 个扩到 8 个、再到 11 个，判断"要不要拆多 Agent"靠的不是感觉，是**路由 top-1 准确率**：
+工具从 4 个扩到 8 个、再到 11 个、13 个，判断"要不要拆多 Agent"靠的不是感觉，是**路由 top-1 准确率**：
 用户一句问法，模型挑的工具对不对。
 
-- 用例集：`data/agent_eval/routing.json`（`question` + `expected_tool`，11 工具各 3 条口语化问法共 33 条；
+- 用例集：`data/agent_eval/routing.json`（`question` + `expected_tool`，13 工具各 3 条口语化问法共 40 条（kb_search 多 1 条限定文档问法）；
   守门测试 `test_cases_cover_every_tool` 强制「用例数 ≥ 工具数 × 3」，加工具不加用例会直接红）
 - 脚本：`backend/scripts/eval_agent_routing.py`（backend/ 目录下 `python -m scripts.eval_agent_routing`）
 - 口径：每题**一次** LLM 调用做选择（temperature 0），只取返回消息里首个 `tool_calls` 的工具名；
@@ -162,7 +162,7 @@ Router → Service → Model 单向依赖，反向引用会让路由层无法独
 - 产出：`data/agent_eval/report.md`，含 top-1 准确率、分工具命中率、混淆矩阵（期望 × 实际）、逐题明细、误选清单
 - LLM 不可用（欠费/未配置/超时）时脚本**以退出码 2 中止且不写报告**，避免空报告被当成评测结果
 
-新增/改写工具描述后重跑该脚本即为路由回归；扩到 11 个工具后（US-012）要拿新报告与 8 工具基线对比。
+新增/改写工具描述后重跑该脚本即为路由回归；每次扩工具（US-012 扩到 11 个、US-006 扩到 13 个）都要拿新报告与 8 工具基线对比。
 报告里现在直接带一行「对比 8 工具口径基线：±X 个百分点」，不用翻历史报告。
 
 ### 实测记录：11 工具口径（US-012，2026-09-16，deepseek-chat / temperature 0）
@@ -188,6 +188,14 @@ Router → Service → Model 单向依赖，反向引用会让路由层无法独
 扩工具**没有**造成路由退化，因此**暂不拆多 Agent**。首轮掉到 81.8% 的原因不是"工具太多记不住"，
 而是两类可修问题：描述边界写得不够狠（job_match 被"没贴 JD"劝退、answer_review 被技术名词带跑），
 以及用例依赖上下文。写新工具描述时，除了"什么时候用"，**"什么时候不用"里要写清同类工具的名字和触发场景**。
+
+### 实测记录：13 工具口径（US-006，2026-09-27，deepseek-chat / temperature 0）
+
+| 轮次 | top-1 | 说明 |
+|---|---|---|
+| 首轮 | **40/40（100.0%）** | 新增 `conversation_search` / `interview_transcript` / kb_search 限定文档问法后一次通过，与 8 工具基线（24/24）持平 |
+
+13 个工具挂在同一个 ReAct Agent 上，路由准确率仍是 100%、无新增误选 —— 再扩两个工具也没有造成路由退化，继续**暂不拆多 Agent**。
 
 ---
 

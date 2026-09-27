@@ -2,6 +2,7 @@
   {"question": "Redis 缓存穿透和缓存雪崩有什么区别，一般怎么解决", "expected_tool": "kb_search"},
   {"question": "Java 里 synchronized 和 ReentrantLock 该怎么选", "expected_tool": "kb_search"},
   {"question": "TCP 三次握手为什么不能改成两次", "expected_tool": "kb_search"},
+  {"question": "帮我在 database_interview 这篇资料里找一下 MySQL 索引的讲解", "expected_tool": "kb_search"},
 
   {"question": "我简历里写过 Kubernetes 吗", "expected_tool": "resume_lookup"},
   {"question": "我一共上传了几份简历，分别叫什么名字", "expected_tool": "resume_lookup"},
