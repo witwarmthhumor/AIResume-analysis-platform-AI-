@@ -2,7 +2,7 @@
 
 > **本文件是干嘛的**：把「平台已有的功能接口」与「给 LLM 调用的 Agent 工具」摆在一起对照，
 > 说清楚封装过程中真正做了什么，以及扩展工具时该复用哪段代码。
-> 建立日期：2026-09-16 · 对应版本 v3.6（11 个工具，全部已实现）
+> 建立日期：2026-09-16 · 对应版本 v3.10（13 个工具，全部已实现）
 
 ---
 
@@ -60,7 +60,7 @@
 
 ---
 
-## 二、扩展工具的对照（7 个，全部已实现）
+## 二、扩展工具的对照（9 个，全部已实现）
 
 | 新工具 | 复用的原实现 | 工具实现要点 |
 |---|---|---|
@@ -71,6 +71,8 @@
 | `score_trend` | `/api/interviews/scores` 同款查询（本人、finished、有报告） | ✅ 已实现（US-003）：接口只给"列表"，工具要做**趋势**：对比首末两场的各维度升降，这是新增计算逻辑 |
 | `kb_list` | `kb_service.list_documents(db, user_id, anonymous_id)` | ✅ 已实现（US-004）：只输出标题 + 块数 + 状态 + 归属，**绝不能带 `raw_text`**（那是 kb_search 的职责） |
 | `platform_help` | ⚠️ **无原实现**（唯一"新增能力"而非封装） | ✅ 已实现（US-005）：返回静态功能说明，**不查库、不调模型**；实现要点是 **topic 路由**——`_PLATFORM_TOPICS` 用「别名元组 → 文案」做小写包含匹配（别名顺序即优先级，具体主题排前防泛词抢匹配），空 topic 或全不命中回落总览。**描述必须与 `kb_search` 划清界限**——平台功能 vs 计算机技术知识点，否则两个工具会互抢 |
+| `conversation_search` | `GET /api/agent/sessions` / `GET /api/chat/sessions`（各自列出本端会话）+ `.../{id}/messages`（取单会话消息） | ✅ 已实现（US-001）：接口只给"按会话翻历史"，工具要做**跨会话关键词检索**（`ChatMessage.content ILIKE %kw%` JOIN `ChatSession`，排除 `deleted_at`，归属复用 `_owner_filter`）。两类会话（在线对话 `chat` + AI 客服 `agent`）都搜，但每行必须标 `【来源：AI 客服】/【来源：在线对话】`；空关键词退化为"最近 N 场会话清单"（与 `resume_lookup` 空 query 同型）；`limit` 钳 1~5。**只回灌命中正文片段（`_snippet()` 截 80 字），`citations` / `tool_steps` 绝不回灌**——那是工具过程，塞回上下文会让模型把中间步骤当结论。与 `platform_help` 的分工：**找"我以前说过什么"用本工具，问"平台功能怎么用"用 platform_help**（描述里互相点名） |
+| `interview_transcript` | `GET /api/interviews/{id}`（会话消息体，刷新可恢复）+ `InterviewMessage` 表 | ✅ 已实现（US-002）：`interview_history` 给的是**结果**（分数/评价），本工具给的是**过程**（问了什么、当时怎么答的）。省略 `session_id` 取最近一场；指定场次走 `_owner_filter(InterviewSession, …)`，**不存在与不属于本人统一回"没找到这场面试"且不返回任何消息内容**（不区分两种情形，防泄露他人场次存在性）；正文按 `created_at desc, id desc` 取最近 `limit` 条再 `reverse()` 成正序，渲染成 `【面试官】/【我】/【系统】` 的问答原文；整段超 `_TOOL_TRANSCRIPT_CHARS = 2000` 截断并显式告知。**不返回报告字段**（那是 `interview_history` 的职责），描述里两者互相点名 |
 
 ---
 
@@ -126,7 +128,7 @@ Router → Service → Model 单向依赖，反向引用会让路由层无法独
 每个工具的 description 必须 > 50 字符且同时含"什么时候用"与"什么时候不用"；
 易撞组合必须在描述里互相点名。新增工具时这两条会直接拦住漏写的描述。
 
-当前 11 个工具的易撞组合与划线方式：
+当前 13 个工具的易撞组合与划线方式：
 
 | 易撞组合 | 划线方式 |
 |---|---|
@@ -142,6 +144,8 @@ Router → Service → Model 单向依赖，反向引用会让路由层无法独
 | `question_gen` vs `answer_review` | 前者=**出题**（用户还没答），后者=**点评用户已经写好的一段回答**（题目 + 回答一起给）；两者互相点名排他 |
 | `kb_search` vs `answer_review` | 前者=查知识点**答案**，后者=点评**用户自己的回答**；模型容易因为用户回答里出现技术名词（如"Redis 缓存穿透"）就跑去检索，两个描述里都写死了这条排他 |
 | `kb_list` vs `platform_help` | 前者=知识库的**收录范围**（有哪些资料、能问哪些方向），后者=功能的**操作方式与入口**（怎么上传、在哪看）；"这个平台"字样不归 `platform_help` 独占 |
+| `interview_history` vs `interview_transcript` | 前者=面试的**结果**（分数、结束评价、分维度打分），后者=面试的**过程**（逐条问答原文：问了什么、当时怎么答的）；两者互相点名排他 |
+| `platform_help` vs `conversation_search` | 前者=**平台功能怎么用**（静态文案，不查库），后者=**本人历史对话里说过什么**（查 `chat_messages` 正文）；用户说"我之前问过你…""上次聊到哪了"归 `conversation_search`，问"这个功能在哪/怎么用"归 `platform_help` |
 
 ---
 

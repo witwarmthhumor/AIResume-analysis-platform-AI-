@@ -65,6 +65,7 @@ Started: 2026-09-27
 - `chat_sessions.updated_at` 是「最近活跃」时间、**由 API 层显式 bump**（新消息落库时），会话列表排序口径 = `updated_at desc, id desc`（与 `api/agent.py::list_sessions` 一致）；`created_at` 才是创建时间。
 - 知识库**检索范围过滤**统一走 `kb_service` 的 `document_ids` 参数：`_visible_ready_query(user_id, anonymous_id, document_ids)` + `_document_filter(document_ids)`（向量路与词法路共用，两处都要带上），`search_chunks` / `search_chunks_hybrid` / `agent_capabilities.kb_retrieve` 逐层透传；None/空 = 不限定。**新增"按文档限定"类需求时不要在工具里做 Python 侧过滤**（会漏召回），把 id 传下去让 SQL 收范围。
 - 工具里"按标题模糊匹配可见文档"复用 `kb_service.list_documents` + Python 包含判断（与 `kb_list` 同口径），**不要自己写 SQL**；匹配到多篇要列候选让用户挑、零命中要列出现有文档名，都不许擅自选一篇或抛异常。
+- **"文档/清单同步"类 story 开工前先 grep 现状再动手**：这类验收项常是跨 story 的（工具数断言、常量区在加工具时就得同 story 改），先核对哪些已落地、哪些真欠，避免重做已完成项。同一条原则：**文档里带日期的"历史实测/版本记录段"不要改**（改它=篡改历史），只更新"当前口径"类描述（文件头计数、表格标题）。
 
 
 
@@ -136,6 +137,22 @@ Started: 2026-09-27
   - 「过滤后为空」与「整库为空」要**给不同话术**：前者是「最近 N 天「X」没有记录」，后者才是「最近 N 天没有用量记录」——用户问的是某动作却得到泛泛的"没有记录"会以为查错了。
 - **验证**：`ruff check app/services/agent/tools.py tests/test_agent_tools.py` 通过（未整文件 format）；`pytest -q` **330 passed**（US-003 基线 326 + 4）。
 - **未做（留给后续 story，勿在本轮补）**：`docs/Agent工具设计.md` §一/§二/§四 同步 → US-005；`scripts.eval_agent_routing` 真机复跑与报告刷新（需真调模型、烧额度）→ US-006。
+
+---
+
+## 2026-09-27 · US-005 工具清单、断言测试与设计文档同步（11 → 13）
+
+- **实现**：本轮是**纯文档收口**。US-005 的 6 条验收里，前 4 条（测试改名 `test_make_tools_exposes_thirteen_tools` + 13 工具断言、`tools.py` 模块 docstring 工具清单第 12/13 条、`_TOOL_CONV_LIMIT`/`_TOOL_TRANSCRIPT_LIMIT`/`_TOOL_TRANSCRIPT_CHARS` 落在既有 `_TOOL_*` 常量区）**已在 US-001/US-002 同 story 落地**（工具数断言是同 story 必改项，否则全量 pytest 立刻红）。真正欠的只有第 3 条——`docs/Agent工具设计.md` 口径。
+- **文件**：`docs/Agent工具设计.md`（唯一改动，+7/-3）：
+  - 文件头 `对应版本 v3.6（11 个工具）` → `v3.10（13 个工具）`
+  - §二 标题 `扩展工具的对照（7 个）` → `（9 个）`，表格补 `conversation_search` / `interview_transcript` 两行（各带 ✅ 已实现 + US-00X + 复用的原接口 + 实现要点 + 与易撞工具的分工）
+  - §四 表头 `当前 11 个工具` → `13 个`，易撞组合表补 `interview_history ↔ interview_transcript`（结果 vs 过程）、`platform_help ↔ conversation_search`（功能怎么用 vs 我说过什么）两对
+- **Learnings for future iterations：**
+  - **US-005 这类"同步 story"开工前必须先 grep 现状**：它的验收项是跨 story 的（工具数断言在加工具时就得改），实际只剩文档一段——不先核对就会把已完成的项重做一遍、甚至把 `test_make_tools_exposes_thirteen_tools` 再改一次。判据：`grep -n "test_make_tools_exposes\|_TOOL_CONV_LIMIT" backend/tests/test_agent_tools.py backend/app/services/agent/tools.py`。
+  - **设计文档里的"历史实测段"不要动**：§五「实测记录：11 工具口径（US-012，2026-09-16）」是**带日期的历史快照**（含 27/33→30/33→33/33 的演进与 6 处误选复盘），改它等于篡改历史；只更新"当前口径"类描述（文件头计数、§二/§四表头）。这与 US-007 验收里"历史版本记录段除外"是同一原则。
+  - §五 的评测口径（`11 工具各 3 条共 33 条`）仍写着旧数字，**留给 US-006**（该 story 才会真机复跑 `eval_agent_routing` 并把报告刷到 13 工具 / ≥39 题）；本轮不碰，避免与 US-006 的 report.md 数字打架。
+- **验证**：`ruff check .` 通过（未整文件 format）；`pytest -q` **330 passed**（与 US-004 基线持平——本 story 无代码/用例改动，不新增测试是正确的）。
+- **未做（留给后续 story，勿在本轮补）**：`data/agent_eval/routing.json` 扩容 + `scripts.eval_agent_routing` 真机复跑与报告刷新 → US-006；README / tech-stack-and-features.md / 后续开发规划.md 口径升版 → US-007。
 
 ---
 

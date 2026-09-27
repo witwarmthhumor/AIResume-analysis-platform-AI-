@@ -103,7 +103,7 @@
         "`pytest -q` 全绿（不依赖本地 `.env`；AI 调用一律 mock）"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
