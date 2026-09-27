@@ -59,7 +59,7 @@ Started: 2026-09-27
 - 归属隔离测试要**两种身份各测一遍**：登录用 `make_tools(db, user_id, None, ctx)`，匿名用 `make_tools(db, None, aid, ctx)`；匿名判据是 `user_id IS NULL AND anonymous_id = ?`——造一行「`user_id` 有值 + `anonymous_id` 等于当前 aid」的数据，匿名者必须查不到（这正是「只判 `user_id IS NULL`」横向越权漏洞的回归点）。
 - `chat_messages` **没有归属列**：测试造数靠**会话标题前缀**，清理只能 `DELETE FROM chat_messages WHERE session_id IN (SELECT id FROM chat_sessions WHERE anonymous_id IN (...) OR title LIKE '前缀%')`，且必须先删 messages 再删 sessions。
 - 断言输出里渲染的时间戳**别写死字符串**（容器时区不定，本地绿 CI 可能红）：用 `re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", out)` 或只断言相对顺序（`out.index(a) < out.index(b)`）。
-- ⚠️ `data/agent_eval/routing.json` 是 **CRLF + 一对象一行、分组间空行**：插入用例别用 Edit 的多行锚点（会混进 LF 造成混用行尾），用脚本按 `\r\n` 拼接、`json.loads` 校验后再写回，改完确认 `raw.count(b'\r\n') == raw.count(b'\n')`。
+- ⚠️ `data/agent_eval/routing.json` 是 **CRLF + 一对象一行、分组间空行**：插入用例别用 Edit 的多行锚点（会混进 LF 造成混用行尾），用脚本按 `\r\n` 拼接、`json.loads` 校验后再写回，改完确认 `raw.count(b'\r\n') == raw.count(b'\n')`。**除最后一个对象外每行都以逗号结尾、每行 2 空格缩进**——拼插入行时写 `"  " + json.dumps(c, ensure_ascii=False) + ","`，漏逗号会 `JSONDecodeError: Expecting ',' delimiter`，漏缩进虽合法但与既有风格不一致。
 - **新工具必须在同一个 story 内补 `routing.json` 用例**（每工具 ≥3 条，且 `expected_tool` 集合 == 工具集合）：留到后续 story 做会让全量 pytest 立刻红（`test_cases_cover_every_tool`）。同理 `tests/test_agent_tools.py` 的 `_ALL_TOOLS` 与工具数断言、`test_make_tools_exposes_*` 也要同 story 更新。
 - 本仓库的 `AGENTS.md` / `AI-COLLABORATION.md` / `PROGRESS.md` / `PROJECT-PLAN.md` **都在 `.gitignore` 里**（本地保留、不入库）：它们可能领先于已提交代码，看到「文档说 vX 但代码没提交」先跑 `git check-ignore -v <file>` 确认，别急着改代码。
 - `chat_sessions.updated_at` 是「最近活跃」时间、**由 API 层显式 bump**（新消息落库时），会话列表排序口径 = `updated_at desc, id desc`（与 `api/agent.py::list_sessions` 一致）；`created_at` 才是创建时间。
@@ -82,6 +82,23 @@ Started: 2026-09-27
   - `kb_search` 的「什么时候不用」清单是**路由准确率的主要调节器**，新增易撞工具时要顺手在里面点名（本轮 `conversation_search` 就是靠这句把「找历史对话」从 `platform_help` 手里分出来）。
   - 工具在 `services/` 层不能 import `app/api/`，所以会话查询 SQL 直接写在 `tools.py` 里，不复制 `api/agent.py` 的 `_owner_filter`（那里是 API 层同名私有函数，改归属规则时两处都要跟）。
 - **验证**：`ruff check .` 通过（未整文件 format）；`pytest -q` **310 passed**（基线 296 + 14）。
+- **未做（留给后续 story，勿在本轮补）**：`docs/Agent工具设计.md` §一/§二/§四 同步 → US-005；`scripts.eval_agent_routing` 真机复跑与报告刷新（需真调模型、烧额度）→ US-006。
+
+---
+
+## 2026-09-27 · US-002 新增 interview_transcript 工具（12 → 13 个）
+
+- **实现**：`tools.py` 新增 `interview_transcript(session_id: int | None = None, limit: int = 10)`——省略 `session_id` 取最近一场（`created_at desc, id desc`）；指定场次走 `_owner_filter(InterviewSession, ...)` 归属校验，查不到（不存在/不属于本人）统一回「没找到这场面试」**且不返回任何消息内容**（不区分两种情形，防泄露他人场次存在性）；头部含场次时间/岗位类型/状态/已进行轮次；正文取该场最近 `limit` 条消息（`created_at desc, id desc` → `reverse()` 成正序），按 `【面试官】/【我】/【系统】` 渲染**问答原文**；`limit` 钳 2~20（非正数回落默认 10）；整段超 `_TOOL_TRANSCRIPT_CHARS = 2000` 截断并显式告知。新增常量 `_TOOL_TRANSCRIPT_LIMIT = 20` / `_TOOL_TRANSCRIPT_CHARS = 2000`，并把 `interview_history` 内联的 `status_labels` 提为模块常量 `_INTERVIEW_STATUS_LABELS`（两工具共用）+ 新增 `_INTERVIEW_ROLE_LABELS`。
+- **文件**：
+  - `backend/app/services/agent/tools.py`：新工具 + 模块 docstring 工具清单第 13 条 + `interview_history` docstring 反向点名 `interview_transcript`（结果 ↔ 过程双向互指）。
+  - `backend/tests/test_agent_tools.py`：8 条新用例（默认取最近一场+正序 / 指定 id / 他人场次无内容 / 不存在 id / 空场次 / 超长截断告知 / limit 钳制 / 无身份拒绝）+ `_add_interview_message` + `_purge` 补 `interview_messages`（经 session_id 子查询按归属者清理，先消息后场次）+ 工具数断言改名 `test_make_tools_exposes_thirteen_tools` 并含新工具 + `_ALL_TOOLS` 同步 + 易撞参数对 `interview_history ↔ interview_transcript`。
+  - `data/agent_eval/routing.json`：+3 条 `interview_transcript` 用例（36 → 39）。
+- **Learnings for future iterations：**
+  - ⚠️ **往 `routing.json` 插用例要同时补「尾逗号」和「2 空格缩进」**：文件是「一对象一行 + 分组间空行」，除最后一个对象外**每行都以逗号结尾**、每行**以 2 个空格缩进**。用 `json.dumps` 直接拼会同时丢掉这两样（先是 `json.decoder.JSONDecodeError: Expecting ',' delimiter`，补逗号后又与既有缩进不一致）。正确姿势：按 `\r\n` split → 在目标分组后插 `"  " + json.dumps(c, ensure_ascii=False) + ","` + 一个空行 → 写回前断言 `raw.count(b'\r\n') == raw.count(b'\n')` 且 `json.loads` 通过。
+  - **`interview_messages` 与 `chat_messages` 同类：无归属列**，测试清理只能经 `session_id IN (SELECT id FROM interview_sessions WHERE anonymous_id IN (...))` 子查询，且**必须先删消息再删场次**（`_purge` 里放在 `_TABLES` 循环之前）。
+  - 面试消息的 `created_at` 同 `interview_sessions` 一样要**显式传**才能控制先后（同事务多行 server_default 可能同戳）；渲染前用 `reverse()` 把「取最近 N 条」的倒序翻成正序（与 `score_trend` 同一手法）。
+  - 新增个人数据工具记得**同时**把用例加进 `test_personal_tools_reject_unknown_identity`（无身份必须明确拒绝）。
+- **验证**：`ruff check .` 通过（未整文件 format）；`pytest -q` **321 passed**（US-001 基线 310 + 11）。
 - **未做（留给后续 story，勿在本轮补）**：`docs/Agent工具设计.md` §一/§二/§四 同步 → US-005；`scripts.eval_agent_routing` 真机复跑与报告刷新（需真调模型、烧额度）→ US-006。
 
 ---

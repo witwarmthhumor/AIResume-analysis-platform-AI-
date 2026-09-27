@@ -28,6 +28,7 @@
 10. question_gen      围绕某主题出一组模拟面试题（先检索平台知识库，再依据语料出题）
 11. answer_review     点评用户贴的一段面试回答（三项打分 + 改进建议）
 12. conversation_search 在当前用户自己的历史对话（在线对话 + AI 客服）里按关键词检索
+13. interview_transcript 复述当前用户某场模拟面试的问答原文（问了什么/当时怎么答的）
 """
 
 from dataclasses import dataclass, field
@@ -40,7 +41,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.chat import ChatMessage, ChatSession
-from app.models.interview import InterviewSession
+from app.models.interview import InterviewMessage, InterviewSession
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
 from app.schemas.agent import AnswerReviewReport
@@ -83,6 +84,9 @@ _TOOL_SNIPPET_WIDTH = 80
 _TOOL_CONV_LIMIT = 5
 # 趋势类工具最多纳入对比的场次数
 _TOOL_TREND_LIMIT = 10
+# 面试问答原文：单次返回的消息条数上下限与整段输出的字符上限
+_TOOL_TRANSCRIPT_LIMIT = 20
+_TOOL_TRANSCRIPT_CHARS = 2000
 # 分析报告回灌给 LLM 的体积控制：总长上限 + 每类列表条数（预测面试题单独再收窄）
 _TOOL_REPORT_CHARS = 800
 _TOOL_REPORT_ITEMS = 6
@@ -105,6 +109,14 @@ _KB_STATUS_LABELS = {
 _KB_SCOPE_LABELS = {"public": "平台预置", "private": "本人上传"}
 # 会话来源的中文名（chat=在线对话 / agent=AI 客服，对应 chat_sessions.session_type）
 _SESSION_SOURCE_LABELS = {"chat": "在线对话", "agent": "AI 客服"}
+# 面试场次状态的中文名（interview_history 与 interview_transcript 共用）
+_INTERVIEW_STATUS_LABELS = {
+    "in_progress": "进行中",
+    "finished": "已结束",
+    "abandoned": "已放弃",
+}
+# 面试消息角色的中文名（对应 interview_messages.role）
+_INTERVIEW_ROLE_LABELS = {"interviewer": "面试官", "candidate": "我", "system": "系统"}
 _POSITION_DEFAULT = "通用"
 
 # 用量动作的中文名（与前端使用日志的徽章映射保持一致）
@@ -442,6 +454,8 @@ def make_tools(
 
         什么时候用：用户问"我上次模拟面试多少分""我练了几场""某一场的评价是什么"。
         什么时候不用：要的是**跨场次**的进步/退步对比（分数趋势、上升下降）请用 score_trend；
+        要复盘**问答过程原文**（当时问了什么、用户怎么答的）请用 interview_transcript——
+        本工具只给**结果**（分数与评价），不给问答原文；
         问"模拟面试功能怎么开始"（入口与流程）请用 platform_help。
         入参 limit 为返回的最近场次数，默认 3。"""
         owner = _owner_filter(InterviewSession, user_id, anonymous_id)
@@ -467,11 +481,7 @@ def make_tools(
                 "该用户名下暂无模拟面试记录。可提示用户到首页基于简历开始一场模拟面试。"
             )
 
-        status_labels = {
-            "in_progress": "进行中",
-            "finished": "已结束",
-            "abandoned": "已放弃",
-        }
+        status_labels = _INTERVIEW_STATUS_LABELS
         parts = [f"该用户最近 {len(rows)} 场模拟面试："]
         for index, session in enumerate(rows, start=1):
             when = (
@@ -502,6 +512,105 @@ def make_tools(
             if summary:
                 parts.append(f"  评价：{summary[:200]}")
         return "\n".join(parts)
+
+    @tool
+    def interview_transcript(session_id: int | None = None, limit: int = 10) -> str:
+        """复述当前用户某场模拟面试的**问答原文**：按时间正序列出面试官问了什么、
+        用户当时怎么答的，用于复盘面试**过程**。
+
+        什么时候用：用户想回看自己**当时的问答内容**——"我上次面试都问了什么"
+        "我当时那道题是怎么答的""帮我把上次面试的问答原文调出来"。
+        什么时候不用：要的是面试的**结果**（多少分、评价说了什么、练了几场、进步趋势）
+        请用 interview_history 或 score_trend——本工具只给过程原文、不给评分与评价；
+        问"模拟面试怎么开始"（入口与流程）请用 platform_help。
+        入参 session_id 为面试场次 id，省略则取最近一场；limit 为返回的最近消息条数，
+        默认 10，范围 2~20。"""
+        owner = _owner_filter(InterviewSession, user_id, anonymous_id)
+        if owner is None:
+            return "当前会话无法识别用户身份，查不到个人面试记录。请提示用户先登录后再提问。"
+
+        try:
+            want = int(limit or 0)
+        except (TypeError, ValueError):
+            want = 0
+        want = 10 if want <= 0 else max(2, min(want, _TOOL_TRANSCRIPT_LIMIT))
+
+        try:
+            if session_id is not None:
+                # 指定场次必须归属校验：不属于本人或不存在，查询结果都为空
+                session = db.scalars(
+                    select(InterviewSession).where(
+                        InterviewSession.id == int(session_id), owner
+                    )
+                ).first()
+            else:
+                session = db.scalars(
+                    select(InterviewSession)
+                    .where(owner)
+                    .order_by(
+                        InterviewSession.created_at.desc(), InterviewSession.id.desc()
+                    )
+                    .limit(1)
+                ).first()
+        except Exception:
+            logger.exception("agent interview_transcript 场次查询失败")
+            return "面试问答记录查询暂时出错，请稍后再试。"
+
+        if session is None:
+            if session_id is not None:
+                # 不区分"不存在"与"不属于你"，避免泄露他人场次的存在性
+                return (
+                    "没找到这场面试，无法调出问答原文。"
+                    "可提示用户确认场次，或省略 session_id 直接查看最近一场。"
+                )
+            return "该用户名下暂无模拟面试记录。可提示用户到首页基于简历开始一场模拟面试。"
+
+        try:
+            # 取最近 limit 条（倒序），渲染前再翻成正序——问答要从先到后读
+            messages = list(
+                db.scalars(
+                    select(InterviewMessage)
+                    .where(InterviewMessage.session_id == session.id)
+                    .order_by(
+                        InterviewMessage.created_at.desc(), InterviewMessage.id.desc()
+                    )
+                    .limit(want)
+                ).all()
+            )
+        except Exception:
+            logger.exception("agent interview_transcript 消息查询失败")
+            return "面试问答记录查询暂时出错，请稍后再试。"
+
+        when = (
+            session.created_at.strftime("%Y-%m-%d %H:%M")
+            if session.created_at
+            else "时间未知"
+        )
+        position = _POSITION_LABELS.get(
+            session.position_type or "", _POSITION_DEFAULT
+        )
+        status = _INTERVIEW_STATUS_LABELS.get(session.status, session.status)
+        head = (
+            f"该用户一场模拟面试的问答原文（{when} · {position} · {status}"
+            f" · 已进行 {session.turn_count or 0} 轮，按时间正序）："
+        )
+        if not messages:
+            return head + "\n该场面试暂无问答消息。可提示用户到模拟面试页先开始对话。"
+
+        messages.reverse()
+        lines = [head]
+        for message in messages:
+            role = _INTERVIEW_ROLE_LABELS.get(message.role, message.role)
+            lines.append(f"【{role}】{message.content or ''}")
+
+        text = "\n".join(lines)
+        if len(text) > _TOOL_TRANSCRIPT_CHARS:
+            notice = (
+                f"\n（问答原文较长，已截断至 {_TOOL_TRANSCRIPT_CHARS} 字符，"
+                f"仅展示该场最近 {want} 条中的前一部分。）"
+            )
+            text = text[:_TOOL_TRANSCRIPT_CHARS] + notice
+        return text
 
     @tool
     def score_trend(limit: int = 5) -> str:
@@ -957,6 +1066,7 @@ def make_tools(
         kb_search,
         resume_lookup,
         interview_history,
+        interview_transcript,
         score_trend,
         conversation_search,
         usage_stats,

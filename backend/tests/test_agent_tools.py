@@ -22,13 +22,18 @@ from app.core.config import settings
 from app.db.session import SessionLocal, engine
 from app.models.analysis import Analysis
 from app.models.chat import ChatMessage, ChatSession
-from app.models.interview import InterviewSession
+from app.models.interview import InterviewMessage, InterviewSession
 from app.models.kb import KBChunk, KBDocument
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
 from app.schemas.agent import AnswerReviewReport, JobMatchReport, QuestionGenReport
 from app.services.agent import ToolContext, make_tools
-from app.services.agent.tools import _TOOL_ANSWER_CHARS, _TOOL_CONV_LIMIT
+from app.services.agent.tools import (
+    _TOOL_ANSWER_CHARS,
+    _TOOL_CONV_LIMIT,
+    _TOOL_TRANSCRIPT_CHARS,
+    _TOOL_TRANSCRIPT_LIMIT,
+)
 from app.services.agent_capabilities import (
     JD_MAX_CHARS as _TOOL_JD_CHARS,
 )
@@ -61,6 +66,14 @@ _TABLES = ("analyses", "resumes", "interview_sessions", "usage_logs")
 
 def _purge() -> None:
     with engine.begin() as conn:
+        # 面试消息无归属列，只能经 session_id 子查询按归属者清理（先消息后场次）
+        conn.execute(
+            text(
+                "DELETE FROM interview_messages WHERE session_id IN"
+                " (SELECT id FROM interview_sessions WHERE anonymous_id IN (:a, :b))"
+            ),
+            {"a": _OWNER, "b": _OTHER},
+        )
         for table in _TABLES:
             conn.execute(
                 text(f"DELETE FROM {table} WHERE anonymous_id IN (:a, :b)"),
@@ -132,12 +145,13 @@ def _add_resume(db, anonymous_id: str, filename: str, raw_text: str) -> Resume:
 # —— 工具集装配 ——
 
 
-def test_make_tools_exposes_twelve_tools(db_session) -> None:
+def test_make_tools_exposes_thirteen_tools(db_session) -> None:
     tools = make_tools(db_session, None, _OWNER, ToolContext())
     assert [t.name for t in tools] == [
         "kb_search",
         "resume_lookup",
         "interview_history",
+        "interview_transcript",
         "score_trend",
         "conversation_search",
         "usage_stats",
@@ -163,6 +177,7 @@ def test_personal_tools_reject_unknown_identity(db_session) -> None:
 
     assert "无法识别用户身份" in call("resume_lookup", {"query": ""})
     assert "无法识别用户身份" in call("interview_history", {"limit": 3})
+    assert "无法识别用户身份" in call("interview_transcript", {"limit": 10})
     assert "无法识别用户身份" in call("score_trend", {"limit": 5})
     assert "无法识别用户身份" in call("usage_stats", {"days": 7})
     assert "无法识别用户身份" in call("analysis_read", {"resume_hint": ""})
@@ -271,6 +286,172 @@ def test_interview_history_isolates_other_owner(db_session) -> None:
     out = _tool(db, "interview_history").invoke({"limit": 3})
 
     assert "暂无模拟面试记录" in out
+
+
+# —— interview_transcript ——
+
+
+def _add_interview_message(
+    db,
+    session_id: int,
+    content: str,
+    role: str = "interviewer",
+    created_at: datetime | None = None,
+) -> InterviewMessage:
+    """造一条面试消息；created_at 显式写，避免同事务同戳导致排序不确定。"""
+    message = InterviewMessage(
+        session_id=session_id,
+        role=role,
+        content=content,
+        created_at=created_at or datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    db.add(message)
+    db.commit()
+    return message
+
+
+def test_interview_transcript_defaults_to_latest_and_orders_qa(db_session) -> None:
+    """省略 session_id 取最近一场，并在头部说明是哪一场；正文按时间正序。"""
+    db = db_session
+    _add_session(
+        db,
+        _OWNER,
+        status="finished",
+        stage="wrapup",
+        turn_count=2,
+        position_type="senior",
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    latest = _add_session(
+        db,
+        _OWNER,
+        status="finished",
+        stage="wrapup",
+        turn_count=3,
+        position_type="fresh",
+        created_at=datetime(2026, 1, 5, 10, 30, tzinfo=timezone.utc),
+    )
+    _add_interview_message(
+        db,
+        latest.id,
+        "请介绍一下你的项目经历",
+        role="interviewer",
+        created_at=datetime(2026, 1, 5, 10, 31, tzinfo=timezone.utc),
+    )
+    _add_interview_message(
+        db,
+        latest.id,
+        "我做了一个简历分析系统",
+        role="candidate",
+        created_at=datetime(2026, 1, 5, 10, 32, tzinfo=timezone.utc),
+    )
+
+    out = _tool(db, "interview_transcript").invoke({"limit": 10})
+
+    assert "校招" in out and "已结束" in out and "已进行 3 轮" in out
+    assert "【面试官】请介绍一下你的项目经历" in out
+    assert "【我】我做了一个简历分析系统" in out
+    # 问答按时间正序：先问后答
+    assert out.index("请介绍一下你的项目经历") < out.index("我做了一个简历分析系统")
+
+
+def test_interview_transcript_selects_session_by_id(db_session) -> None:
+    """指定 session_id 时取该场，而不是最近一场。"""
+    db = db_session
+    older = _add_session(
+        db,
+        _OWNER,
+        status="finished",
+        stage="wrapup",
+        turn_count=1,
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    newer = _add_session(
+        db,
+        _OWNER,
+        status="finished",
+        stage="wrapup",
+        turn_count=1,
+        created_at=datetime(2026, 1, 9, tzinfo=timezone.utc),
+    )
+    _add_interview_message(db, older.id, "OLDER_QUESTION", role="interviewer")
+    _add_interview_message(db, newer.id, "NEWER_QUESTION", role="interviewer")
+
+    out = _tool(db, "interview_transcript").invoke({"session_id": older.id})
+
+    assert "OLDER_QUESTION" in out
+    assert "NEWER_QUESTION" not in out
+
+
+def test_interview_transcript_hides_other_owner_content(db_session) -> None:
+    """他人场次即使指定 id 也查不到内容，且文案不区分"不存在"与"不属于你"。"""
+    db = db_session
+    other = _add_session(db, _OTHER, status="finished", stage="wrapup", turn_count=1)
+    _add_interview_message(db, other.id, "SECRET_ANSWER", role="candidate")
+
+    out = _tool(db, "interview_transcript").invoke({"session_id": other.id})
+
+    assert "没找到这场面试" in out
+    assert "SECRET_ANSWER" not in out
+
+
+def test_interview_transcript_missing_session_id_reports_not_found(db_session) -> None:
+    out = _tool(db_session, "interview_transcript").invoke({"session_id": 987654321})
+    assert "没找到这场面试" in out
+
+
+def test_interview_transcript_empty_for_new_owner(db_session) -> None:
+    out = _tool(db_session, "interview_transcript").invoke({"limit": 10})
+    assert "暂无模拟面试记录" in out
+
+
+def test_interview_transcript_reports_empty_session(db_session) -> None:
+    db = db_session
+    _add_session(db, _OWNER, status="in_progress", stage="intro", turn_count=0)
+
+    out = _tool(db, "interview_transcript").invoke({"limit": 10})
+
+    assert "暂无问答消息" in out
+
+
+def test_interview_transcript_truncates_long_output(db_session) -> None:
+    """整段超过 _TOOL_TRANSCRIPT_CHARS 时截断并显式说明。"""
+    db = db_session
+    session = _add_session(db, _OWNER, status="finished", stage="wrapup", turn_count=6)
+    for index in range(6):
+        _add_interview_message(
+            db,
+            session.id,
+            f"第 {index} 段回答：" + "细节" * 200,
+            role="candidate",
+            created_at=datetime(2026, 1, 1, 0, index, tzinfo=timezone.utc),
+        )
+
+    out = _tool(db, "interview_transcript").invoke({"limit": 20})
+
+    assert "已截断" in out
+    assert len(out) <= _TOOL_TRANSCRIPT_CHARS + 120
+
+
+def test_interview_transcript_clamps_limit(db_session) -> None:
+    """limit 钳到 2~20；非正数回落默认 10。"""
+    db = db_session
+    session = _add_session(db, _OWNER, status="finished", stage="wrapup", turn_count=30)
+    for index in range(25):
+        _add_interview_message(
+            db,
+            session.id,
+            f"MSG{index:02d}",
+            role="interviewer",
+            created_at=datetime(2026, 1, 1, 0, 0, index, tzinfo=timezone.utc),
+        )
+
+    def rendered(payload: dict) -> int:
+        return _tool(db, "interview_transcript").invoke(payload).count("【面试官】")
+
+    assert rendered({"limit": 999}) == _TOOL_TRANSCRIPT_LIMIT
+    assert rendered({"limit": 1}) == 2  # 下限 2
+    assert rendered({"limit": 0}) == 10  # 非正数回落默认 10
 
 
 # —— score_trend ——
@@ -1036,12 +1217,13 @@ def test_kb_search_and_platform_help_are_mutually_exclusive(db_session) -> None:
     assert "kb_search" in tools["platform_help"].description
 
 
-# —— 工具描述互斥性（12 个工具统一口径）——
+# —— 工具描述互斥性（13 个工具统一口径）——
 
 _ALL_TOOLS = (
     "kb_search",
     "resume_lookup",
     "interview_history",
+    "interview_transcript",
     "score_trend",
     "conversation_search",
     "usage_stats",
@@ -1084,6 +1266,8 @@ def test_tool_description_has_three_parts(name: str) -> None:
         ("answer_review", "kb_search"),
         ("platform_help", "conversation_search"),
         ("conversation_search", "platform_help"),
+        ("interview_history", "interview_transcript"),
+        ("interview_transcript", "interview_history"),
     ],
 )
 def test_confusable_tools_name_each_other(name: str, other: str) -> None:

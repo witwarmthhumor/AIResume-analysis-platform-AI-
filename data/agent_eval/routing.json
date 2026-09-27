@@ -10,6 +10,10 @@
   {"question": "我上一场模拟面试拿了多少分", "expected_tool": "interview_history"},
   {"question": "我最近一次模拟面试的评价是怎么说的", "expected_tool": "interview_history"},
   {"question": "我一共练过几场模拟面试", "expected_tool": "interview_history"},
+  {"question": "我上次模拟面试都问了哪些问题", "expected_tool": "interview_transcript"},
+  {"question": "帮我把上一场面试的问答原文调出来看看", "expected_tool": "interview_transcript"},
+  {"question": "我面试时那道题当时是怎么答的，把问答记录给我看看", "expected_tool": "interview_transcript"},
+
 
   {"question": "我最近的面试表现是进步了还是退步了", "expected_tool": "score_trend"},
   {"question": "我这几场模拟面试的分数有没有提升", "expected_tool": "score_trend"},
