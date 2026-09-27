@@ -40,7 +40,7 @@ Started: 2026-09-27
 - ⚠️ pydantic 的 `Model.model_validate` 每次取出来都是**新对象**，`is` 比较会失败（`assert X is Y` 报 "model_validate is model_validate"）；要断言"用的是哪个校验器"就**调用它**再 `isinstance(结果, 模型)`。
 - 需要"先检索再喂给模型"的工具，别去 invoke 另一个工具对象：把检索链路抽成模块级公共入口（本项目是 `_kb_retrieve(db, query, user_id, anonymous_id, top_k) -> (命中块, 兜底话术)`），返回话术而非抛异常，让不同调用方自己决定处置（kb_search 要区分向量模型挂了/检索出错，question_gen 一律当"未收录"退回模型出题）。
 - 混合检索（hybrid）路径**不套 `kb_min_similarity`**（设计如此，为救回纯词法命中的术语查询），所以"检索未命中"在真机上几乎不触发——连明显无关的 topic 也会返回低分材料。"未命中"分支只能靠 mock 空结果覆盖，别指望真机复现；输出里标注来源时要意识到这一点。
-- ⚠️ **`backend/app/services/prompts.py` 是 CRLF 文件（`docs/Agent工具设计.md`、`data/agent_eval/routing.json`、`scripts/ralph/prd.json` 同为 CRLF；`tools.py` / 测试是 LF）**：Edit 的**多行 old_string 匹配不到**（行尾是 `\r\n`），只能用**单行锚点**替换/插入；插入多行时新行按 `\r\n` 写，别把文件搞成混用行尾。改前先 `python -c "print(open(f,'rb').read().count(b'\r\n'))"` 确认。
+- ⚠️ **CRLF 文件清单**：`backend/app/services/prompts.py`、`docs/Agent工具设计.md`、`docs/后续开发规划.md`、`README.md`、`data/agent_eval/routing.json`、`scripts/ralph/prd.json` 是 CRLF；`tools.py` / 测试 / `docs/tech-stack-and-features.md` / 两份 `docs/架构全景*.html` / `scripts/ralph/progress.txt` 是 LF。**CRLF 文件**：Edit 的**多行 old_string 匹配不到**（行尾是 `\r\n`），只能用**单行锚点**替换/插入；插入多行时新行按 `\r\n` 写，别把文件搞成混用行尾。改前先 `python -c "print(open(f,'rb').read().count(b'\r\n'))"` 确认（注意 `read_text()` 会把 `\r\n` 吞成 `\n`，数行尾要用 `read_bytes()`）。
 - 新增/改一个工具的**六处同步点**（漏一处就红）：`make_tools` 返回列表（`kb_search` 仍须下标 0）→ 模块 docstring 工具清单 → `tests/test_agent_tools.py` 的 `_ALL_TOOLS` 与 `test_make_tools_exposes_*_tools` → 易撞组合互指（双向点名 + 测试参数对）→ `data/agent_eval/routing.json` 补 3 条用例 → `docs/Agent工具设计.md` §二表格与 §四易撞表。
 - 跨工具复用的评分口径直接遍历 `_SCORE_LABELS`（技术深度/表达结构/项目真实性/整体），只点评单项时 `if key != "overall"` 过滤即可——不要另起一份中文映射，会和模拟面试报告漂移。
 - 工具内调 LLM 的三件套（`job_match` / `question_gen` / `answer_review`）里有两类「不需要身份」：`question_gen`（只查公共语料）与 `answer_review`（题目和回答都是用户当场贴的，不查库）——它们没有 `_owner_filter`，但仍走 `_run_tool_llm` 限额与记账。
@@ -66,6 +66,9 @@ Started: 2026-09-27
 - 知识库**检索范围过滤**统一走 `kb_service` 的 `document_ids` 参数：`_visible_ready_query(user_id, anonymous_id, document_ids)` + `_document_filter(document_ids)`（向量路与词法路共用，两处都要带上），`search_chunks` / `search_chunks_hybrid` / `agent_capabilities.kb_retrieve` 逐层透传；None/空 = 不限定。**新增"按文档限定"类需求时不要在工具里做 Python 侧过滤**（会漏召回），把 id 传下去让 SQL 收范围。
 - 工具里"按标题模糊匹配可见文档"复用 `kb_service.list_documents` + Python 包含判断（与 `kb_list` 同口径），**不要自己写 SQL**；匹配到多篇要列候选让用户挑、零命中要列出现有文档名，都不许擅自选一篇或抛异常。
 - **"文档/清单同步"类 story 开工前先 grep 现状再动手**：这类验收项常是跨 story 的（工具数断言、常量区在加工具时就得同 story 改），先核对哪些已落地、哪些真欠，避免重做已完成项。同一条原则：**文档里带日期的"历史实测/版本记录段"不要改**（改它=篡改历史），只更新"当前口径"类描述（文件头计数、表格标题）。
+- **改对外文档口径（工具数 / 评测数字）的收口套路**：改完跑 `grep -rn "<旧口径>" README.md docs/` 逐条判「当前口径 vs 历史记录段」——带**日期或版本锚定**的小节属历史、**不改**（本项目实测的 3 处：`Agent工具设计.md` §五「实测记录：11 工具口径（US-012，2026-09-16）」、`后续开发规划.md` §2「本次体检发现（2026-09-18）」表、`架构全景-v2.0.html` 的「v3.5 扩到 11 个工具」演进叙述）；其余正文要跟。
+- `docs/` 下有两份自包含 HTML 架构图，性质不同别一起改：**`架构全景.html`（当前口径全景，「对应版本 v3.5+」）改对外口径时要同步工具数/评测数字**；`架构全景-v2.0.html` 是 RAG/Agent 引入前的历史快照，**不动**。两份都用了 `data-page-node-id` 内联属性，插节点照抄 22 字符随机 id 的格式即可。
+- 文档口径数字的**唯一权威来源**是产物文件本身（工具数看 `backend/app/services/agent/tools.py` 的 `make_tools` 列表，评测看 `data/agent_eval/report.md` 头部「N 题 / M 个工具」与 top-1），别照抄别的文档——本项目 README 里「143 个 pytest」等老数字与现状（330）脱节就是照抄的后果，改口径时只认产物。
 
 
 
@@ -170,5 +173,24 @@ Started: 2026-09-27
   - 「与旧基线对比」行由脚本 `BASELINE` 常量渲染（8 工具 24/24），**扩工具不用改 BASELINE**——它是固定参照系，改它反而失去可比性。
 - **验证**：`ruff check .` 通过；`pytest -q` **330 passed**（与 US-005 基线持平——本轮只动用例集数据与文档，无新增单测是预期的）；报告复核 `40 题 / 13 个工具`、`对比 8 工具口径基线（US-007）（24/24）：+0.0 个百分点`。
 - **未做（留给后续 story）**：README / tech-stack-and-features.md / 后续开发规划.md 口径升版 → US-007。
+
+---
+
+## 2026-09-27 · US-007 对外文档口径升版（13 个工具）
+
+- **实现**：本轮是 **Part 2 的收官 story（纯文档收口，无代码改动）**，把「13 个工具 / 40 题 100%」这一口径刷到全部对外文档：
+  - `README.md`：功能清单 Agent 行 `（v3.4 → v3.6）`→`（v3.4 → v3.10）`、`**11 个工具**`→`**13 个工具**`、检索/查询类 `7 个`→`9 个`（清单补「面试问答原文 / 历史对话检索」）、`工具路由实测 33/33`→`40/40`；技术亮点「工具路由有量化基线」`33 题 33/33`→`40 题 40/40`。
+  - `docs/tech-stack-and-features.md`：文件头 `对应版本 v3.6（11 工具…）`→`v3.10（13 工具…）`；模块 6 标题 `（v3.4 → v3.6）`→`（v3.4 → v3.10）`；工具工厂 `v3.6 起共 11 个`→`v3.10 起共 13 个`、检索/查询类 `7 个`→`9 个`（补 `interview_transcript` / `conversation_search` 两行，并标注 `kb_search` 的 `document`、`usage_stats` 的 `action` 新参数）；工具路由实测 `33 题（11 工具 × 3）`→`40 题（13 工具 × 3，kb_search 多 1 条）`、top-1 `40/40 = 100%`。
+  - `docs/后续开发规划.md`：§4 标题补 `v3.10`；**新增「### v3.10 · Agent 工具再扩展（✅ 2026-09-27 完成 7/7；11 → 13 工具 + 两处参数增强）」小节**（7 行任务表逐条 ✅，对应 US-001~007）；§4 的 v3.9+「面试官 Agent」理由句 `工具仍 11 个`→`13 个`；§6 执行纪律第 4 条评测口径 `（33/33）`→`（40/40）`。
+  - `docs/架构全景.html`（当前口径全景，LF 文件）：工具层标题 `（11 个工具）`→`（13 个工具）`、`零成本工具 ×8`→`×10`（清单补两个新工具 code 节点）、路由评测卡 `33 题 / 11 工具 … 33/33 (100%)`→`40 题 / 13 工具 … 40/40 (100%)`、工程护栏 `工具路由 33 题`→`40 题`。
+- **提示词版本判定（验收第 5 条）**：本批次只改**工具 docstring/描述**与文档，不碰任何提示词模板，`PROMPT_VERSION` / `JOB_MATCH_PROMPT_VERSION` / `QUESTION_GEN_PROMPT_VERSION` / `ANSWER_REVIEW_PROMPT_VERSION` **均无需递增**（工具描述不参与 `analyses` 表版本留档）；已写入提交说明。
+- **文件**：`README.md`、`docs/tech-stack-and-features.md`、`docs/后续开发规划.md`、`docs/架构全景.html`（4 个，+29/-15）。
+- **Learnings for future iterations：**
+  - **`grep -rn "11 个工具" README.md docs/` 收口后只剩 3 处，全部是「历史记录段」**：① `Agent工具设计.md:187`（§五「实测记录：11 工具口径（US-012，2026-09-16）」的结论句）② `后续开发规划.md:50`（§2「本次体检发现（2026-09-18）」表里那条 grep 证据串）③ `架构全景-v2.0.html:229`（v2.0 快照的「v3.5 扩到 11 个工具」演进叙述）。**判据是「有没有日期/版本锚定」**——有锚定的历史小节不动（改它=篡改历史，US-005 已确立），其余正文要跟。
+  - ⚠️ **criterion 4 的 `docs/` 包含两份 HTML 架构图**（`git ls-files docs/` 确认已入库、未忽略）：`架构全景.html` 是「对应版本 v3.5+」的**当前口径全景**（含 11 工具/33 题，必须改）；`架构全景-v2.0.html` 是 RAG/Agent 引入前的**历史快照**（不改）。**改 HTML 只动文案与计数，别碰 `data-page-node-id` 结构**；新增 code 节点照抄 22 字符随机 id 格式。
+  - **口径数字只认产物**：工具数看 `tools.py` 的 `make_tools` 列表、评测看 `data/agent_eval/report.md` 头部。本轮发现 README 里「143 个 pytest」与 `架构全景.html` 里「247 个 pytest」都严重滞后（实际 330）——但它们是**别的口径**（pytest 计数），不在 US-007 的「工具数/评测口径」范围内，**故意不改**（避免扩大 diff 与半更新）。
+  - `README.md` 与 `docs/后续开发规划.md` 是 **CRLF 文件**（`tech-stack-and-features.md`、两份 HTML 是 LF）：CRLF 文件的多行插入只能用 Python 脚本按 `\r\n` 拼接（本轮 v3.10 小节就是这么插的），写完断言 `raw.count(b'\r\n') == raw.count(b'\n')`；表格后紧跟 `---` 记得留一个空行。
+- **验证**：`ruff check .` 通过（All checks passed，未整文件 format）；`pytest -q` **330 passed**（与 US-006 基线持平——本轮无代码/用例改动，不新增测试是正确的）；`grep -rn "11 个工具" README.md docs/` 仅剩 3 处历史记录段（见上）。
+- **未做 / 说明**：Part 2（US-001~007）**全部完成**；US-008 起为 Part 1「学生就业帮助系统重构」，属**另一个独立仓库**（源码不在本机、US-008 硬阻塞），本仓库不动。
 
 ---
