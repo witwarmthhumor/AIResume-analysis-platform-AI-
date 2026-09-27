@@ -1151,6 +1151,123 @@ def test_kb_list_swallows_query_error(db_session, monkeypatch) -> None:
     assert "暂时出错" in out
 
 
+# —— kb_search（限定文档检索）——
+# 文档匹配走真实 list_documents（真库），检索侧替掉 embed_texts / search_chunks，
+# 并记录 search_chunks 收到的 document_ids，以证明限定范围确实传到了检索层。
+
+
+def _patch_kb_retrieval(monkeypatch, hits: list[dict] | None = None) -> dict:
+    """替身检索链路：embedding 返回假向量，search_chunks 记录入参并回固定命中。"""
+    seen: dict = {}
+    monkeypatch.setattr(
+        "app.services.agent_capabilities.embed_texts", lambda texts: [[0.1] * 768]
+    )
+
+    def _fake(
+        db,
+        query_embedding,
+        user_id,
+        anonymous_id,
+        top_k=None,
+        query_text=None,
+        document_ids=None,
+    ):
+        seen["document_ids"] = document_ids
+        seen["query_text"] = query_text
+        return hits if hits is not None else []
+
+    monkeypatch.setattr("app.services.agent_capabilities.search_chunks", _fake)
+    return seen
+
+
+def test_kb_search_limits_scope_to_matched_document(db_session, monkeypatch) -> None:
+    """document 命中唯一一篇时，检索范围缩到该文档（document_ids 传下去），引用照旧回填。"""
+    db = db_session
+    doc = _add_kb_document(
+        db,
+        "MySQL 索引.md",
+        scope="public",
+        chunk_texts=("聚簇索引的叶子节点存整行数据。",),
+    )
+    seen = _patch_kb_retrieval(
+        monkeypatch,
+        hits=[
+            {
+                "document_id": doc.id,
+                "title": f"{_KB_PREFIX}MySQL 索引.md",
+                "seq": 0,
+                "content": "聚簇索引的叶子节点存整行数据。",
+                "similarity": 0.9,
+            }
+        ],
+    )
+    ctx = ToolContext()
+    tool = next(t for t in make_tools(db, None, _OWNER, ctx) if t.name == "kb_search")
+
+    out = tool.invoke({"query": "聚簇索引", "document": "MySQL 索引"})
+
+    assert seen["document_ids"] == [doc.id]
+    assert "聚簇索引" in out
+    assert ctx.citations and ctx.citations[0]["document_id"] == doc.id
+
+
+def test_kb_search_multiple_documents_returns_candidates(db_session, monkeypatch) -> None:
+    """标题匹配到多篇时不擅自选一篇：列候选（标题 + 块数），且一次检索都不做。"""
+    db = db_session
+    _add_kb_document(db, "MySQL 索引上.md", chunk_texts=("a", "b"))
+    _add_kb_document(db, "MySQL 索引下.md", chunk_texts=("c",))
+    seen = _patch_kb_retrieval(monkeypatch)
+
+    out = _tool(db, "kb_search").invoke({"query": "索引", "document": "MySQL 索引"})
+
+    assert "多篇" in out
+    assert "2 个知识块" in out and "1 个知识块" in out
+    assert seen == {}  # 未确定唯一文档，不检索
+
+
+def test_kb_search_unknown_document_lists_existing(db_session, monkeypatch) -> None:
+    """文档不存在时不抛异常，列出现有可见文档名（与 kb_list 同口径）。"""
+    db = db_session
+    _add_kb_document(db, "MySQL 索引.md")
+    seen = _patch_kb_retrieval(monkeypatch)
+
+    out = _tool(db, "kb_search").invoke({"query": "索引", "document": "Kafka 实战"})
+
+    assert "没有标题包含「Kafka 实战」的文档" in out
+    assert f"《{_KB_PREFIX}MySQL 索引.md》" in out
+    assert seen == {}
+
+
+def test_kb_search_without_document_keeps_default_scope(db_session, monkeypatch) -> None:
+    """不传 document 时旧行为不回归：检索不限定文档，命中话术照旧。"""
+    seen = _patch_kb_retrieval(
+        monkeypatch,
+        hits=[
+            {
+                "document_id": 1,
+                "title": "RAG 入门",
+                "seq": 0,
+                "content": "RAG 先检索再生成。",
+                "similarity": 0.8,
+            }
+        ],
+    )
+
+    out = _tool(db_session, "kb_search").invoke({"query": "什么是 RAG"})
+
+    assert seen["document_ids"] is None
+    assert "RAG 入门" in out
+
+
+def test_kb_search_no_hit_keeps_wording(db_session, monkeypatch) -> None:
+    """无命中的既有话术保持不变。"""
+    _patch_kb_retrieval(monkeypatch, hits=[])
+
+    out = _tool(db_session, "kb_search").invoke({"query": "无关问题"})
+
+    assert "没有检索到" in out
+
+
 # —— platform_help ——
 
 # 总览文案的独有标记：命中具体主题时**不该**出现，用于区分"命中"与"回落"

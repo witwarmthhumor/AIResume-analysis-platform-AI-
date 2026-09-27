@@ -42,6 +42,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.chat import ChatMessage, ChatSession
 from app.models.interview import InterviewMessage, InterviewSession
+from app.models.kb import KBDocument
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
 from app.schemas.agent import AnswerReviewReport
@@ -280,6 +281,19 @@ def _conv_head(session: ChatSession) -> str:
     return f"【来源：{source}】{session.title}（{when}）"
 
 
+def _kb_title_candidates(
+    db: Session, user_id: int | None, anonymous_id: str | None, document: str
+) -> tuple[list[KBDocument], list[KBDocument]]:
+    """按标题模糊匹配可见文档，返回 (命中文档, 全部可见文档)。
+
+    标题匹配用 Python 侧的包含判断（与 kb_list 的过滤口径一致），调用方负责 try/except。
+    """
+    docs = list_documents(db, user_id, anonymous_id)
+    needle = document.lower()
+    matched = [d for d in docs if needle in (d.title or "").lower()]
+    return matched, docs
+
+
 def _score_of(report: dict, key: str) -> float | None:
     """取报告里某个维度的分数，缺失或不是数字返回 None。"""
     value = report.get(key)
@@ -342,12 +356,13 @@ def make_tools(
     """构造本次请求专属的工具列表。"""
 
     @tool
-    def kb_search(query: str) -> str:
+    def kb_search(query: str, document: str = "") -> str:
         """检索平台技术知识库：按语义 + 关键词混合检索资料切块，把命中内容回灌给模型，
         并把来源（文档标题与块序号）记为引用展示给用户。
 
         什么时候用：用户问**计算机技术知识点**——编程语言、Java/JVM/并发、MySQL/Redis、
         计算机网络、操作系统、RAG/AI 应用开发等的原理、用法、对比、排错；必须先检索再作答。
+        用户指明"只在某篇文档/某份资料里找"时，把文档名传给 document 限定检索范围。
         什么时候不用：问"本平台怎么用"（怎么上传简历、怎么开始模拟面试、在哪看用量、
         平台有哪些功能）请用 platform_help；要找**用户自己过去的对话记录**
         （"之前问过你什么""上次聊到哪了"）请用 conversation_search；
@@ -355,9 +370,50 @@ def make_tools(
         要**出一组模拟面试题**请用 question_gen（本工具负责查答案与讲解，不负责出题）；
         用户贴出**自己的回答**让我点评/打分请用 answer_review——不要因为那段回答里
         出现了技术名词就用本工具去查知识点。
-        入参 query 为精简后的检索关键词或问题。"""
+        入参 query 为精简后的检索关键词或问题；document 为可选文档名（标题片段），
+        留空表示在全部可见语料中检索。"""
+        document_kw = (document or "").strip()
+        document_ids: list[int] | None = None
+        if document_kw:
+            try:
+                matched, docs = _kb_title_candidates(
+                    db, user_id, anonymous_id, document_kw
+                )
+            except Exception:
+                logger.exception("agent kb_search 文档匹配查询失败")
+                return "知识库文档查询暂时出错，请稍后再试。"
+            if not matched:
+                if not docs:
+                    return "知识库当前还没有任何可查看的文档。可提示用户到知识库页上传资料。"
+                names = "".join(f"\n- 《{d.title}》" for d in docs[:_TOOL_KB_LIMIT])
+                return (
+                    f"知识库里没有标题包含「{document_kw}」的文档。现有可见文档：{names}"
+                    "\n请让用户确认文档名后再问一次，或去掉文档限定检索全部资料。"
+                )
+            if len(matched) > 1:
+                # 匹配到多篇不擅自选一篇：列候选（标题 + 块数）让用户挑
+                try:
+                    counts = count_chunks_by_document(db, [d.id for d in matched])
+                except Exception:
+                    logger.exception("agent kb_search 文档块数查询失败")
+                    return "知识库文档查询暂时出错，请稍后再试。"
+                lines = [
+                    f"标题包含「{document_kw}」的文档有多篇，请让用户指定其中一篇后再检索："
+                ]
+                lines.extend(
+                    f"- 《{d.title}》（{counts.get(d.id, 0)} 个知识块）"
+                    for d in matched[:_TOOL_KB_LIMIT]
+                )
+                return "\n".join(lines)
+            document_ids = [matched[0].id]
+
         hits, error = _kb_retrieve(
-            db, query, user_id, anonymous_id, settings.kb_search_top_k
+            db,
+            query,
+            user_id,
+            anonymous_id,
+            settings.kb_search_top_k,
+            document_ids=document_ids,
         )
         if error:
             return error

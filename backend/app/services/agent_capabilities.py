@@ -76,8 +76,12 @@ def kb_retrieve(
     user_id: int | None,
     anonymous_id: str | None,
     top_k: int,
+    document_ids: list[int] | None = None,
 ) -> tuple[list[dict], str]:
     """知识库检索的公共入口（embedding + 混合检索）：kb_search 与 question_gen 共用。
+
+    document_ids 非空时只在指定文档内检索（kb_search 的"限定文档"场景）；
+    默认不传即检索全部可见语料，行为与既有调用方一致。
 
     返回 (命中块, 兜底话术)：检索正常时话术为空串；任一步失败时命中为空、话术为说明文案。
     之所以返回话术而不是抛异常——两个调用方的处置不同：kb_search 要把"向量模型不可用"
@@ -98,6 +102,7 @@ def kb_retrieve(
             top_k=top_k,
             # v3.5：工具入参原文一并交给检索层，走向量 + BM25 混合检索
             query_text=query,
+            document_ids=document_ids,
         )
     except Exception:
         logger.exception("agent 知识库检索失败")

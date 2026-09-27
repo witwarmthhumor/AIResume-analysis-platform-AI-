@@ -14,7 +14,7 @@ Started: 2026-09-27
 - JSONB 列写入 Python `None` 会落成 JSON `null` **字面量**而非 SQL NULL，`is_not(None)` 过滤不掉，必须再判 `isinstance(value, dict)`。
 - 限额/记账复用 `usage_service.count_today_usage_by_owner(db, action_type, user_id, anonymous_id)` 与 `usage_service.write_usage(...)`，不要新写 SQL。
 - 测试要在 `backend/` 目录下跑（`.env` 相对当前目录读）；新测试用专属标记只清自己造的数据，不要 `DELETE FROM` 全表。
-- ⚠️ 跑全量 pytest 会清空 `kb_chunks` / `kb_documents`（老 `tests/test_rag.py` fixture 行为），跑完需 `python -m scripts.seed_kb_preset` 恢复语料。
+- ~~⚠️ 跑全量 pytest 会清空 `kb_chunks` / `kb_documents`（老 `tests/test_rag.py` fixture 行为），跑完需 `python -m scripts.seed_kb_preset` 恢复语料。~~ **已作废（US-003 实测复核）**：v3.7 测试隔离改造后全量 pytest 不动预置语料，跑完 `kb_documents` 仍是 7 篇 preset，无需再 seed。
 - 前端零图表库、零 UI 框架：可视化一律手写 SVG/CSS；组件内映射表用常量 + 回落原始值（参考 `HistoryView.vue` 的 `actionMap`）。
 - **准入检查只有 `ruff check .`**：`ruff format --check` 对 `tools.py` 等既有文件本来就报警（HEAD 即如此），是前格式化时代留下的。**别顺手整文件格式化**（会造出大量与 story 无关的 diff），按邻近代码风格写即可。
 - 工具在 `services/` 层**不得 import `app/api/`**（项目是 Router → Service → Model 单向依赖）。需要复用接口层查询时，先把它下沉成 service 函数，接口与工具都调那一份，不要复制 SQL。
@@ -63,6 +63,8 @@ Started: 2026-09-27
 - **新工具必须在同一个 story 内补 `routing.json` 用例**（每工具 ≥3 条，且 `expected_tool` 集合 == 工具集合）：留到后续 story 做会让全量 pytest 立刻红（`test_cases_cover_every_tool`）。同理 `tests/test_agent_tools.py` 的 `_ALL_TOOLS` 与工具数断言、`test_make_tools_exposes_*` 也要同 story 更新。
 - 本仓库的 `AGENTS.md` / `AI-COLLABORATION.md` / `PROGRESS.md` / `PROJECT-PLAN.md` **都在 `.gitignore` 里**（本地保留、不入库）：它们可能领先于已提交代码，看到「文档说 vX 但代码没提交」先跑 `git check-ignore -v <file>` 确认，别急着改代码。
 - `chat_sessions.updated_at` 是「最近活跃」时间、**由 API 层显式 bump**（新消息落库时），会话列表排序口径 = `updated_at desc, id desc`（与 `api/agent.py::list_sessions` 一致）；`created_at` 才是创建时间。
+- 知识库**检索范围过滤**统一走 `kb_service` 的 `document_ids` 参数：`_visible_ready_query(user_id, anonymous_id, document_ids)` + `_document_filter(document_ids)`（向量路与词法路共用，两处都要带上），`search_chunks` / `search_chunks_hybrid` / `agent_capabilities.kb_retrieve` 逐层透传；None/空 = 不限定。**新增"按文档限定"类需求时不要在工具里做 Python 侧过滤**（会漏召回），把 id 传下去让 SQL 收范围。
+- 工具里"按标题模糊匹配可见文档"复用 `kb_service.list_documents` + Python 包含判断（与 `kb_list` 同口径），**不要自己写 SQL**；匹配到多篇要列候选让用户挑、零命中要列出现有文档名，都不许擅自选一篇或抛异常。
 
 
 
@@ -102,3 +104,23 @@ Started: 2026-09-27
 - **未做（留给后续 story，勿在本轮补）**：`docs/Agent工具设计.md` §一/§二/§四 同步 → US-005；`scripts.eval_agent_routing` 真机复跑与报告刷新（需真调模型、烧额度）→ US-006。
 
 ---
+
+## 2026-09-27 · US-003 kb_search 支持限定文档检索（可选 document 参数）
+
+- **实现**：`kb_search(query: str, document: str = "")`——`document` 非空时按标题模糊匹配可见文档缩小检索范围：命中唯一一篇 → 把 `document_ids` 下传检索层；命中多篇 → 列候选（标题 + 块数）让用户挑，不擅自选一篇；零命中 → 列出可见文档名（与 `kb_list` 同口径），全程不抛异常。默认（不传 document）行为、`ctx.citations` 回填、无命中话术**完全不变**。新增 `_kb_title_candidates()`（复用 `list_documents` + Python 包含判断）。
+- **检索链路加过滤（4 个文件里的 3 个 service 层）**：`kb_service._document_filter()` 新增；`_visible_ready_query(user_id, anonymous_id, document_ids=None)` 把 `KBChunk.document_id.in_(...)` 加进向量路与词法路共用的 where；`search_chunks` / `search_chunks_hybrid` 新增 `document_ids` 参数透传（hybrid 的词法查询、`need_full` 补取两处也要带）；`agent_capabilities.kb_retrieve` 新增 `document_ids` 参数并透传给 `search_chunks`。None/空 = 不限定，老调用方零改动。
+- **文件**：
+  - `backend/app/services/kb_service.py`：`_document_filter` + `_visible_ready_query` 加参 + 两个检索函数加 `document_ids`。
+  - `backend/app/services/agent_capabilities.py`：`kb_retrieve` 加 `document_ids` 透传。
+  - `backend/app/services/agent/tools.py`：新增 `from app.models.kb import KBDocument`、`_kb_title_candidates()`、`kb_search` 加 `document` 参数与三条分支 + docstring 补 document 说明。
+  - `backend/tests/test_agent_tools.py`：5 条新用例 + `_patch_kb_retrieval` 替身（记录 `search_chunks` 收到的 `document_ids`）。
+- **Learnings for future iterations：**
+  - **「限定范围」要在 SQL 层收，不能在工具里过滤召回结果**：`search_chunks` 的向量路 `limit(candidate_n)` 是在 SQL 里截的，Python 侧再筛会漏召回。所以过滤条件下沉到 `_visible_ready_query`，让向量路与词法路共用——**hybrid 路径有两处独立查询（向量路 + 词法路 lex_rows）外加 `need_full` 补取，三处都得带同一过滤条件**，漏一处会出现"限定后仍混进别的文档"。
+  - 文档名匹配复用 `list_documents`（真库查询）+ Python `in` 判断，与 `kb_list` 的过滤口径天然一致；**别在工具里重写标题 SQL**（`kb_list` 已是现成口径）。测这类分支用真库造数（`_add_kb_document`）+ monkeypatch 检索侧即可，不必 mock `list_documents`。
+  - 断言"范围真的传下去了"的可行手法：把 `search_chunks` 换成记录入参的替身（返回 `seen` dict），直接断言 `seen["document_ids"] == [doc.id]`；"未指定唯一文档时不该检索"就断言 `seen == {}`。
+  - `kb_search` 的 `document` 是**可选参数**，所以 `make_tools(None, ...)` 取描述/旧用例 `invoke({"query": ...})` 都不受影响——加可选参数是低回归风险的改法。
+- **验证**：`ruff check .` 通过（未整文件 format）；`pytest -q` **326 passed**（US-002 基线 321 + 5）；全量跑完复核 `kb_documents` 仍为 7 篇 preset（v3.7 隔离有效，旧"跑 pytest 清 kb 表"的警告已在上面标注作废）。
+- **未做（留给后续 story，勿在本轮补）**：`data/agent_eval/routing.json` 补"kb_search 限定文档"用例与真机复跑 → US-006；`docs/Agent工具设计.md` 同步 → US-005。
+
+---
+

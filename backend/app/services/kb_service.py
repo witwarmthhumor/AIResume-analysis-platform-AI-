@@ -119,7 +119,16 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
 
 
-def _visible_ready_query(user_id: int | None, anonymous_id: str | None):
+def _document_filter(document_ids: list[int] | None):
+    """限定检索文档范围的附加条件；None 或空表示不限定（检索全部可见语料）。"""
+    return [KBChunk.document_id.in_(document_ids)] if document_ids else []
+
+
+def _visible_ready_query(
+    user_id: int | None,
+    anonymous_id: str | None,
+    document_ids: list[int] | None = None,
+):
     """可见 + 就绪的切块查询骨架：向量路与词法路共用，避免过滤条件漂移。"""
     return (
         select(KBChunk, KBDocument.title)
@@ -128,6 +137,7 @@ def _visible_ready_query(user_id: int | None, anonymous_id: str | None):
             KBDocument.deleted_at.is_(None),
             KBDocument.status == "ready",
             _visible_clause(user_id, anonymous_id),
+            *_document_filter(document_ids),
         )
     )
 
@@ -139,20 +149,28 @@ def search_chunks(
     anonymous_id: str | None,
     top_k: int | None = None,
     query_text: str | None = None,
+    document_ids: list[int] | None = None,
 ) -> list[dict]:
     """检索可见语料，返回命中块（含来源标题）。
 
     传了 query_text 且 kb_hybrid_enabled=True → 混合检索（向量 + BM25，RRF 融合）；
     否则只走向量检索（低于 kb_min_similarity 的按无关丢弃）。
+    document_ids 非空时把范围限定在这些文档内（kb_search 的"限定文档"用）。
     保持默认参数不传时行为与 v3.0 完全一致，老调用方与测试无需改动。
     """
     if query_text and settings.kb_hybrid_enabled:
         return search_chunks_hybrid(
-            db, query_text, query_embedding, user_id, anonymous_id, top_k
+            db,
+            query_text,
+            query_embedding,
+            user_id,
+            anonymous_id,
+            top_k,
+            document_ids=document_ids,
         )
 
     rows = db.execute(
-        _visible_ready_query(user_id, anonymous_id)
+        _visible_ready_query(user_id, anonymous_id, document_ids)
         .order_by(KBChunk.embedding.cosine_distance(query_embedding))
         .limit(top_k or settings.kb_search_top_k)
     ).all()
@@ -181,6 +199,7 @@ def search_chunks_hybrid(
     user_id: int | None,
     anonymous_id: str | None,
     top_k: int | None = None,
+    document_ids: list[int] | None = None,
 ) -> list[dict]:
     """混合检索：向量路（语义）+ BM25 词法路，RRF 融合后取 top_k。
 
@@ -198,7 +217,7 @@ def search_chunks_hybrid(
     """
     limit = top_k or settings.kb_search_top_k
     candidate_n = max(settings.kb_hybrid_candidates, limit)
-    base_query = _visible_ready_query(user_id, anonymous_id)
+    base_query = _visible_ready_query(user_id, anonymous_id, document_ids)
 
     # —— 向量路：交给数据库按余弦距离排序（命中 HNSW 索引），只取候选 ——
     vector_rows = db.execute(
@@ -231,6 +250,7 @@ def search_chunks_hybrid(
             KBDocument.deleted_at.is_(None),
             KBDocument.status == "ready",
             _visible_clause(user_id, anonymous_id),
+            *_document_filter(document_ids),
         )
     ).all()
     bm25 = Bm25Index([(r.id, r.content) for r in lex_rows])
@@ -245,7 +265,9 @@ def search_chunks_hybrid(
     need_full = set(lexical_rank) - set(vector_rank)
     if need_full:
         for chunk, title in db.execute(
-            _visible_ready_query(user_id, anonymous_id).where(KBChunk.id.in_(need_full))
+            _visible_ready_query(user_id, anonymous_id, document_ids).where(
+                KBChunk.id.in_(need_full)
+            )
         ).all():
             chunk_map[chunk.id] = (chunk, title)
 
