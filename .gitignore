@@ -41,3 +41,8 @@ docs/LangChain引入方案-*
 
 # Ralph 运行态文件（当前分支指针，每次运行覆盖；ralph 工具与进度记录本体保留入库）
 scripts/ralph/.last-branch
+
+# 覆盖率产物与本地质量门禁票据（生成物，不入库）
+.coverage
+*.coverage
+.quality-gate/
