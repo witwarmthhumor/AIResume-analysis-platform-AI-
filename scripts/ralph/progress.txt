@@ -1,8 +1,8 @@
 # Ralph Progress Log
 
-Feature: 收口止血（v3.6 发布一致性）
-Branch: ralph/release-consolidation
-Started: 2026-09-18
+Feature: 合并稿任务化 —— Part 2 AIResume Agent 工具扩展（US-001~007）+ Part 1 学生就业帮助系统重构（US-008~028，另一仓库·硬阻塞）
+Branch: ralph/agent-tool-expansion-v2
+Started: 2026-09-27
 
 ## Codebase Patterns
 
@@ -56,36 +56,32 @@ Started: 2026-09-18
 - `connect_args` **不会**体现在 `dialect.create_connect_args` 的返回里（建连时才合并进 cparams）：要验证参数真传到了驱动，用假 `dbapi.connect`（monkeypatch 后捕获 kwargs）+ NullPool 一次性引擎，别去内省 dialect。
 - DB 连接类异常的全局 503 处理器在 `app/core/errors.py` 的 `database_error_handler`（OperationalError/InterfaceError → `database_unavailable`），注册在 `app/main.py` 既有处理器区；新增基础设施类异常处理器加同一处，**不要在路由内 try/except**。
 - check_env 的检查函数套路：每个 `check_*` 返回 `CheckResult`，内部 `except Exception` 转 FAIL **不上抛**；BLE001 免死金牌是 `logger.warning(..., exc_info=True)`——**带了 exc_info 就千万别再加 `# noqa: BLE001`**（RUF100 判多余，US-007 实测两次）；测试全用 `plan` 参数注入替身函数名，真实环境验证人工跑一次脚本即可。
+- 归属隔离测试要**两种身份各测一遍**：登录用 `make_tools(db, user_id, None, ctx)`，匿名用 `make_tools(db, None, aid, ctx)`；匿名判据是 `user_id IS NULL AND anonymous_id = ?`——造一行「`user_id` 有值 + `anonymous_id` 等于当前 aid」的数据，匿名者必须查不到（这正是「只判 `user_id IS NULL`」横向越权漏洞的回归点）。
+- `chat_messages` **没有归属列**：测试造数靠**会话标题前缀**，清理只能 `DELETE FROM chat_messages WHERE session_id IN (SELECT id FROM chat_sessions WHERE anonymous_id IN (...) OR title LIKE '前缀%')`，且必须先删 messages 再删 sessions。
+- 断言输出里渲染的时间戳**别写死字符串**（容器时区不定，本地绿 CI 可能红）：用 `re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", out)` 或只断言相对顺序（`out.index(a) < out.index(b)`）。
+- ⚠️ `data/agent_eval/routing.json` 是 **CRLF + 一对象一行、分组间空行**：插入用例别用 Edit 的多行锚点（会混进 LF 造成混用行尾），用脚本按 `\r\n` 拼接、`json.loads` 校验后再写回，改完确认 `raw.count(b'\r\n') == raw.count(b'\n')`。
+- **新工具必须在同一个 story 内补 `routing.json` 用例**（每工具 ≥3 条，且 `expected_tool` 集合 == 工具集合）：留到后续 story 做会让全量 pytest 立刻红（`test_cases_cover_every_tool`）。同理 `tests/test_agent_tools.py` 的 `_ALL_TOOLS` 与工具数断言、`test_make_tools_exposes_*` 也要同 story 更新。
+- 本仓库的 `AGENTS.md` / `AI-COLLABORATION.md` / `PROGRESS.md` / `PROJECT-PLAN.md` **都在 `.gitignore` 里**（本地保留、不入库）：它们可能领先于已提交代码，看到「文档说 vX 但代码没提交」先跑 `git check-ignore -v <file>` 确认，别急着改代码。
+- `chat_sessions.updated_at` 是「最近活跃」时间、**由 API 层显式 bump**（新消息落库时），会话列表排序口径 = `updated_at desc, id desc`（与 `api/agent.py::list_sessions` 一致）；`created_at` 才是创建时间。
+
 
 
 ## Log
 
-### 2026-09-19 · v3.7.1 全量代码质量修复（三路审计 77 条全修，CI 一次通过）
+## 2026-09-27 · US-001 新增 conversation_search 工具（11 → 12 个）
 
-- **P0×2 匿名越权（全轮最重）**：resumes 匿名上传不写 anonymous_id + 归属只判 `user_id IS NULL`；interviews `_get_session` 漏判 anonymous_id——匿名访客可读/删/操作他人数据。统一修法：`deps.owner_clause` / `matches_owner`（匿名 = user_id IS NULL **且** anonymous_id 相等），resumes/analyses/interviews 全部换用，配 2 个横向越权回归测试。教训：**"user_id 为空 = 匿名自己的"这个等式在多租户字段设计下天然不成立**。
-- **限流原子化**：`usage_service.acquire_limit_lock`（pg_advisory_xact_lock(hashtext(key)::bigint)），enforce_daily_limit 与 tools._run_tool_llm 先抢锁再 count——锁随事务释放，串行化 count→执行→记账窗口。
-- **两个自查出来的坑**：①interviews 断开补账第一版用 try/finally 包 delta 循环，**正常完成也触发**（多记 0-token），必须显式 `except GeneratorExit: ... raise`；②executor drain 哨兵在正常路径被主循环消费后，finally 再等一次 = 死等，必须 `sentinel_seen` 标志。
-- **审计报告并非全对**：tasks 接口"无鉴权"（parse/analyze 其实已有）、"v0.5 tag 缺失"、"httpx2 来历不明"三处与事实不符——报告要逐条核实再动手。
-- **CI 失败诊断**：pytest 步骤加 `--junitxml | tee` + 失败行转 `::error::` annotation，公开仓库无 gh 也能从 check-runs annotations 读失败明细。本机 Linux 容器复刻 CI 的网络在 Windows 上不稳（pip 0% CPU 挂死），复刻失败就直接让 CI 当验证环境。
+- **实现**：`tools.py` 新增 `conversation_search(keyword: str, limit: int = 5)`——`ChatMessage JOIN ChatSession`（`content ILIKE %kw%` + `deleted_at IS NULL` + `_owner_filter(ChatSession, ...)`）；空关键词退化为「最近 N 场会话清单」；每行 `【来源：AI 客服】`/`【来源：在线对话】` + 会话标题 + 会话时间 + `_snippet()` 命中片段；`limit` 钳 1~5（新常量 `_TOOL_CONV_LIMIT = 5`）；无命中明确说「没有搜到」并提示换词；**只回灌正文片段，`citations` / `tool_steps` 绝不回灌**。新增 `_conv_head()` 复用头部渲染、`_SESSION_SOURCE_LABELS` 来源映射。
+- **文件**：
+  - `backend/app/services/agent/tools.py`：新工具 + 模块 docstring 工具清单第 12 条 + `kb_search`/`platform_help` docstring 反向点名 `conversation_search`（互相点名是双向的）。
+  - `backend/tests/test_agent_tools.py`：11 条新用例（命中含片段截断 / 两类会话来源标注 / 空关键词清单与排序 / 无命中 / 空库 / 跨匿名 / 跨 user_id / 匿名要求 `user_id IS NULL` / 软删除跳过 / limit 钳制 / 不回灌 citations+tool_steps）+ `_CONV_PREFIX` + `_purge` 补 chat 两表 + `_ALL_TOOLS`/工具数断言/易撞参数对同步。
+  - `data/agent_eval/routing.json`：+3 条 `conversation_search` 用例（33 → 36）。
+- **开工前处理**：工作区已有一批**未提交的 v4.0.1 质量审计修复**（`AGENTS.md` 是 gitignore 的本地文件，故文档写着 v4.0.1 而代码尚未入库）。先单独 `chore:` 提交（`0a0abff`）作为基线，避免 story 提交混入无关改动；基线复核 `pytest -q` 296 passed。
+- **Learnings for future iterations：**
+  - 加工具时 `tools.py` 的**六处同步点**本轮全部踩到，其中「`routing.json` 补 ≥3 条」和「`_ALL_TOOLS`/工具数断言」**必须同 story 做完**，否则全量 pytest 立刻红。
+  - 工具描述测试是静态的（`make_tools(None, None, None, ctx)` 取 `.description`），加工具后三段式与「清单 == 实际返回」两条会自动覆盖新工具，不用另写。
+  - `kb_search` 的「什么时候不用」清单是**路由准确率的主要调节器**，新增易撞工具时要顺手在里面点名（本轮 `conversation_search` 就是靠这句把「找历史对话」从 `platform_help` 手里分出来）。
+  - 工具在 `services/` 层不能 import `app/api/`，所以会话查询 SQL 直接写在 `tools.py` 里，不复制 `api/agent.py` 的 `_owner_filter`（那里是 API 层同名私有函数，改归属规则时两处都要跟）。
+- **验证**：`ruff check .` 通过（未整文件 format）；`pytest -q` **310 passed**（基线 296 + 14）。
+- **未做（留给后续 story，勿在本轮补）**：`docs/Agent工具设计.md` §一/§二/§四 同步 → US-005；`scripts.eval_agent_routing` 真机复跑与报告刷新（需真调模型、烧额度）→ US-006。
 
-
-### 2026-09-19 · v3.7 工程质量门禁 9/9 全部完成（CI 全绿 run 35380624972）
-
-- **7.1~7.3**：文档口径升版（11 工具/260 测试）；ruff format 收 26 文件 + pre-commit；requirements.lock 生成。**httpx2 反转**：它是 langsmith>=0.12 的正式依赖，"来路不明可卸载"的体检结论是错的——卸载后 pip check 立刻报缺依赖，装回并固定进 lock。
-- **7.4 测试隔离（最大单项）**：10 文件全表 DELETE → 专属标记清理；5 处全局 count 断言改归属者口径；agent_api/chat 的 usage_logs 用 **id 快照兜底**（匿名 aid 会被服务端轮换，按 aid 追踪必漏——残留 pair 模式就是轮换证据）。验收=连跑两次全量 260 passed 且所有表零残留。
-- **7.5**：prod compose backend 键去重；nginx 6m/gzip/安全头，413 A/B 实测消失；README 标注单 worker 限定。
-- **7.6/7.7**：推送 main+tags；CI 上线。**CI 三轮修复的教训（全部靠"全保真复刻环境"定位，不要盲改盲推）**：干净 git clone（无 .env/.venv）+ 全新 pg/redis 容器 + 本机 Linux 容器 `--network host` = 与 GitHub runner 等价的复现环境。三个真问题：① 测试硬编码 +08:00 时间戳 → UTC 下日期窗口错位，一律用 `_TZO = datetime.now().astimezone().strftime("%z")` 构造；② 多个测试隐性依赖本地 .env 的 AI 配置（ai_client 前置检查直接拒绝）→ monkeypatch 假配置/补 chat_json 替身；③ **全新库首个注册用户自动提权 admin**（auth.py 引导设计）——admin_kb 的 403 测试在空库必挂，先造占位用户占掉首位。
-- **7.8/7.9**：覆盖率基线 89% 记录入规划；v0.5 tag 核实为探索报告误报（一直在位）。
-- 下次注意：① Git Bash 传给 docker 的路径——`-v` 源用 `cygpath -w`，其余加 `MSYS_NO_PATHCONV=1`，否则挂载静默失效（容器里跑默认配置还以为改坏了）；② 写任何依赖"数据库现状"的断言前先想 CI 空库场景（首用户提权、预置语料不存在、.env 缺失三条都已踩过）；③ push 前先在复刻容器里跑一遍 pytest，2 分钟换一轮 CI 5 分钟 + 无效提交历史。
-
-### 2026-09-18 · 收口止血（v3.6 发布一致性）9/9 story 全部完成
-
-- **US-001 合并**：工作区改动先 stash（prd/progress/规划/vite 四文件在 main 与 ralph 间有差异，脏工作区切不过去），`main` fast-forward 到 6424543，pop 恢复。合并前把 vite 8001 游离 diff 存档到 `archive/2026-09-18-vite-8001-workaround.patch`。合并后全量 pytest 247 passed + ruff 通过 + seed_kb_preset 恢复语料。
-- **US-002 端口**：`git restore frontend/vite.config.ts` 还原 8000（8001 是从未提交的临时改法），实测直连/代理 /health、npm build、浏览器打开首页（后端日志确认浏览器请求走了 5173→8000 代理）。AGENTS.md「首页三个徽标」验证描述是阶段 0 遗留，v3.4 双端改造后已不存在，顺手修正。
-- **US-003/004 gitignore 与产出入库**：`.workbuddy/`、`scripts/ralph/.last-branch` 入忽略；docs/架构全景×2、tasks/ 两份 PRD、ralph.sh/watch.sh/CLAUDE.md/archive/ 提交（0ada22d + 8e35527），工作区首次全净。提交前扫了敏感信息：架构全景 HTML 命中的 "API_KEY" 只是 .env 三行配置的说明文字，无泄露。
-- **US-005 tag**：v3.5→2e45707、v3.6→当时 HEAD（8e35527）。⚠️ 偏差记录：验收「`git show v3.6 --stat` 含 services/agent/tools.py 或 eval_agent_routing.py」**按字面不可满足**——git show 只显示 tag 所指单个提交的 diff，而收口提交只含文档/工具文件；改用等价意图检查 `git diff v3.5 v3.6 --stat`（含 agent/tools.py +882 与 eval_agent_routing.py +252），通过。
-- **US-006 DB 快速失败**：代码三处（config 两个超时配置、session.py engine 参数、errors.py database_error_handler + main.py 注册）+ 6 例单测。真机实测两轮：先发现 --reload 漏检改动（挂起复现，差点误判修复无效），手动重启后 localhost 双栈 10.4s → 改 .env 为 127.0.0.1 后 **5.3s 返回 503**；docker start 后 0.36s 恢复 201。恢复语料后 253 passed。
-- **US-007 自检脚本**：check_env.py 九项检查 + 7 例单测；实测健康环境 9/9 退出码 0，还当场抓出 ollama 闲置后 unhealthy（restart 恢复——「容器闲置假死」的活案例）。ruff 三连修：PLW1510 补 check=False、RUF100 删多余 noqa、测试 raising=False。
-- **US-008 文档**：README 加「启动前自检」小节（含输出示例与退出码说明）；AGENTS.md 启动命令区/已知清单/验证行三处更新；README/AGENTS 无 8001 残留。
-- **US-009 收口**：规划.md 第 1 批 1.1/1.3/1.4/1.5 标 ✅（1.2 推远端按 PRD 明确不做，保持原状）；PROGRESS.md 记 v3.6 段；最终 253 pytest 全绿 + ruff + npm build。
-- 下次注意：① 改后端代码别依赖 --reload；② 全量 pytest 后必跑 seed_kb_preset（本轮两次）；③ 写 PRD 验收标准前先想清楚 git 命令的真实语义（show/diff 的区别），避免字面上不可能满足的条目。
+---

@@ -27,6 +27,7 @@
 9. job_match          拿岗位 JD 与本人简历做匹配分析（工具内调一次 LLM）
 10. question_gen      围绕某主题出一组模拟面试题（先检索平台知识库，再依据语料出题）
 11. answer_review     点评用户贴的一段面试回答（三项打分 + 改进建议）
+12. conversation_search 在当前用户自己的历史对话（在线对话 + AI 客服）里按关键词检索
 """
 
 from dataclasses import dataclass, field
@@ -38,6 +39,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.models.chat import ChatMessage, ChatSession
 from app.models.interview import InterviewSession
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
@@ -77,6 +79,8 @@ logger = get_logger(__name__)
 # 列表类工具单次返回条数上限与片段宽度
 _TOOL_LIST_LIMIT = 5
 _TOOL_SNIPPET_WIDTH = 80
+# 历史对话检索单次返回条数上限（与 _TOOL_LIST_LIMIT 同口径）
+_TOOL_CONV_LIMIT = 5
 # 趋势类工具最多纳入对比的场次数
 _TOOL_TREND_LIMIT = 10
 # 分析报告回灌给 LLM 的体积控制：总长上限 + 每类列表条数（预测面试题单独再收窄）
@@ -99,6 +103,8 @@ _KB_STATUS_LABELS = {
     "failed": "入库失败",
 }
 _KB_SCOPE_LABELS = {"public": "平台预置", "private": "本人上传"}
+# 会话来源的中文名（chat=在线对话 / agent=AI 客服，对应 chat_sessions.session_type）
+_SESSION_SOURCE_LABELS = {"chat": "在线对话", "agent": "AI 客服"}
 _POSITION_DEFAULT = "通用"
 
 # 用量动作的中文名（与前端使用日志的徽章映射保持一致）
@@ -254,6 +260,14 @@ def _snippet(text: str, keyword: str, width: int = _TOOL_SNIPPET_WIDTH) -> str |
     return None
 
 
+def _conv_head(session: ChatSession) -> str:
+    """历史对话每行的头部：来源类型 + 会话标题 + 会话时间（不含任何正文/引用）。"""
+    source = _SESSION_SOURCE_LABELS.get(session.session_type, session.session_type)
+    stamp = session.updated_at or session.created_at
+    when = stamp.strftime("%Y-%m-%d %H:%M") if stamp else "时间未知"
+    return f"【来源：{source}】{session.title}（{when}）"
+
+
 def _score_of(report: dict, key: str) -> float | None:
     """取报告里某个维度的分数，缺失或不是数字返回 None。"""
     value = report.get(key)
@@ -323,7 +337,9 @@ def make_tools(
         什么时候用：用户问**计算机技术知识点**——编程语言、Java/JVM/并发、MySQL/Redis、
         计算机网络、操作系统、RAG/AI 应用开发等的原理、用法、对比、排错；必须先检索再作答。
         什么时候不用：问"本平台怎么用"（怎么上传简历、怎么开始模拟面试、在哪看用量、
-        平台有哪些功能）请用 platform_help；只想看知识库有哪些**文档清单**请用 kb_list；
+        平台有哪些功能）请用 platform_help；要找**用户自己过去的对话记录**
+        （"之前问过你什么""上次聊到哪了"）请用 conversation_search；
+        只想看知识库有哪些**文档清单**请用 kb_list；
         要**出一组模拟面试题**请用 question_gen（本工具负责查答案与讲解，不负责出题）；
         用户贴出**自己的回答**让我点评/打分请用 answer_review——不要因为那段回答里
         出现了技术名词就用本工具去查知识点。
@@ -580,6 +596,74 @@ def make_tools(
         return "\n".join(lines)
 
     @tool
+    def conversation_search(keyword: str, limit: int = 5) -> str:
+        """在当前用户**自己过去的对话**里按关键词检索：在在线对话与 AI 客服的历史消息中
+        找出命中片段，并标注每条来自哪一类会话。
+
+        什么时候用：用户想找回"之前聊过的内容"——"我之前问过你什么""上次聊到哪了"
+        "帮我在历史对话里找找关于某主题的记录""我们之前是不是聊过某个问题"。
+        什么时候不用：问"本平台某个功能怎么用、入口在哪"请用 platform_help；
+        要查计算机技术知识点的答案与讲解请用 kb_search（本工具只在**用户自己的历史对话**
+        里找，不检索知识库、不回答技术问题，也不回灌当时引用的来源与工具过程）。
+        入参 keyword 为要检索的关键词；传空字符串则列出最近几场会话的标题与时间。
+        limit 为返回条数上限，默认 5，最大 5。"""
+        owner = _owner_filter(ChatSession, user_id, anonymous_id)
+        if owner is None:
+            return "当前会话无法识别用户身份，查不到个人对话记录。请提示用户先登录后再提问。"
+
+        try:
+            count = max(1, min(int(limit or _TOOL_CONV_LIMIT), _TOOL_CONV_LIMIT))
+        except (TypeError, ValueError):
+            count = _TOOL_CONV_LIMIT
+
+        keyword_kw = (keyword or "").strip()
+        try:
+            if keyword_kw:
+                # 消息 → 会话 JOIN：既按归属者过滤，又排除软删除会话
+                rows = db.execute(
+                    select(ChatMessage, ChatSession)
+                    .join(ChatSession, ChatMessage.session_id == ChatSession.id)
+                    .where(
+                        owner,
+                        ChatSession.deleted_at.is_(None),
+                        ChatMessage.content.ilike(f"%{keyword_kw}%"),
+                    )
+                    .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+                    .limit(count)
+                ).all()
+            else:
+                sessions = db.scalars(
+                    select(ChatSession)
+                    .where(owner, ChatSession.deleted_at.is_(None))
+                    .order_by(ChatSession.updated_at.desc(), ChatSession.id.desc())
+                    .limit(count)
+                ).all()
+        except Exception:
+            logger.exception("agent conversation_search 查询失败")
+            return "历史对话检索暂时出错，请稍后再试。"
+
+        if keyword_kw:
+            if not rows:
+                return (
+                    f"没有搜到与「{keyword_kw}」相关的历史对话。"
+                    "可提示用户换个关键词再试，或传空关键词列出最近的会话。"
+                )
+            parts = [f"在历史对话中检索到 {len(rows)} 条与「{keyword_kw}」相关的消息："]
+            for message, session in rows:
+                body = message.content or ""
+                # 只取片段：citations / tool_steps 等过程数据一律不回灌
+                snippet = _snippet(body, keyword_kw) or body[:_TOOL_SNIPPET_WIDTH]
+                parts.append(f"- {_conv_head(session)}：{snippet}")
+            return "\n".join(parts)
+
+        if not sessions:
+            return "该用户名下暂无历史对话记录。可提示用户到在线对话或 AI 客服聊几句后再来提问。"
+        parts = [f"该用户最近 {len(sessions)} 场历史对话："]
+        for session in sessions:
+            parts.append(f"- {_conv_head(session)}")
+        return "\n".join(parts)
+
+    @tool
     def usage_stats(days: int = 7) -> str:
         """统计当前用户自己在本平台的用量：近 N 天各动作（解析、分析、面试、问答等）
         的调用次数与 token 消耗合计。
@@ -758,7 +842,8 @@ def make_tools(
         "AI 客服能做什么""这个网站有哪些功能"等**功能怎么操作/入口在哪**的问题。
         什么时候不用：问的是计算机技术知识点（编程语言、框架原理、数据库/网络/算法等）
         请用 kb_search 检索知识库；问"知识库收录了哪些资料、我能问哪些方向"（收录范围、
-        不是功能用法）请用 kb_list；要查本人**真实数据**（简历、分析、面试、用量）
+        不是功能用法）请用 kb_list；要找本人**过去的对话记录**（"之前问过你什么""上次聊到哪了"）
+        请用 conversation_search；要查本人**真实数据**（简历、分析、面试、用量）
         请用 resume_lookup / analysis_read / interview_history / usage_stats。
         入参 topic 为想了解的功能名或一句口语化问题；传空字符串返回平台功能总览。"""
         return _platform_reply(topic)
@@ -873,6 +958,7 @@ def make_tools(
         resume_lookup,
         interview_history,
         score_trend,
+        conversation_search,
         usage_stats,
         analysis_read,
         kb_list,

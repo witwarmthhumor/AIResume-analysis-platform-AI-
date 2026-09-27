@@ -15,6 +15,10 @@
   {"question": "我这几场模拟面试的分数有没有提升", "expected_tool": "score_trend"},
   {"question": "跟前几次比，我这次面试表现变好了吗", "expected_tool": "score_trend"},
 
+  {"question": "我之前问过你 Redis 缓存穿透怎么解决，帮我翻一下那段历史对话", "expected_tool": "conversation_search"},
+  {"question": "上次我们聊到哪了，把最近的对话记录列给我看看", "expected_tool": "conversation_search"},
+  {"question": "帮我在历史对话里找找关于 MySQL 索引优化的讨论", "expected_tool": "conversation_search"},
+
   {"question": "我最近一周用了多少次 AI 分析", "expected_tool": "usage_stats"},
   {"question": "我这个月在平台上消耗了多少 token", "expected_tool": "usage_stats"},
   {"question": "我最近平台用得多不多，帮我统计一下用量", "expected_tool": "usage_stats"},

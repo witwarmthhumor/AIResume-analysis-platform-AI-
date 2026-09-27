@@ -11,6 +11,7 @@ kb_list / platform_help / job_match / question_gen / answer_review。
 知识库的 scope=public 测试文档两者皆空（与预置语料同形），只能按标题前缀清理。
 """
 
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -20,13 +21,14 @@ from sqlalchemy import select, text
 from app.core.config import settings
 from app.db.session import SessionLocal, engine
 from app.models.analysis import Analysis
+from app.models.chat import ChatMessage, ChatSession
 from app.models.interview import InterviewSession
 from app.models.kb import KBChunk, KBDocument
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
 from app.schemas.agent import AnswerReviewReport, JobMatchReport, QuestionGenReport
 from app.services.agent import ToolContext, make_tools
-from app.services.agent.tools import _TOOL_ANSWER_CHARS
+from app.services.agent.tools import _TOOL_ANSWER_CHARS, _TOOL_CONV_LIMIT
 from app.services.agent_capabilities import (
     JD_MAX_CHARS as _TOOL_JD_CHARS,
 )
@@ -51,6 +53,8 @@ _OWNER = "agent_tool_test_owner"
 _OTHER = "agent_tool_test_other"
 # 测试知识库文档的标题前缀：public 文档归属为空，只能靠前缀把自己的数据清掉
 _KB_PREFIX = "agentkb_"
+# 测试历史会话的标题前缀（chat_messages 无归属列，只能经 session_id 子查询清理）
+_CONV_PREFIX = "agentconv_"
 
 _TABLES = ("analyses", "resumes", "interview_sessions", "usage_logs")
 
@@ -73,6 +77,18 @@ def _purge() -> None:
         )
         for statement in (chunk_delete, doc_delete):
             conn.execute(text(statement), params)
+        # 历史对话：chat_messages 无归属列，只能经 session_id 子查询按归属者/标题前缀清理
+        conv_params = {"a": _OWNER, "b": _OTHER, "p": f"{_CONV_PREFIX}%"}
+        message_delete = (
+            "DELETE FROM chat_messages WHERE session_id IN"
+            " (SELECT id FROM chat_sessions"
+            " WHERE anonymous_id IN (:a, :b) OR title LIKE :p)"
+        )
+        session_delete = (
+            "DELETE FROM chat_sessions WHERE anonymous_id IN (:a, :b) OR title LIKE :p"
+        )
+        for statement in (message_delete, session_delete):
+            conn.execute(text(statement), conv_params)
 
 
 @pytest.fixture
@@ -116,13 +132,14 @@ def _add_resume(db, anonymous_id: str, filename: str, raw_text: str) -> Resume:
 # —— 工具集装配 ——
 
 
-def test_make_tools_exposes_eleven_tools(db_session) -> None:
+def test_make_tools_exposes_twelve_tools(db_session) -> None:
     tools = make_tools(db_session, None, _OWNER, ToolContext())
     assert [t.name for t in tools] == [
         "kb_search",
         "resume_lookup",
         "interview_history",
         "score_trend",
+        "conversation_search",
         "usage_stats",
         "analysis_read",
         "kb_list",
@@ -149,6 +166,7 @@ def test_personal_tools_reject_unknown_identity(db_session) -> None:
     assert "无法识别用户身份" in call("score_trend", {"limit": 5})
     assert "无法识别用户身份" in call("usage_stats", {"days": 7})
     assert "无法识别用户身份" in call("analysis_read", {"resume_hint": ""})
+    assert "无法识别用户身份" in call("conversation_search", {"keyword": "缓存"})
     assert "无法识别用户身份" in call("job_match", {"jd_text": "招 Java 后端"})
 
 
@@ -377,6 +395,240 @@ def test_score_trend_isolates_other_owner(db_session) -> None:
 
     assert "暂无已完成的模拟面试" in out
     assert "整体表现 9" not in out
+
+
+# —— conversation_search ——
+
+
+def _add_chat_session(
+    db,
+    anonymous_id: str | None,
+    title: str,
+    session_type: str = "agent",
+    updated_at: datetime | None = None,
+) -> ChatSession:
+    """造一场历史会话；updated_at 显式写，避免同事务同戳导致排序不确定。"""
+    session = ChatSession(
+        anonymous_id=anonymous_id,
+        title=title,
+        session_type=session_type,
+        updated_at=updated_at or datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    db.add(session)
+    db.commit()
+    return session
+
+
+def _add_chat_message(
+    db,
+    session_id: int,
+    content: str,
+    role: str = "user",
+    created_at: datetime | None = None,
+    **kwargs,
+) -> ChatMessage:
+    message = ChatMessage(
+        session_id=session_id,
+        role=role,
+        content=content,
+        created_at=created_at or datetime(2026, 1, 1, tzinfo=timezone.utc),
+        **kwargs,
+    )
+    db.add(message)
+    db.commit()
+    return message
+
+
+def test_conversation_search_finds_matching_messages(db_session) -> None:
+    db = db_session
+    session = _add_chat_session(db, _OWNER, f"{_CONV_PREFIX}缓存问题", "agent")
+    # 关键词在最前、尾巴埋标记：证明回灌的是片段而不是整条正文
+    _add_chat_message(
+        db,
+        session.id,
+        "缓存穿透" + "补充说明" * 60 + "TAIL_MARKER",
+        created_at=datetime(2026, 1, 2, 3, 4, tzinfo=timezone.utc),
+    )
+
+    out = _tool(db, "conversation_search").invoke({"keyword": "缓存穿透"})
+
+    assert "检索到 1 条" in out
+    assert "缓存穿透" in out
+    assert f"{_CONV_PREFIX}缓存问题" in out
+    assert "【来源：AI 客服】" in out
+    assert "TAIL_MARKER" not in out
+
+
+def test_conversation_search_labels_both_session_types(db_session) -> None:
+    """在线对话与 AI 客服两类会话都要搜到，且每行标注来源。"""
+    db = db_session
+    chat = _add_chat_session(db, _OWNER, f"{_CONV_PREFIX}在线对话", "chat")
+    agent = _add_chat_session(db, _OWNER, f"{_CONV_PREFIX}客服对话", "agent")
+    _add_chat_message(db, chat.id, "聊到了聚簇索引优化")
+    _add_chat_message(db, agent.id, "聚簇索引和二级索引的区别")
+
+    out = _tool(db, "conversation_search").invoke({"keyword": "聚簇索引"})
+
+    assert "【来源：在线对话】" in out
+    assert "【来源：AI 客服】" in out
+    assert f"{_CONV_PREFIX}在线对话" in out and f"{_CONV_PREFIX}客服对话" in out
+
+
+def test_conversation_search_empty_keyword_lists_recent_sessions(db_session) -> None:
+    db = db_session
+    _add_chat_session(
+        db,
+        _OWNER,
+        f"{_CONV_PREFIX}老对话",
+        "chat",
+        updated_at=datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc),
+    )
+    _add_chat_session(
+        db,
+        _OWNER,
+        f"{_CONV_PREFIX}新对话",
+        "agent",
+        updated_at=datetime(2026, 1, 3, 10, 0, tzinfo=timezone.utc),
+    )
+
+    out = _tool(db, "conversation_search").invoke({"keyword": ""})
+
+    assert "【来源：AI 客服】" in out and "【来源：在线对话】" in out
+    # 会话时间被渲染出来（不比对具体时刻，避开容器时区差异）
+    assert re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", out)
+    # 最近活跃的会话排在前面
+    assert out.index(f"{_CONV_PREFIX}新对话") < out.index(f"{_CONV_PREFIX}老对话")
+
+
+def test_conversation_search_reports_no_hit(db_session) -> None:
+    db = db_session
+    session = _add_chat_session(db, _OWNER, f"{_CONV_PREFIX}无关对话")
+    _add_chat_message(db, session.id, "今天天气不错，聊聊别的吧")
+
+    out = _tool(db, "conversation_search").invoke({"keyword": "缓存穿透"})
+
+    assert "没有搜到" in out
+    assert f"{_CONV_PREFIX}无关对话" not in out
+
+
+def test_conversation_search_empty_for_new_owner(db_session) -> None:
+    out = _tool(db_session, "conversation_search").invoke({"keyword": ""})
+    assert "暂无历史对话记录" in out
+
+
+def test_conversation_search_isolates_other_anonymous(db_session) -> None:
+    """他人（同为空 user_id 的另一 anonymous_id）的会话查不到，也不泄露存在性。"""
+    db = db_session
+    session = _add_chat_session(db, _OTHER, f"{_CONV_PREFIX}别人的对话")
+    _add_chat_message(db, session.id, "缓存穿透我用布隆过滤器挡一层")
+
+    out = _tool(db, "conversation_search").invoke({"keyword": "缓存穿透"})
+
+    assert "没有搜到" in out
+    assert f"{_CONV_PREFIX}别人的对话" not in out
+    assert "布隆过滤器" not in out
+
+
+def test_conversation_search_isolates_other_user_id(db_session) -> None:
+    """登录用户按 user_id 隔离：匿名会话（user_id 为空）不该被看到。"""
+    db = db_session
+    session = _add_chat_session(db, _OWNER, f"{_CONV_PREFIX}匿名会话")
+    _add_chat_message(db, session.id, "缓存穿透我用布隆过滤器挡一层")
+
+    tools = make_tools(db, 424242, None, ToolContext())
+    out = next(t for t in tools if t.name == "conversation_search").invoke(
+        {"keyword": "缓存穿透"}
+    )
+
+    assert "没有搜到" in out
+    assert f"{_CONV_PREFIX}匿名会话" not in out
+
+
+def test_conversation_search_anonymous_requires_null_user_id(db_session) -> None:
+    """匿名归属要求 user_id IS NULL：同一 anonymous_id 但已挂在用户名下的会话不可见。"""
+    db = db_session
+    session = ChatSession(
+        user_id=424242,
+        anonymous_id=_OWNER,
+        title=f"{_CONV_PREFIX}已登录会话",
+        session_type="agent",
+        updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    db.add(session)
+    db.commit()
+    _add_chat_message(db, session.id, "缓存穿透我用布隆过滤器挡一层")
+
+    out = _tool(db, "conversation_search").invoke({"keyword": "缓存穿透"})
+
+    assert "没有搜到" in out
+
+
+def test_conversation_search_skips_deleted_sessions(db_session) -> None:
+    """软删除的会话既不出现在命中里，也不出现在空关键词清单里。"""
+    db = db_session
+    session = _add_chat_session(db, _OWNER, f"{_CONV_PREFIX}已删除对话")
+    _add_chat_message(db, session.id, "缓存穿透的讨论")
+    session.deleted_at = datetime(2026, 1, 5, tzinfo=timezone.utc)
+    db.commit()
+
+    assert "没有搜到" in _tool(db, "conversation_search").invoke(
+        {"keyword": "缓存穿透"}
+    )
+    assert "暂无历史对话记录" in _tool(db, "conversation_search").invoke({"keyword": ""})
+
+
+def test_conversation_search_clamps_limit(db_session) -> None:
+    """limit 钳到 1~5；非正数回落默认 5。"""
+    db = db_session
+    for index in range(1, 8):
+        session = _add_chat_session(db, _OWNER, f"{_CONV_PREFIX}对话{index}")
+        _add_chat_message(
+            db,
+            session.id,
+            f"关于缓存穿透的第 {index} 条记录",
+            created_at=datetime(2026, 1, index, tzinfo=timezone.utc),
+        )
+
+    assert (
+        _tool(db, "conversation_search")
+        .invoke({"keyword": "缓存穿透", "limit": 999})
+        .count("【来源：")
+        == _TOOL_CONV_LIMIT
+    )
+    assert (
+        _tool(db, "conversation_search")
+        .invoke({"keyword": "缓存穿透", "limit": 1})
+        .count("【来源：")
+        == 1
+    )
+    assert (
+        _tool(db, "conversation_search")
+        .invoke({"keyword": "缓存穿透", "limit": 0})
+        .count("【来源：")
+        == _TOOL_CONV_LIMIT
+    )
+
+
+def test_conversation_search_never_returns_citations_or_tool_steps(
+    db_session,
+) -> None:
+    """只回灌消息正文片段：citations / tool_steps 一律不进上下文。"""
+    db = db_session
+    session = _add_chat_session(db, _OWNER, f"{_CONV_PREFIX}带来源对话")
+    _add_chat_message(
+        db,
+        session.id,
+        "MySQL 索引优化的要点是避免在列上做运算",
+        role="assistant",
+        citations={"secret": "CITATION_SENTINEL"},
+        tool_steps=[{"secret": "STEP_SENTINEL"}],
+    )
+
+    out = _tool(db, "conversation_search").invoke({"keyword": "索引优化"})
+
+    assert "MySQL 索引优化" in out
+    assert "CITATION_SENTINEL" not in out
+    assert "STEP_SENTINEL" not in out
 
 
 # —— usage_stats ——
@@ -784,13 +1036,14 @@ def test_kb_search_and_platform_help_are_mutually_exclusive(db_session) -> None:
     assert "kb_search" in tools["platform_help"].description
 
 
-# —— 工具描述互斥性（11 个工具统一口径）——
+# —— 工具描述互斥性（12 个工具统一口径）——
 
 _ALL_TOOLS = (
     "kb_search",
     "resume_lookup",
     "interview_history",
     "score_trend",
+    "conversation_search",
     "usage_stats",
     "analysis_read",
     "kb_list",
@@ -829,6 +1082,8 @@ def test_tool_description_has_three_parts(name: str) -> None:
         ("answer_review", "question_gen"),
         ("kb_search", "answer_review"),
         ("answer_review", "kb_search"),
+        ("platform_help", "conversation_search"),
+        ("conversation_search", "platform_help"),
     ],
 )
 def test_confusable_tools_name_each_other(name: str, other: str) -> None:
