@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="Ss92KS6ShaHbhJnsCXPxcc">
+<head data-page-node-id="AyzPZ0BF4l2uz1Q3CMupQb">
+<meta charset="UTF-8" data-page-node-id="sJXprHo57XB445jotT8Gis">
+<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="xDfSIfcmmEG4V5CMDClA5O">
+<title>学生就业帮助系统（霍格沃茨就业帮助）· 重构后工程化全景</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --line: #e6e8ec;
+    --text: #2c3038; --muted: #767c88; --faint: #9aa0ab;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 24px 64px; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size: 13px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+  h1 { font-size: 21px; font-weight: 600; text-align: center; margin: 0 0 8px; }
+  .sub { font-size: 12px; color: var(--faint); text-align: center; margin: 0 0 30px; }
+
+  .layer { border-radius: 12px; padding: 16px 18px 18px; margin-bottom: 12px; border: 1px solid; }
+  .lhead { display: flex; align-items: center; gap: 9px; margin-bottom: 13px; flex-wrap: wrap; }
+  .badge {
+    flex: none; width: 22px; height: 22px; border-radius: 50%;
+    background: #fff; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600;
+  }
+  .lhead h2 { font-size: 14.5px; font-weight: 600; margin: 0; }
+  .ltag { font-size: 11.5px; color: var(--muted); }
+
+  .grid { display: grid; gap: 10px; }
+  .g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .g5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 12px; min-width: 0;
+  }
+  .card h3 { font-size: 12.5px; font-weight: 600; margin: 0 0 5px; color: #23272e; }
+  .card p { font-size: 11.5px; color: var(--muted); margin: 0; line-height: 1.65; }
+  .card code {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 11px; color: #4a5058; background: #f2f3f5;
+    padding: 1px 4px; border-radius: 3px;
+  }
+  .card .frozen { display: inline-block; font-size: 10px; padding: 0 5px; border-radius: 3px;
+    background: #eef0f3; color: #5f6470; margin-left: 5px; vertical-align: 1px; }
+
+  .notes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+  .note {
+    font-size: 11px; padding: 6px 10px; border-radius: 6px;
+    border-left: 3px solid; background: #fff; line-height: 1.55;
+  }
+  .note.ok { background: #e9f7ee; border-color: #34a853; color: #1f7a45; }
+  .note.warn { background: #fdf5e2; border-color: #e0a500; color: #8a6410; }
+  .note.info { background: #eaf2fc; border-color: #4a86c8; color: #2c6ea8; }
+  .note b { font-weight: 600; }
+
+  .strip {
+    margin-top: 11px; border-radius: 8px; padding: 10px 12px;
+    font-size: 11px; line-height: 1.7; border: 1px solid;
+  }
+  .strip.hl { background: #fdf0e9; border-color: #f4dccd; color: #8a4a22; }
+  .strip b { font-weight: 600; }
+
+  .arrow {
+    width: 0; height: 0; margin: 5px auto 7px;
+    border-left: 6px solid transparent; border-right: 6px solid transparent;
+    border-top: 8px solid #c6cbd3;
+  }
+
+  .l1 { background: #eaf3fb; border-color: #d2e5f5; }
+  .l1 .badge { color: #2c6ea8; }
+  .l2 { background: #eaf7ef; border-color: #d2e9dc; }
+  .l2 .badge { color: #2f7a52; }
+  .l3 { background: #fdf7e6; border-color: #f0e4c4; }
+  .l3 .badge { color: #8a6410; }
+  .l4 { background: #f1eefb; border-color: #ddd7f3; }
+  .l4 .badge { color: #5b4fa8; }
+  .l5 { background: #f2f3f5; border-color: #dfe1e5; }
+  .l5 .badge { color: #4a5058; }
+  .l6 { background: #fdf0e9; border-color: #f4dccd; }
+  .l6 .badge { color: #a1542a; }
+
+  @media (max-width: 900px) {
+    .g3, .g4, .g5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 620px) {
+    .g2, .g3, .g4, .g5 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body data-page-node-id="ehlB0ULuqjmM8LMUBOmfZz">
+<div class="wrap" data-page-node-id="Wgy2V7R0DhQBzmMQIPHzxh">
+
+  <h1 data-page-node-id="PJBN96LDiQxhAuygAsEfUH">学生就业帮助系统（霍格沃茨就业帮助）· 重构后工程化全景</h1>
+  <p class="sub" data-page-node-id="FmJsCZbgKEffvRhn8LG3QA">依据《重构实施规划》（2026-09-27 待评审版）绘制 · 目标态：FastAPI 严格分层 + Vue3 SPA + JWT(HttpOnly) + PostgreSQL 16 · 管理端功能与权限口径冻结 · 黄色标注 = 待拍板 / 待选型</p>
+
+  <!-- ① -->
+  <section class="layer l1" data-page-node-id="PkUb5VccCaXwYHbTqDRnpE">
+    <div class="lhead" data-page-node-id="cpSQgnvvu2gY8PcBngKet0">
+      <span class="badge" data-page-node-id="B76kayyEVL1ZTl7f1CHKvi">1</span>
+      <h2 data-page-node-id="XOTnf8u3GIHPIwc9BEA9Zd">用户与前端</h2>
+      <span class="ltag" data-page-node-id="1k4msG3gHVq9fqceGIvoog">Vue 3 + Vite 5 · vue-router 4 全局守卫 · Pinia 仅 auth store · 页面禁止裸 fetch，一律走 api/ 封装</span>
+    </div>
+    <div class="grid g3" data-page-node-id="vpUXRCvyZcdc5IOYxjt6Vm">
+      <div class="card" data-page-node-id="wpS5VZhlmWimcqeSohGWqL">
+        <h3 data-page-node-id="bOTOSkcfljz32OXyrsRtmR">认证页 LoginView</h3>
+        <p data-page-node-id="nJ7GaoJrKtNvKRUtKOOuAl">登录 / 注册 / 改密三 Tab；口令强度 ≥8 且含字母数字，前端提示 + 后端再校验；「手机号登录」文案摘除（未实现）</p>
+      </div>
+      <div class="card" data-page-node-id="eihUGnLZs392xdHAvm2WAJ">
+        <h3 data-page-node-id="J1YEgTVaUqlHjyAxz6OSIb">主界面 HomeView</h3>
+        <p data-page-node-id="hifdjQsUTmCSekU63cLP8s">导航 5 项（简历评估 / 录音分析 / 面试题生成 / 模拟面试 / 返校列车）顺序与命名不变，按角色渲染；头像与历史入口保留</p>
+      </div>
+      <div class="card" data-page-node-id="09nvkLrGC2WomNTK2pIUv1">
+        <h3 data-page-node-id="CIG7lIGIX24J1S4UEiH2Yt">录音分析 AudioAnalysisView</h3>
+        <p data-page-node-id="ZftrzniGhBjGqzYyMD7BNM">三 Tab（录音转文本 / 角色审核 / 面试审核）+ 拖拽上传 + 「MP3/WAV/M4A，&lt;500MB，≤60分钟」提示 + 历史记录</p>
+      </div>
+      <div class="card" data-page-node-id="HfoYadaGRwRM9BkQZiSNMc">
+        <h3 data-page-node-id="U0Vro0Feb9EfrHfxmLtGPA">面试题生成 QuestionGenView</h3>
+        <p data-page-node-id="TFB0EwD6g8FLsSqWLqaNXW">拖拽上传简历（PDF/Word，&lt;10MB）· 生成进度条 · 题库详情按题目列表展示 · 历史可再次打开</p>
+      </div>
+      <div class="card" data-page-node-id="ksCQBG2CohreBq8lsRBUjl">
+        <h3 data-page-node-id="ZUX2AZUpcZFWvxenQFndC3">模拟面试 MockInterviewView</h3>
+        <p data-page-node-id="i7vnqm5srLpzcOAqNBOH2O">双下拉（简历 + 题库，题库显示「127道题」）·「确认加载」后才能开聊 · 逐条流式问答 · 刷新恢复 · 清空与历史</p>
+      </div>
+      <div class="card" data-page-node-id="EuYXRKuN7oiFuRVGI6GnzZ">
+        <h3 data-page-node-id="yozmhHWoQYqTCE7nKWejtP">管理端三页<span class="frozen" data-page-node-id="RuCvIS1go8ovXtcD1Zw2VP">冻结</span></h3>
+        <p data-page-node-id="u0gDyQK8mPZS75fAwq7T32">使用日志 / 数据看板 / 语料库管理 —— 交互与字段保持原状，只替换底层实现；普通用户访问 403</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="arrow" data-page-node-id="BvBNywgzD1Ed64B2d8ABhc"></div>
+
+  <!-- ② -->
+  <section class="layer l2" data-page-node-id="EDsDdj0AMZjOqVzL8AeLHc">
+    <div class="lhead" data-page-node-id="zmFeQhjZmlAxLaPEyB3gCL">
+      <span class="badge" data-page-node-id="0yqsb0ARxoCTB6sbubETV4">2</span>
+      <h2 data-page-node-id="OrMyM4tFb8mn0GfPUJpqOW">入口与鉴权（双闸门 + 一条白名单）</h2>
+      <span class="ltag" data-page-node-id="PM63jYXcEzu8ENiXJ0fTkR">守卫只是体验层，后端全局依赖才是安全边界</span>
+    </div>
+    <div class="grid g2" data-page-node-id="bjQa1lxopS59wlYk52hVGP">
+      <div class="card" data-page-node-id="YVaqfw6hmn1HVHa0WqrhxC">
+        <h3 data-page-node-id="QGIPBLexyBA0ymftYp5BAP">闸门 1 · 后端全局依赖（权威）</h3>
+        <p data-page-node-id="vOW4EQnXDDlJJM2bhBTRrA">所有 <code data-page-node-id="ipCNFpuZ7X9R3llcyXeGGW">/api/**</code> 默认挂在已认证依赖下；白名单仅 3 个：<code data-page-node-id="tIIzSPiAKifKdBEmst43wO">POST /api/auth/register</code>、<code data-page-node-id="dui8kxPBXfkFHNS9YjP3CZ">POST /api/auth/login</code>、<code data-page-node-id="gelEPwg4QSDUXznpjTDIwr">GET /health</code>；未通过 → 401</p>
+      </div>
+      <div class="card" data-page-node-id="dG3uR8p57wXqjygv2cQil5">
+        <h3 data-page-node-id="TloJ7hwLyoSu6ExiJNMYNI">闸门 2 · 前端路由守卫（体验）</h3>
+        <p data-page-node-id="F5HqdBUD9EjoRKqCb6lAdW"><code data-page-node-id="Y1jwG4dMEaMveFzuym6fGP">router.beforeEach</code>：无会话 → <code data-page-node-id="YHDoxI12gP0XivkZBiHoul">/login?redirect=</code>；<code data-page-node-id="CVrTxBhDABBt5v3acgGEPK">meta.requiresAdmin</code> 非管理员 → 403 页；http.js 统一拦截 401 清状态跳登录</p>
+      </div>
+      <div class="card" data-page-node-id="prMGHFinW0bPwX3Q5g2Clf">
+        <h3 data-page-node-id="yOD8p3prCPpqv1GZHsGcQ7">JWT + argon2id</h3>
+        <p data-page-node-id="LJPHBLMQq8OKqn0GyT4u6F">HS256 · HttpOnly + SameSite=Lax Cookie（生产加 Secure）· 24h · claims 含 <code data-page-node-id="BvM1WB18DQ54tFX1Kff8yL">ver(token_version)</code> —— 改密递增，旧 Token 全端失效；<code data-page-node-id="XCBb0ngT9qXtg1XKpEwn3X">jwt_secret_key</code> 为默认值时拒绝启动</p>
+      </div>
+      <div class="card" data-page-node-id="RPGEXMRkXOFa5slqQE4dzQ">
+        <h3 data-page-node-id="eCdgDat0ZpjwEHH3WRBPoC">授权与归属</h3>
+        <p data-page-node-id="PVAYegvUc5jKEfbc0S6fB7"><code data-page-node-id="fIcEQASDVXEgqDn7gGO1Mb">require_admin</code> 统一挂管理端接口（403）；归属过滤收敛到一个 helper，登录态按 <code data-page-node-id="LooXKdABuSvoLOuCwg6f6D">user_id</code> 过滤，跨用户一律 <b data-page-node-id="p4t398Rp5mBkx4lAHGYYOv">404</b>（不泄露存在性）</p>
+      </div>
+      <div class="card" data-page-node-id="GVoiohGdFquZCIRKpZugSp">
+        <h3 data-page-node-id="Ob4qhDupHT4hVXNoafTXro">admin/123456 保留策略</h3>
+        <p data-page-node-id="YmPilMgsJF77i23s3UFBpS">迁移 <code data-page-node-id="uLi2We2E1Yz4dL7Rez7ulf">0003</code> 一次性重哈希为 argon2id；登录失败按 <code data-page-node-id="hDGjYGvqnwEnaGwkKAILZI">username+IP</code> 锁定（5 次 / 15 分钟）+ 审计日志；首登强制改密开关<b data-page-node-id="t7CIgJeBr0FGdWWD4nUyXe">默认关闭</b></p>
+      </div>
+      <div class="card" data-page-node-id="ILdrNR0lH3BaU87wh7UMHh">
+        <h3 data-page-node-id="aIrnqplRDXfXsxBzGFqK7w">物理隔离</h3>
+        <p data-page-node-id="QMSkTldUil6VntvyBE38nW">旧多页 <code data-page-node-id="QHGjlz9PC8XyIuA7P7DfNr">.html</code> 一律移出静态托管目录，归档 <code data-page-node-id="WsvuWiKvgrhjZaZHOD3Is3">legacy/</code>（只读基准）；静态站点只暴露 SPA 构建产物，无业务数据</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="arrow" data-page-node-id="sS558oynJ8VXigFo0kXJIu"></div>
+
+  <!-- ③ -->
+  <section class="layer l3" data-page-node-id="QL4wDKSKAlzd5eGsnZDIWM">
+    <div class="lhead" data-page-node-id="PXnl31aSCzS3CkdDXDjstt">
+      <span class="badge" data-page-node-id="QuGBsBQ3hUEyOBeqlcJqQY">3</span>
+      <h2 data-page-node-id="kXkd5FqIPiSypRJEo5zhe1">业务主链路（四大模块 · 业务保真）</h2>
+      <span class="ltag" data-page-node-id="zTRB2Bi2Oljm9XggflRMsx">api/（薄）→ services/（厚）→ repositories/ → models/；事务边界在 service；外部输入先过 Pydantic</span>
+    </div>
+    <div class="grid g4" data-page-node-id="CdlBmWMyFNBR6HsTHwgCz8">
+      <div class="card" data-page-node-id="ren0B9PZ2JEAfzALtmzJZe">
+        <h3 data-page-node-id="s6Au24J1XaHkdj8Mm8xeHr">简历评估</h3>
+        <p data-page-node-id="IYkJyL3trkiT6kqMCwi1kt">上传三重校验（扩展名 + MIME + 文件头，≤10MB）→ pypdf / python-docx 解析 → AI 分析报告；文件名随机化防路径穿越</p>
+      </div>
+      <div class="card" data-page-node-id="BXoc7XGWtJjdvQQuGMJcJU">
+        <h3 data-page-node-id="AnKz2K4TeBePWZpWDlPcNP">录音分析</h3>
+        <p data-page-node-id="cf1BrZtwiUAHzdEEHfjCU3">一个上传入口 + 三种分析目的 —— 数据模型用 <code data-page-node-id="9HyQehs2RwjMQhBxFyY3yW">audio_jobs.purpose</code> 区分（不建三张表）；ffmpeg 统一转 16k 单声道后送转写；异步长任务、进度可见、可重试</p>
+      </div>
+      <div class="card" data-page-node-id="yoStJMsAdSoH60dwGSE6gq">
+        <h3 data-page-node-id="apU2CX1m1kcdFXvzqVJAr1">面试题生成</h3>
+        <p data-page-node-id="WE1ktig64lOXZYnOYwu5Vr">简历文件 → 解析 → 定制化题库（<code data-page-node-id="9wbipZcIMSxExeFle8Zu27">question_banks</code>）；生成为分钟级长任务；历史记录可再次打开</p>
+      </div>
+      <div class="card" data-page-node-id="1lyhWMtCxKxtSyqj3R0BVN">
+        <h3 data-page-node-id="bBSLrjCsnTVc1hKLTW4QhM">模拟面试</h3>
+        <p data-page-node-id="cqI9BPo7kfPnHpLjpuBWdB">会话由 <code data-page-node-id="CT03PHqmJOmb4eefvscii5">(resume_id, bank_id)</code> 二元组初始化；逐条消息落库（刷新可恢复）；「选完两者才能加载」交互不变；题库下拉显示题目数量</p>
+      </div>
+    </div>
+    <div class="notes" data-page-node-id="nLZ6YAE5cCrPMv4OOvm2PX">
+      <span class="note info" data-page-node-id="EbCN59pQEc4It0SqK8xJcR"><b data-page-node-id="sOBd71pTttL5DIq9wnIdKK">共用支撑</b>：<code data-page-node-id="vnhsIJPAwV0Fi2DTM7CHQs">resumes</code>（简历文件出入库）· <code data-page-node-id="smZ9fGfzAPQnsP1mNulsFw">usage_logs</code>（每人每日调用限额）· <code data-page-node-id="UMaXkl7WCH3MzH1wWKvXFx">audit_logs</code>（管理端使用日志的数据源）</span>
+      <span class="note warn" data-page-node-id="sXLcakOtQYF8lZko0CKaYj"><b data-page-node-id="kW7eZYQHMIET3HRGxVUKye">返校列车</b>：侧栏第 5 项，非四大模块 —— 默认保留为占位菜单项（进「建设中」页），待拍板 §10-1</span>
+    </div>
+  </section>
+
+  <div class="arrow" data-page-node-id="3j7M2nGZCWUXswR92QcBZd"></div>
+
+  <!-- ④ -->
+  <section class="layer l4" data-page-node-id="74ov8fwHKoLtJDlqOEwDgf">
+    <div class="lhead" data-page-node-id="WDMX6XnOzuX6rl9QZFokNB">
+      <span class="badge" data-page-node-id="MJpEFvjD53V6abbBhoujZT">4</span>
+      <h2 data-page-node-id="tW4usBdyaAbGJed18DdQZR">异步任务层（Celery + Redis）</h2>
+      <span class="ltag" data-page-node-id="bbQJ5HCvf9pxujifVWFJpM">录音转写、题库生成是分钟级任务，不能阻塞请求</span>
+    </div>
+    <div class="grid g3" data-page-node-id="qpsvHunDTxssbnOBKdGzdC">
+      <div class="card" data-page-node-id="tssqUzrmFli6SD4eHIOiAM">
+        <h3 data-page-node-id="N5l7DOZ9HxNj35EiXqOnxI">worker/tasks/audio_transcribe.py</h3>
+        <p data-page-node-id="YuBarvM5ceFWxIs6yPE7J4">转写长任务 · 独立队列 · 进度可见 · 失败可重试（<code data-page-node-id="ErnD33joOPAbtLBpAmZmKC">POST /api/audio/jobs/{id}/retry</code>）</p>
+      </div>
+      <div class="card" data-page-node-id="ABobpFL3G0C9wXckK5t2sY">
+        <h3 data-page-node-id="kZRpJAESrsYoCkGOg93FZH">worker/tasks/gen_questions.py</h3>
+        <p data-page-node-id="Ym0IWDCi0qg05Zaca1Be46">简历 → 题库生成任务；生成结果 JSONB 入库</p>
+      </div>
+      <div class="card" data-page-node-id="qYs0Dt6vP9rHjgUhJn0TlC">
+        <h3 data-page-node-id="Mm3ojh5WLlLI2rtMpcBo31">交互模式</h3>
+        <p data-page-node-id="edHu2pyDm4zhwFvtULwvjo">上传即建任务（立即返回 job id）+ 前端轮询进度；轻任务走 FastAPI <code data-page-node-id="kFlAC3qB8rK09cJ77YDuZ8">BackgroundTasks</code>；ffmpeg 为容器内系统依赖</p>
+      </div>
+    </div>
+    <div class="notes" data-page-node-id="fSgmdNDiObmDkDCMTTEF8p">
+      <span class="note warn" data-page-node-id="av1ZCqzvG22xfdSGdcDNvk"><b data-page-node-id="RDoLtgk0RcT8GUQ8ZpmJwi">待选型（规划 P0 缺口）</b>：转写引擎 —— 本地 whisper（CPU 转写 60 分钟音频约 1~2 小时）vs 云 API（密钥 / 计费 / 延迟）—— T-10 开工前必须定案，否则无法估时</span>
+    </div>
+  </section>
+
+  <div class="arrow" data-page-node-id="h9PglfV03vo2AMb6G2IeLG"></div>
+
+  <!-- ⑤ -->
+  <section class="layer l5" data-page-node-id="vZ6yC0YzkXHSBFLBqBWGA9">
+    <div class="lhead" data-page-node-id="LUbjlJfftNmQLarO7QiAYL">
+      <span class="badge" data-page-node-id="G0J5X9X80jX2W7yEijmaZY">5</span>
+      <h2 data-page-node-id="dvxq30Ck9WdvNh4AghD1nu">数据层（PostgreSQL 16 · Docker 具名卷）</h2>
+      <span class="ltag" data-page-node-id="ne3iWx4dxHNmB1IQE2bsjD">8 张业务表 · JSONB 存题库与审核结果 · 禁手改表</span>
+    </div>
+    <div class="grid g4" data-page-node-id="Z08C63dynbkvf0feRLzZyw">
+      <div class="card" data-page-node-id="j0tFeltWFRQ7JhnCdkcWvB">
+        <h3 data-page-node-id="tmt3H0KXzZAobLOJwEdp71">用户与业务表</h3>
+        <p data-page-node-id="OyE7Q3NGFXEgEIupXDh8gS"><code data-page-node-id="VuCIWjV1zFcmBleGy7Icn3">users</code>（argon2id 哈希 / role / status / <b data-page-node-id="c52ZPGE4BlbRvGaxFzKqc4">token_version</b>）· <code data-page-node-id="F7pQ34Dpt8zKwce0fDBGBz">resumes</code> · <code data-page-node-id="zRC5BTAesgPjSuRB0WDNIh">audio_jobs</code>（purpose）· <code data-page-node-id="ClicI6nBI2o2XUfhbfYqhW">question_banks</code> · <code data-page-node-id="oGrbFxsbMsOJgDEOD0aoYF">interview_sessions(resume_id, bank_id)</code> · <code data-page-node-id="YAdc6yQL5kU5fWxTG6MpQo">interview_messages</code></p>
+      </div>
+      <div class="card" data-page-node-id="PZKk5plsBXUipak4RmiNXH">
+        <h3 data-page-node-id="aEG6RN1McWDJCnCRsGLCpQ">支撑表</h3>
+        <p data-page-node-id="TzY4p5o0pU0pDa080bSO3s"><code data-page-node-id="iEezixF1at1qhl4f2SQ2xX">usage_logs</code>（每人每日限额的记账源）· <code data-page-node-id="0eOCnVaCFPgqSySxlsGDpa">audit_logs</code>（管理端使用日志 + admin 登录审计）</p>
+      </div>
+      <div class="card" data-page-node-id="tODSfX4Kp7lpbXjdy8hVqw">
+        <h3 data-page-node-id="1RDkEECGpBnzd3GsEDBNVL">迁移（Alembic）</h3>
+        <p data-page-node-id="gjRhnOGKgE6LC8bmyXqKKz"><code data-page-node-id="jBYPFK7weWnAAPtylILpSF">0001_init_users</code> → <code data-page-node-id="DDv9dJ6rEuifewvxKiirCZ">0002_init_business_tables</code> → <code data-page-node-id="KkAce3EPCZqCk7XL0QnsJ2">0003_admin_password_rehash</code>（一次性重哈希）；<code data-page-node-id="SULyrQ4iuOZuAT7VDgVD31">alembic check</code> 无差异入 CI</p>
+      </div>
+      <div class="card" data-page-node-id="sMjaC8EFPnj99EA9FihZ6d">
+        <h3 data-page-node-id="SysiqaMnlxkE1mxuNzaTcW">文件存储</h3>
+        <p data-page-node-id="aieNDJioThQW8hEDpEiCqH">录音 ≤500MB / 简历 ≤10MB；存储目录在 web 根之外；文件名随机化；下载走鉴权接口（不暴露静态路径）</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="arrow" data-page-node-id="1RuLGAccdOpZdUlaxEYsB6"></div>
+
+  <!-- ⑥ -->
+  <section class="layer l6" data-page-node-id="wsV6uOlxsMKXa7sJuxxmgM">
+    <div class="lhead" data-page-node-id="R3FTu3AZ3hPAyDmNGa3GaR">
+      <span class="badge" data-page-node-id="EIi2q0G79Ym31SIcVg8h9F">6</span>
+      <h2 data-page-node-id="k61qKf8AtnTEQDfnRQ0trb">外部依赖与工程护栏</h2>
+      <span class="ltag" data-page-node-id="t89TFDVgx9hWoyVOCBgMjC">与既有 AIResume 工程链路同一套约定，复用启动 / 自检 / CI 经验</span>
+    </div>
+    <div class="grid g4" data-page-node-id="j7EEBe7fSC9pmREs4klb1A">
+      <div class="card" data-page-node-id="VaqUYZscXFHvFDEL4I9Yfe">
+        <h3 data-page-node-id="9uL2xJykH0O5siD79psgRz">AI 通道</h3>
+        <p data-page-node-id="JyK3GECWuKDsAIgkVcHxtg"><code data-page-node-id="7W4QxMaYweEWnlqo1qvH9Y">services/ai_client.py</code> 统一封装：超时 / 重试 / 用量记账；OpenAI 兼容协议</p>
+      </div>
+      <div class="card" data-page-node-id="NZCFBJMWkzOp6CXCa942oL">
+        <h3 data-page-node-id="KlqvMJjUM4fnO57jFygPii">质量门禁四关</h3>
+        <p data-page-node-id="iBBp3VfXb9vzFMTS8ryFU4"><code data-page-node-id="oAeWj1l00weewWtD7R3v4J">ruff check+format</code> 0 warning · <code data-page-node-id="Bd0QDa0GWcjzxJK2Oj0fXv">alembic check</code> 无差异 · <code data-page-node-id="vcfIlCMD2IBqkSEwlyeZw5">pytest</code> 全绿 · <code data-page-node-id="rtNwEPlt1T1oQacPHCou2m">npm run build</code> 成功 —— 外加 §5 业务保真对照表逐项打勾</p>
+      </div>
+      <div class="card" data-page-node-id="KSKEuvgV6AOmuBV0vUraqS">
+        <h3 data-page-node-id="svuyPgsiOpfBbqUdW63BnV">CI 与提交钩子</h3>
+        <p data-page-node-id="xJyaDbHEeREkTJ1Kmpwvk7">GitHub Actions：ruff → alembic check → pytest → npm build；pre-commit（ruff check + format）</p>
+      </div>
+      <div class="card" data-page-node-id="nyzW8sXJMWCuu81E7vaACl">
+        <h3 data-page-node-id="QKfHg2ZSf8qmZTHMvLqjnn">测试约定</h3>
+        <p data-page-node-id="yVTRLijz4opHEpCsTG5W2B">专属标记造数 + 范围化清理（用户名 / 文件名前缀），<b data-page-node-id="1DCCnAkGfleobgFngjKmIn">禁止全表 DELETE</b>；AI 配置用 monkeypatch 注入，不依赖本地 .env</p>
+      </div>
+    </div>
+    <div class="notes" data-page-node-id="l8v6AupapDKQyYUWWhiIQ1">
+      <span class="note warn" data-page-node-id="320zBR0XgvlQEou9lDTWq3"><b data-page-node-id="zYE6FG6NOjRVW3ANrpVaWm">待拍板三项（§10）</b>：① 「返校列车」是否真实业务（默认占位）② 数据库能否用 PostgreSQL（若课程环境强制 MySQL/SQLite，JSONB → JSON、驱动与迁移细节需改）③ admin 是否首登强制改密（默认关）</span>
+    </div>
+  </section>
+
+  <div class="arrow" data-page-node-id="BQiBTlH0QO6aeSJ1KsQaGx"></div>
+
+  <!-- 收尾：重构增量对照 -->
+  <section class="layer l6" data-page-node-id="fT4pEDkv8bUuuOdhxFI7Hu">
+    <div class="lhead" data-page-node-id="RBBvmIYwbXmBVcDLZthzXB">
+      <span class="badge" data-page-node-id="ctf3vNbzdAq8XxYLyJius4">+</span>
+      <h2 data-page-node-id="9WPzv8xdjHcfzUgkACgo0g">本次重构要解决的 5 个结构性问题 → 对策</h2>
+      <span class="ltag" data-page-node-id="2alQGtujSpaLWs13P3GIiL">旧系统的病根与对应的新闸门（评审对照用）</span>
+    </div>
+    <div class="strip hl" data-page-node-id="okBDpNEagwC1Sp8Q2VjHom">
+      <b data-page-node-id="VhwXrYbXxRij6PutsHPmhv">1. 入口无强制校验</b>（.html 物理文件 URL 直访即得）→ 后端全局鉴权依赖 + 前端守卫 + legacy/ 物理下线，三重封死；<br data-page-node-id="FzowaCo89wVAspTTlxldLM">
+      <b data-page-node-id="kg6pusDwJWvOlND5rz2zxN">2. 口令明文 / 弱哈希</b>（admin/123456 直登）→ argon2id 一次性重哈希，旧比对逻辑全删，日志与响应永不回显；<br data-page-node-id="cceQrfmueCPcndDIpOYBCh">
+      <b data-page-node-id="IGQzwTbt3gwRRgJ1wr96gg">3. 无分层</b>（路由混 SQL / 文件解析 / 业务判断）→ api 薄 / services 厚 / repositories / models 四层，跨层只许向下依赖；<br data-page-node-id="0GTIMXcYgdHtUppSzMLBD7">
+      <b data-page-node-id="MBrNzj3S7DQl20uhTp7yTo">4. 无授权校验</b>（管理端只是「藏起来」）→ <code data-page-node-id="fDGLM2WiDGDiiFilKHe8Iv">require_admin</code> 后端强制 + 归属过滤 helper + 跨用户 404 用例；<br data-page-node-id="zxTCIPG34NkmfwyIzEk271">
+      <b data-page-node-id="sD6DdCp8rSJ0tVCZO3ZYwn">5. 无迁移机制</b>（手写 SQL 改表）→ Alembic 版本化 + <code data-page-node-id="WQG11AQsnCVIf6978yfkyU">alembic check</code> 漂移检测入 CI，模型必须登记 <code data-page-node-id="YSHZuSUAy7qnCWnUpzEUOF">models/__init__.py</code>。
+    </div>
+  </section>
+
+</div>
+</body>
+</html>
