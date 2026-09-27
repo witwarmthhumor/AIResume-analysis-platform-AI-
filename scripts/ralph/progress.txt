@@ -211,3 +211,14 @@ Started: 2026-09-27
   - 记录 blocked 的写文件范围仅限 Ralph 控制文件（`prd.json` / `progress.txt`）——**项目源码一行都不动**，符合护栏「不写任何文件」的本意。
 - **验证**：无代码改动 → 不跑 ruff/pytest（无意义且会污染基线）；`prd.json` 经 `json.loads` 校验合法、CRLF 计数 `\r\n == \n`（517/517 → 保持）。
 - **未做 / 需人工介入**：Part 1「学生就业帮助系统重构」（US-008~028，21 个 story）**全部阻塞**，需在**目标独立仓库**执行。
+
+---
+
+## 2026-09-27 · US-008 复跑复核 —— ⛔ 仍 BLOCKED（wrong repo，终态）
+
+- **结论**：本轮**无任何可实施 story，不写项目文件**。最高优先级 `passes:false` = US-008，触发跨仓库硬护栏，与前次迭代结论一致。
+- **复核证据（本轮重跑）**：`git rev-parse --show-toplevel` = `E:/AIDevelop/AIProject/AIResume`；`ls -d legacy` → MISSING；`find /e/AIDevelop/AIProject -maxdepth 3 -type d -name legacy` → 零命中；兄弟目录无「学生就业/就业帮助」仓库。分支 `ralph/agent-tool-expansion-v2` ✓ 正确。
+- **动作**：不改 `prd.json`（US-008 `notes` 已含 `blocked: wrong repo; blocked: source code unavailable`，`passes` 保持 `false`）；不跑 ruff/pytest（无代码改动）；**不标 `passes: true`**（未实现不得造假）。
+- **Learnings for future iterations：**
+  - **本 PRD 在 AIResume 仓库已进入终态死循环**：Part 2（US-001~007）全绿入库，Part 1（US-008~028）全部属另一仓库且 US-008 硬阻塞 —— 后续每次迭代都会停在 US-008 且无事可做。判据一眼可查：`ls -d legacy` 不存在。
+  - 人工介入二选一：① 到「学生就业帮助系统」目标仓库另起 Ralph（以 `tasks/学生就业帮助系统重构/prd-学生就业帮助系统重构.md` 作为该仓库 PRD）；② 若近期不做 Part 1，则把本 PRD 的 Part 1 段移出/归档，使 AIResume 侧收敛为全 `passes:true`。
