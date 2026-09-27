@@ -23,12 +23,18 @@ def create_session(
 ) -> InterviewSession:
     """为归属者创建 in_progress 面试会话并写入开场白（不耗 AI 调用）。
 
-    调用方负责：简历归属与解析状态的预先校验（v1 路由已有 404/400 语义）。
+    自带归属与解析状态校验（与 deps.owner_clause 同口径）：v2 风险动作路径
+    没有路由层预检，这里是最后一道防线；不通过一律 ValueError。
     已有同简历进行中会话时直接复用（沿用 v1 路由的去重行为；超时废弃逻辑留在
     API 层——它依赖请求时刻的判断，任务侧创建总是新建，由面试超时机制兜底）。
     """
     resume = db.get(Resume, resume_id)
     if resume is None or resume.deleted_at is not None:
+        raise ValueError("简历记录不存在或已删除")
+    if user_id is not None:
+        if resume.user_id != user_id:
+            raise ValueError("简历记录不存在或已删除")
+    elif resume.user_id is not None or resume.anonymous_id != anonymous_id:
         raise ValueError("简历记录不存在或已删除")
     if resume.parse_status != "success" or not resume.raw_text:
         raise ValueError("该简历未成功解析出文本，无法开始面试")

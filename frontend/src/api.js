@@ -35,16 +35,17 @@ export function post(url, body = null) { return request('POST', url, body) }
 
 export function del(url) { return request('DELETE', url) }
 
-/* SSE 流式对话：POST body 后读取 Server-Sent Events 流
-   返回 { reader, abort }，调用者通过 reader 读取事件自行解析。
-*/
-export function streamChat(url, body) {
+/* SSE 流式请求（POST 带 body / GET 无 body 共用一套实现）：
+   返回 { reader, abort }，调用者通过 reader 读取事件自行解析（parseSseBlock）。
+   abort 句柄供组件在切会话/卸载/失活时中止流，沿用 v3.7 流生命周期约定。 */
+function streamRequest(method, url, body = null) {
   const controller = new AbortController()
-  const promise = fetch(BASE + url, {
-    method: 'POST', credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body), signal: controller.signal,
-  })
+  const opts = { method, credentials: 'include', signal: controller.signal }
+  if (body != null) {
+    opts.headers = { 'Content-Type': 'application/json' }
+    opts.body = JSON.stringify(body)
+  }
+  const promise = fetch(BASE + url, opts)
   return {
     reader: promise.then(async r => {
       if (!r.ok) {
@@ -59,6 +60,16 @@ export function streamChat(url, body) {
     }),
     abort: () => controller.abort(),
   }
+}
+
+/* 流式对话：POST body 后读取 Server-Sent Events 流 */
+export function streamChat(url, body) {
+  return streamRequest('POST', url, body)
+}
+
+/* GET 版 SSE（v4.0 任务续听）：approve 返回 202 后前端转 /runs/{id}/stream 收增量。 */
+export function streamGet(url) {
+  return streamRequest('GET', url)
 }
 /* 解析一个 SSE 事件块：按 SSE 规范聚合多行 data:，JSON 失败返回 null。
    返回 { event, data }；无 data 行时 data 为 null。畸形块（代理截断等）
@@ -76,26 +87,5 @@ export function parseSseBlock(block) {
     return { event, data: JSON.parse(data) }
   } catch {
     return null
-  }
-}
-
-/* GET 版 SSE（v4.0 任务续听）：approve 返回 202 后前端转 /runs/{id}/stream 收增量。
-   返回 { reader, abort }，与 streamChat 同构。 */
-export function streamGet(url) {
-  const controller = new AbortController()
-  const promise = fetch(BASE + url, { method: 'GET', credentials: 'include', signal: controller.signal })
-  return {
-    reader: promise.then(async (r) => {
-      if (!r.ok) {
-        let message = `请求失败 (${r.status})`
-        try {
-          const b = await r.json()
-          message = b.message || message
-        } catch {}
-        throw new Error(message)
-      }
-      return r.body.getReader()
-    }),
-    abort: () => controller.abort(),
   }
 }

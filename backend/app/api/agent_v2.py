@@ -7,13 +7,15 @@ deps.owner_clause / matches_owner 归属隔离；agent_v2_enabled=false 时接�
 
 import json
 import threading
+import time
 import uuid
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.api.admin import _admin_only
@@ -21,6 +23,7 @@ from app.api.auth_deps import get_optional_current_user
 from app.api.deps import (
     enforce_daily_limit,
     get_anonymous_id,
+    get_owned_chat_session,
     matches_owner,
     owner_clause,
 )
@@ -29,7 +32,11 @@ from app.db.session import get_db
 from app.models.agent_v2 import AgentApproval, AgentRun, AgentSpan, AuditLog
 from app.models.user import User
 from app.services.agent_v2 import event_bus
-from app.services.agent_v2.graph import resume_job_prep, run_job_prep
+from app.services.agent_v2.graph import (
+    APPROVAL_SUMMARY,
+    resume_job_prep,
+    run_job_prep,
+)
 from app.services.usage_service import write_usage
 
 router = APIRouter(prefix="/api/agent-v2", tags=["agent_v2"])
@@ -37,6 +44,42 @@ router = APIRouter(prefix="/api/agent-v2", tags=["agent_v2"])
 _TERMINAL_EVENTS = {"done", "fatal", "stream_closed"}
 # v2 run 的记账口径（usage_logs.action_type）：限额与用量统计都按它聚合
 V2_RUN_ACTION = "agent_run_v2"
+# SSE 无事件防御性断流预算：0.05s × 1800 = 90s（客户端可重连；
+# 90s 是为 CI 全新库冷启动建 checkpoint 基础设施留的余量，实测踩坑值）
+_SSE_IDLE_TICKS = 1800
+
+
+def _sse_event_stream(run_id: int, buf, pre_events: Iterable[str]):
+    """SSE 事件循环公共实现（create/stream/retry 三端点共用）。
+
+    先发送 pre_events（调用方预构造的 meta/snapshot 等首帧），再消费事件总线
+    缓冲直至终态事件；_SSE_IDLE_TICKS 内无事件则发 stream_closed 防御性断流。
+    结束（含异常）时退订。buf 中的事件是订阅者私有拷贝，pop 消费安全。
+    """
+
+    def event_stream():
+        try:
+            yield from pre_events
+            idle = 0
+            while True:
+                try:
+                    event = buf.popleft()
+                except IndexError:
+                    time.sleep(0.05)
+                    idle += 1
+                    if idle > _SSE_IDLE_TICKS:
+                        yield _sse("stream_closed", {"reason": "timeout"})
+                        return
+                    continue
+                idle = 0
+                etype = event.pop("type")
+                yield _sse(etype, event)
+                if etype in _TERMINAL_EVENTS:
+                    return
+        finally:
+            event_bus.unsubscribe(run_id, buf)
+
+    return event_stream()
 
 
 def _require_enabled() -> None:
@@ -74,6 +117,12 @@ def _get_owned_run(
 
 
 def _pending_approval(db: Session, run_id: int) -> AgentApproval | None:
+    """取有效待审批单；TTL 到点则作废审批单并把 run 终止为 failed。
+
+    过期后 approve 一律 410、图线程又已挂起无处续跑——不终止 run 的话任务会
+    永远卡在 waiting_approval（列表仍显示可恢复，但已无审批卡可用）。
+    终止走条件更新：与 approve 的乐观锁互斥，并发时只有一方能挪走 run。
+    """
     approval = db.scalar(
         select(AgentApproval)
         .where(AgentApproval.run_id == run_id, AgentApproval.status == "pending")
@@ -83,6 +132,16 @@ def _pending_approval(db: Session, run_id: int) -> AgentApproval | None:
         return None
     if approval.expires_at and approval.expires_at < datetime.now(timezone.utc):
         approval.status = "expired"
+        db.execute(
+            update(AgentRun)
+            .where(AgentRun.id == run_id, AgentRun.status == "waiting_approval")
+            .values(
+                status="failed",
+                error="审批超时，任务已自动终止；可重新发起或从失败节点重试。",
+                current_node="hitl_gate",
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
         db.commit()
         return None
     return approval
@@ -127,6 +186,10 @@ def create_run(
 ):
     """发起一键求职准备：建 run → 后台线程跑图 → 返回 SSE 流（事件含 plan/节点流转/结果）。"""
     _require_enabled()
+    if body.session_id is not None:
+        # 会话归属校验：非本人会话一律 404（与 chat/playground 同口径），
+        # 防脏数据/越权关联；校验在限额记账之前，失败请求不计额度
+        get_owned_chat_session(db, body.session_id, user, anonymous_id)
     # v2 独立限额（daily_agent_v2_run_limit，与 v1 的 agent/analysis 口径分开）；
     # 按发起次数计（含后续失败的 run），lock→count→记账 与 run 落库同事务串行化
     enforce_daily_limit(
@@ -193,40 +256,22 @@ def create_run(
     )
     thread.start()
 
-    def event_stream():
-        try:
-            yield _sse(
-                "meta",
-                {
-                    "run_id": run.id,
-                    "trace_id": trace_id,
-                    "thread_id": run.thread_id,
-                    "status": "running",
-                },
-            )
-            import time
-
-            idle = 0
-            while True:
-                try:
-                    event = buf.popleft()
-                except IndexError:
-                    time.sleep(0.05)
-                    idle += 1
-                    if idle > 1800:  # 90s 无事件且未结束：防御性断流，客户端可重连（CI 冷启动建 checkpoint schema 可能超 30s，实测踩坑）
-                        yield _sse("stream_closed", {"reason": "timeout"})
-                        return
-                    continue
-                idle = 0
-                etype = event.pop("type")
-                yield _sse(etype, event)
-                if etype in _TERMINAL_EVENTS:
-                    return
-        finally:
-            event_bus.unsubscribe(run.id, buf)
-
     return StreamingResponse(
-        event_stream(),
+        _sse_event_stream(
+            run.id,
+            buf,
+            [
+                _sse(
+                    "meta",
+                    {
+                        "run_id": run.id,
+                        "trace_id": trace_id,
+                        "thread_id": run.thread_id,
+                        "status": "running",
+                    },
+                )
+            ],
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -240,16 +285,18 @@ def list_runs(
     anonymous_id: str = Depends(get_anonymous_id),
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
 ):
-    """本人 run 列表（归属隔离，分页）。"""
-    stmt = (
+    """本人 run 列表（归属隔离，SQL 分页，不整表载入）。"""
+    limit = min(50, max(1, page_size))
+    offset = (max(1, page) - 1) * limit
+    owner = owner_clause(AgentRun, user, anonymous_id)
+    total = db.scalar(select(func.count()).select_from(AgentRun).where(owner))
+    rows = db.scalars(
         select(AgentRun)
-        .where(owner_clause(AgentRun, user, anonymous_id))
+        .where(owner)
         .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
-    )
-    rows = db.scalars(stmt).all()
-    total = len(rows)
-    start = (max(1, page) - 1) * min(50, max(1, page_size))
-    items = rows[start : start + min(50, max(1, page_size))]
+        .offset(offset)
+        .limit(limit)
+    ).all()
     return {
         "items": [
             {
@@ -261,7 +308,7 @@ def list_runs(
                 "tokens_total": r.tokens_total,
                 "error": r.error,
             }
-            for r in items
+            for r in rows
         ],
         "total": total,
         "page": page,
@@ -279,6 +326,8 @@ def get_run(
     """run 详情：状态 / plan / 最终产物 / 待审批信息（断点续跑的审批卡数据源）。"""
     run = _get_owned_run(db, run_id, user, anonymous_id)
     approval = _pending_approval(db, run.id)
+    if run.status == "waiting_approval":
+        db.refresh(run)  # 审批超时会被 _pending_approval 终止为 failed，重读拿最新状态
     spans = db.scalars(
         select(AgentSpan).where(AgentSpan.run_id == run.id).order_by(AgentSpan.id.asc())
     ).all()
@@ -294,6 +343,7 @@ def get_run(
             {
                 "approval_id": approval.id,
                 "action_key": approval.action_key,
+                "summary": APPROVAL_SUMMARY,
                 "payload": json.loads(approval.payload_json or "{}"),
                 "expires_at": approval.expires_at.isoformat()
                 if approval.expires_at
@@ -325,60 +375,41 @@ def stream_run(
 ):
     """SSE 重连：先发 DB 快照（状态/审批/产物），再订阅事件总线收增量（D1）。"""
     run = _get_owned_run(db, run_id, user, anonymous_id)
-
-    def event_stream():
-        run_state = db.get(AgentRun, run.id)
-        yield _sse(
-            "snapshot",
-            {
-                "run_id": run.id,
-                "status": run_state.status,
-                "plan": json.loads(run_state.plan_json) if run_state.plan_json else [],
-                "output": json.loads(run_state.output_json)
-                if run_state.output_json
-                else None,
-                "error": run_state.error,
-            },
+    # 快照与待审批单必须在进入流式响应前查完并结束请求事务：
+    # 流式期间 FastAPI 依赖不收尾，事务会一直 idle in transaction
+    # （阻碍 vacuum；未来任何并发 DDL 会复现 CONCURRENTLY 死锁，实测踩坑）
+    approval = _pending_approval(db, run.id)
+    if run.status == "waiting_approval":
+        db.refresh(run)  # 审批超时会被 _pending_approval 终止为 failed，重读拿最新状态
+    snapshot = {
+        "run_id": run.id,
+        "status": run.status,
+        "plan": json.loads(run.plan_json) if run.plan_json else [],
+        "output": json.loads(run.output_json) if run.output_json else None,
+        "error": run.error,
+    }
+    if approval and run.status == "waiting_approval":
+        snapshot["approval"] = {
+            "approval_id": approval.id,
+            "action_key": approval.action_key,
+            "summary": APPROVAL_SUMMARY,
+            "expires_at": approval.expires_at.isoformat()
+            if approval.expires_at
+            else None,
+        }
+    pre: list[str] = [_sse("snapshot", snapshot)]
+    if run.status in ("completed", "failed", "aborted"):
+        pre.append(
+            _sse(
+                "done" if run.status == "completed" else "fatal",
+                {"run_id": run.id, "status": run.status, "content": run.error},
+            )
         )
-        approval = _pending_approval(db, run.id)
-        if run_state.status == "waiting_approval" and approval:
-            yield _sse(
-                "approval_required",
-                {
-                    "approval_id": approval.id,
-                    "action_key": approval.action_key,
-                    "summary": "存在待审批的风险动作",
-                },
-            )
-        if run_state.status in ("completed", "failed", "aborted"):
-            yield _sse(
-                "fatal" if run_state.status != "completed" else "done",
-                {"run_id": run.id, "status": run_state.status},
-            )
-            return
-
-        buf = event_bus.subscribe_with_replay(run.id)
-        import time
-
-        idle = 0
-        while True:
-            try:
-                event = buf.popleft()
-            except IndexError:
-                time.sleep(0.05)
-                idle += 1
-                if idle > 1800:  # 90s（同上：防 CI 冷启动假超时）
-                    yield _sse("stream_closed", {"reason": "timeout"})
-                    return
-                continue
-            idle = 0
-            etype = event.pop("type")
-            yield _sse(etype, event)
-            if etype in _TERMINAL_EVENTS:
-                return
+    buf = event_bus.subscribe_with_replay(run.id)
+    db.commit()  # 结束请求事务（订阅不依赖 db，先订后退订不丢事件）
 
     return StreamingResponse(
-        event_stream(),
+        _sse_event_stream(run.id, buf, pre),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -399,11 +430,25 @@ def approve_run(
         raise HTTPException(409, "该任务当前没有待审批的动作")
     approval = _pending_approval(db, run.id)
     if approval is None:
-        raise HTTPException(410, "审批单已过期，请重新发起任务")
+        raise HTTPException(
+            410, "审批已超时，任务已自动终止；可重新发起或从失败节点重试"
+        )
 
     decision = (body or {}).get("decision")
     if decision not in ("approved", "rejected"):
         raise HTTPException(422, "decision 必须是 approved 或 rejected")
+
+    # 条件更新乐观锁：approve 与 abort 可能并发（客户端双击/双标签页）。
+    # 只有真正把 run 从 waiting_approval 挪走的请求才允许继续，
+    # 输家（0 行受影响）拿到 409——避免审批留痕与 run 终态互相矛盾
+    moved = db.execute(
+        update(AgentRun)
+        .where(AgentRun.id == run.id, AgentRun.status == "waiting_approval")
+        .values(status="running")
+    ).rowcount
+    db.commit()
+    if not moved:
+        raise HTTPException(409, "该任务状态已变更（可能刚被审批或放弃），请刷新查看")
 
     approval.status = decision
     approval.decided_by = user.id if user else None
@@ -436,7 +481,9 @@ def approve_run(
     return {"run_id": run.id, "status": "running"}
 
 
-@router.post("/runs/{run_id}/retry-node", status_code=202)
+# 与 POST /runs 同款：直接返回 SSE 事件流，状态码由 StreamingResponse 决定（固定 200），
+# 装饰器上的 status_code 对此无效——不要在此声明 202，OpenAPI 会与实际不符
+@router.post("/runs/{run_id}/retry-node")
 def retry_run(
     run_id: int,
     db: Session = Depends(get_db),  # noqa: B008
@@ -493,29 +540,12 @@ def retry_run(
     )
     thread.start()
 
-    def event_stream():
-        yield _sse("meta", {"run_id": new_run.id, "retried_from": run.id})
-        import time
-
-        idle = 0
-        while True:
-            try:
-                event = buf.popleft()
-            except IndexError:
-                time.sleep(0.05)
-                idle += 1
-                if idle > 1800:  # 90s（同上：防 CI 冷启动假超时）
-                    yield _sse("stream_closed", {"reason": "timeout"})
-                    return
-                continue
-            idle = 0
-            etype = event.pop("type")
-            yield _sse(etype, event)
-            if etype in _TERMINAL_EVENTS:
-                return
-
     return StreamingResponse(
-        event_stream(),
+        _sse_event_stream(
+            new_run.id,
+            buf,
+            [_sse("meta", {"run_id": new_run.id, "retried_from": run.id})],
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -533,8 +563,16 @@ def abort_run(
     run = _get_owned_run(db, run_id, user, anonymous_id)
     if run.status != "waiting_approval":
         raise HTTPException(409, "仅等待审批中的任务可以放弃")
-    run.status = "aborted"
-    run.completed_at = datetime.now(timezone.utc)
+    # 条件更新乐观锁（与 approve 对称）：并发时只有一方能从 waiting_approval 挪走，
+    # 另一方 409——防 abort 覆盖已批准的 run / resume 线程再覆盖 aborted
+    moved = db.execute(
+        update(AgentRun)
+        .where(AgentRun.id == run.id, AgentRun.status == "waiting_approval")
+        .values(status="aborted", completed_at=datetime.now(timezone.utc))
+    ).rowcount
+    if not moved:
+        db.commit()
+        raise HTTPException(409, "该任务状态已变更（可能刚被审批），请刷新查看")
     approval = _pending_approval(db, run.id)
     if approval:
         approval.status = "expired"
@@ -561,13 +599,16 @@ def admin_list_runs(
     db: Session = Depends(get_db),  # noqa: B008
     user: User = Depends(_admin_only),  # noqa: B008
 ):
+    """全量 run 列表（管理端）：SQL 分页 + 状态过滤，不整表载入。"""
+    filters = [AgentRun.status == status] if status else []
+    total = db.scalar(select(func.count()).select_from(AgentRun).where(*filters))
     rows = db.scalars(
-        select(AgentRun).where(AgentRun.status == status)
-        if status
-        else select(AgentRun)
+        select(AgentRun)
+        .where(*filters)
+        .order_by(AgentRun.id.desc())
+        .offset((max(1, page) - 1) * 20)
+        .limit(20)
     ).all()
-    rows = sorted(rows, key=lambda r: r.id, reverse=True)
-    start = (max(1, page) - 1) * 20
     return {
         "items": [
             {
@@ -582,9 +623,9 @@ def admin_list_runs(
                 "error": r.error,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             }
-            for r in rows[start : start + 20]
+            for r in rows
         ],
-        "total": len(rows),
+        "total": total,
     }
 
 
@@ -653,16 +694,29 @@ def admin_run_stats(
     db: Session = Depends(get_db),  # noqa: B008
     user: User = Depends(_admin_only),  # noqa: B008
 ):
-    """近 7 日 v2 运行指标（PRD FR-11）：成功率/P50/P95/token/重试率/审批口径。"""
-    runs = db.scalars(select(AgentRun)).all()
-    recent = [
-        r
-        for r in runs
-        if r.created_at and (datetime.now(timezone.utc) - r.created_at).days < 7
-    ]
-    completed = [r for r in recent if r.status == "completed"]
-    failed = [r for r in recent if r.status == "failed"]
-    durations = sorted(r.duration_ms or 0 for r in completed)
+    """近 7 日 v2 运行指标（PRD FR-11）：成功率/P50/P95/token/重试率/审批口径。
+
+    全部走 SQL 聚合（此前整表载入内存统计，run/span 表增长后 O(n) 内存与延迟）。
+    重试率与审批口径沿用全量口径（不限 7 日窗口），与改前语义一致。
+    """
+    window = AgentRun.created_at >= datetime.now(timezone.utc) - timedelta(days=7)
+    counts = dict(
+        db.execute(
+            select(AgentRun.status, func.count())
+            .where(window)
+            .group_by(AgentRun.status)
+        ).all()
+    )
+    total = sum(counts.values())
+    completed = counts.get("completed", 0)
+    failed = counts.get("failed", 0)
+    # 百分位只取已完成 run 的 duration 标量列（不整行 ORM）
+    durations = sorted(
+        value or 0
+        for (value,) in db.execute(
+            select(AgentRun.duration_ms).where(window, AgentRun.status == "completed")
+        ).all()
+    )
 
     def _pct(seq, p):
         if not seq:
@@ -670,23 +724,40 @@ def admin_run_stats(
         idx = min(len(seq) - 1, int(len(seq) * p))
         return seq[idx]
 
-    spans = db.scalars(select(AgentSpan)).all()
-    retried = [s for s in spans if s.status == "retried"]
-    approvals = db.scalars(select(AgentApproval)).all()
+    spans_total = db.scalar(select(func.count()).select_from(AgentSpan)) or 0
+    retried_total = (
+        db.scalar(
+            select(func.count())
+            .select_from(AgentSpan)
+            .where(AgentSpan.status == "retried")
+        )
+        or 0
+    )
+    approval_counts = dict(
+        db.execute(
+            select(AgentApproval.status, func.count()).group_by(AgentApproval.status)
+        ).all()
+    )
+    tokens_total = (
+        db.scalar(
+            select(func.coalesce(func.sum(AgentRun.tokens_total), 0)).where(window)
+        )
+        or 0
+    )
     return {
         "window_days": 7,
-        "total_runs": len(recent),
-        "completed": len(completed),
-        "failed": len(failed),
-        "success_rate": round(len(completed) / len(recent), 4) if recent else None,
+        "total_runs": total,
+        "completed": completed,
+        "failed": failed,
+        "success_rate": round(completed / total, 4) if total else None,
         "p50_ms": _pct(durations, 0.5),
         "p95_ms": _pct(durations, 0.95),
-        "tokens_total": sum(r.tokens_total or 0 for r in recent),
-        "retry_rate": round(len(retried) / len(spans), 4) if spans else None,
+        "tokens_total": int(tokens_total),
+        "retry_rate": round(retried_total / spans_total, 4) if spans_total else None,
         "approvals": {
-            "pending": sum(1 for a in approvals if a.status == "pending"),
-            "approved": sum(1 for a in approvals if a.status == "approved"),
-            "rejected": sum(1 for a in approvals if a.status == "rejected"),
-            "expired": sum(1 for a in approvals if a.status == "expired"),
+            "pending": approval_counts.get("pending", 0),
+            "approved": approval_counts.get("approved", 0),
+            "rejected": approval_counts.get("rejected", 0),
+            "expired": approval_counts.get("expired", 0),
         },
     }

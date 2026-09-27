@@ -87,6 +87,18 @@ def _seed_placeholder_and_clean():
                 "(SELECT id FROM users WHERE email LIKE 'av2-%')"
             )
         )
+        conn.execute(
+            text(
+                "DELETE FROM chat_messages WHERE session_id IN (SELECT id FROM chat_sessions "
+                "WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'av2-%'))"
+            )
+        )
+        conn.execute(
+            text(
+                "DELETE FROM chat_sessions WHERE user_id IN "
+                "(SELECT id FROM users WHERE email LIKE 'av2-%')"
+            )
+        )
         conn.execute(text("DELETE FROM users WHERE email LIKE 'av2-%'"))
 
 
@@ -194,7 +206,7 @@ def test_run_happy_path_with_hitl_approval(_fake_llm):
     resp = c.post(
         "/api/agent-v2/runs",
         json={"jd_text": "招后端，要求 Python 与 MySQL", "position_type": "fresh"},
-        # 同步 POST 等 30s 超时后返回全部事件文本（v2 stream 会自动关流）
+        # 同步 POST 等流自然结束（waiting_approval 时服务端主动关流）后返回全部事件文本
     )
     assert resp.status_code == 200  # StreamingResponse 忽略装饰器 status_code
     events = _drain_events(resp, until=("approval_required", "fatal"))
@@ -377,3 +389,258 @@ def test_run_daily_limit_429(monkeypatch):
     r = c.post("/api/agent-v2/runs", json={"jd_text": "x"})
     assert r.status_code == 429
     assert "每日上限" in r.json()["message"]
+
+
+# —— v4.0 质量审计 P1/P2 回归（2026-09-26）——
+
+
+def test_event_bus_multi_subscriber_isolated_copies():
+    """多订阅者各拿独立事件拷贝：消费端 pop("type") 不得互相影响。
+
+    回归：publish/重连回放曾共享同一 dict 引用，双连接并存时第二个消费者必崩。
+    """
+    from app.services.agent_v2 import event_bus
+
+    run_id = 900_000_000 + uuid.uuid4().int % 1_000_000
+    first = event_bus.subscribe_with_replay(run_id)
+    event_bus.publish(run_id, {"type": "node_start", "node": "planner"})
+    second = event_bus.subscribe_with_replay(run_id)  # 重连：回放既有事件
+    event_bus.publish(run_id, {"type": "node_end", "node": "planner"})
+    try:
+        consumed = []
+        for buf in (first, second):
+            got = []
+            while buf:
+                event = buf.popleft()
+                got.append(event.pop("type"))  # 与 SSE 消费端同款破坏性修改
+            consumed.append(got)
+    finally:
+        event_bus.unsubscribe(run_id, first)
+        event_bus.unsubscribe(run_id, second)
+    assert consumed[0] == ["node_start", "node_end"]
+    assert consumed[1] == ["node_start", "node_end"]
+
+
+def test_approve_twice_and_abort_conflict_409(_fake_llm):
+    """审批竞态：重复 approve / 批准后 abort 一律 409，决定不被覆盖、不产生重复审批单。"""
+    marker = _marker()
+    c, uid, _ = _register("av2-")
+    _create_resume_for(uid, marker)
+    resp = c.post("/api/agent-v2/runs", json={"jd_text": "招后端"})
+    _drain_events(resp, until=("approval_required",))
+    run_id = _last_run_id()
+
+    first = c.post(
+        f"/api/agent-v2/runs/{run_id}/approve", json={"decision": "approved"}
+    )
+    assert first.status_code == 202
+    second = c.post(
+        f"/api/agent-v2/runs/{run_id}/approve", json={"decision": "rejected"}
+    )
+    assert second.status_code == 409
+    abort = c.post(f"/api/agent-v2/runs/{run_id}/abort")
+    assert abort.status_code == 409
+    assert _wait_status(run_id, "completed") == "completed"
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text("SELECT status FROM agent_approvals WHERE run_id = :i ORDER BY id"),
+            {"i": run_id},
+        ).scalars()
+        statuses = list(rows)
+    assert statuses == ["approved"]  # resume 重执行未再建单，拒绝请求也没写进去
+
+
+def test_approval_expiry_terminates_run_and_retry(_fake_llm, monkeypatch):
+    """审批过期：approve 410、run 终止为 failed（不再卡 waiting_approval）、可重试。"""
+    from app.core.config import settings
+
+    marker = _marker()
+    c, uid, _ = _register("av2-")
+    _create_resume_for(uid, marker)
+    monkeypatch.setattr(settings, "agent_approval_ttl_minutes", 0)
+    resp = c.post("/api/agent-v2/runs", json={"jd_text": "招后端"})
+    _drain_events(resp, until=("approval_required",))
+    run_id = _last_run_id()
+
+    r = c.post(f"/api/agent-v2/runs/{run_id}/approve", json={"decision": "approved"})
+    assert r.status_code == 410
+    assert _wait_status(run_id, "failed") == "failed"
+    detail = c.get(f"/api/agent-v2/runs/{run_id}").json()
+    assert detail["status"] == "failed"
+    assert "审批超时" in (detail["error"] or "")
+    assert detail["approval"] is None
+    with engine.begin() as conn:
+        approval_status = conn.execute(
+            text(
+                "SELECT status FROM agent_approvals WHERE run_id = :i "
+                "ORDER BY id DESC LIMIT 1"
+            ),
+            {"i": run_id},
+        ).scalar()
+    assert approval_status == "expired"
+
+    retry = c.post(f"/api/agent-v2/runs/{run_id}/retry-node")
+    # retry-node 与 POST /runs 同款直出 SSE 流：StreamingResponse 决定状态码（200）
+    assert retry.status_code == 200
+    new_run_id = _last_run_id()
+    assert new_run_id != run_id
+    assert _wait_status(new_run_id, "waiting_approval") == "waiting_approval"
+
+
+def test_stream_snapshot_includes_approval(_fake_llm, monkeypatch):
+    """/stream 重连快照带审批卡数据（summary/expires_at），空闲断流发 stream_closed。
+
+    _SSE_IDLE_TICKS 打小测防御性断流路径（默认 1800 会真等 90s）。
+    """
+    import app.api.agent_v2 as agent_v2_api
+
+    marker = _marker()
+    c, uid, _ = _register("av2-")
+    _create_resume_for(uid, marker)
+    resp = c.post("/api/agent-v2/runs", json={"jd_text": "招后端"})
+    _drain_events(resp, until=("approval_required",))
+    run_id = _last_run_id()
+
+    monkeypatch.setattr(agent_v2_api, "_SSE_IDLE_TICKS", 2)
+    resp = c.get(f"/api/agent-v2/runs/{run_id}/stream")
+    events = _drain_events(resp, until=("stream_closed",))
+    types = [e for e, _ in events]
+    assert "snapshot" in types and "stream_closed" in types
+    snap = dict(events)["snapshot"]
+    assert snap["status"] == "waiting_approval"
+    assert snap["approval"]["summary"]
+    assert snap["approval"]["expires_at"]
+
+
+def test_stream_snapshot_terminal_run_closes_immediately():
+    """终态 run 重连：快照 + 带话术的 fatal 后立即关流（不等空闲断流）。"""
+    c, _, _ = _register("av2-")
+    resp = c.post("/api/agent-v2/runs", json={"jd_text": "招后端"})  # 无简历 → failed
+    _drain_events(resp, until=("fatal",))
+    run_id = _last_run_id()
+    assert _wait_status(run_id, "failed") == "failed"
+
+    resp = c.get(f"/api/agent-v2/runs/{run_id}/stream")
+    events = _drain_events(resp, until=("fatal",))
+    payloads = dict(events)
+    assert payloads["snapshot"]["status"] == "failed"
+    assert "上传" in (payloads["fatal"].get("content") or "")
+
+
+def test_list_runs_pagination():
+    """本人列表 SQL 分页：total 为该用户全部 run，倒序切片正确。"""
+    c, _, _ = _register("av2-")
+    for _ in range(3):
+        _drain_events(
+            c.post("/api/agent-v2/runs", json={"jd_text": "x"}), until=("fatal",)
+        )
+    page1 = c.get("/api/agent-v2/runs?page=1&page_size=2").json()
+    page2 = c.get("/api/agent-v2/runs?page=2&page_size=2").json()
+    assert page1["total"] == 3 and page2["total"] == 3
+    assert len(page1["items"]) == 2 and len(page2["items"]) == 1
+    ids = [i["id"] for i in page1["items"]]
+    assert ids == sorted(ids, reverse=True)
+    assert page1["items"][-1]["id"] > page2["items"][0]["id"]
+
+
+def test_create_run_session_id_ownership():
+    """session_id 归属校验：挂他人会话 404 且不建 run；本人会话正常关联。"""
+    a, uid_a, _ = _register("av2-")
+    session_id = a.post("/api/chat/sessions", json={"title": "我的问答"}).json()["id"]
+    b, uid_b, _ = _register("av2-")
+
+    r = b.post(
+        "/api/agent-v2/runs", json={"jd_text": "招后端", "session_id": session_id}
+    )
+    assert r.status_code == 404
+    with engine.begin() as conn:
+        leaked = conn.execute(
+            text("SELECT count(*) FROM agent_runs WHERE user_id = :u"), {"u": uid_b}
+        ).scalar()
+    assert leaked == 0  # 校验先于限额与建 run
+
+    resp = a.post(
+        "/api/agent-v2/runs", json={"jd_text": "招后端", "session_id": session_id}
+    )
+    assert resp.status_code == 200
+    _drain_events(resp, until=("fatal",))
+    with engine.begin() as conn:
+        linked = conn.execute(
+            text(
+                "SELECT session_id FROM agent_runs WHERE user_id = :u "
+                "ORDER BY id DESC LIMIT 1"
+            ),
+            {"u": uid_a},
+        ).scalar()
+    assert linked == session_id
+
+
+def test_admin_run_endpoints_smoke():
+    """管理端 run 列表/统计 SQL 化后结构可用（全局数值不断言，只验形状与过滤）。"""
+    c, _, _ = _register("av2-", role="admin")
+    runs = c.get("/api/agent-v2/admin/runs?page=1").json()
+    assert isinstance(runs["items"], list) and runs["total"] >= 0
+    filtered = c.get("/api/agent-v2/admin/runs?status=completed").json()
+    assert all(i["status"] == "completed" for i in filtered["items"])
+    stats = c.get("/api/agent-v2/admin/runs/stats").json()
+    assert stats["window_days"] == 7
+    assert set(stats["approvals"]) == {"pending", "approved", "rejected", "expired"}
+    assert stats["total_runs"] >= 0
+
+
+def test_reap_orphan_runs_marks_failed():
+    """启动回收孤儿 run（lifespan 钩子调用）：planning/running → failed，审批单同步作废；
+    waiting_approval 不动——图挂在 checkpoint 上，续跑仍然有效。"""
+    from app.services.agent_v2.graph import reap_orphan_runs
+
+    _, uid, _ = _register("av2-")
+    suffix = uuid.uuid4().hex[:8]
+
+    def _insert_run(status: str, tag: str) -> int:
+        with engine.begin() as conn:
+            return conn.execute(
+                text(
+                    "INSERT INTO agent_runs (user_id, trace_id, thread_id, run_type, status)"
+                    " VALUES (:uid, :trace, :thread, 'job_prep_pipeline', :status) RETURNING id"
+                ),
+                {
+                    "uid": uid,
+                    "trace": f"av2-trace-{suffix}-{tag}",
+                    "thread": f"av2-thread-{suffix}-{tag}",
+                    "status": status,
+                },
+            ).scalar()
+
+    planning_id = _insert_run("planning", "p")
+    running_id = _insert_run("running", "r")
+    waiting_id = _insert_run("waiting_approval", "w")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO agent_approvals (run_id, trace_id, action_key, status)"
+                " VALUES (:rid, :trace, 'create_interview_session', 'pending')"
+            ),
+            {"rid": waiting_id, "trace": f"av2-trace-{suffix}-w"},
+        )
+
+    assert reap_orphan_runs() >= 2  # 可能含其他遗留行，至少回收本次两条
+
+    with engine.begin() as conn:
+        statuses = dict(
+            conn.execute(
+                text("SELECT id, status FROM agent_runs WHERE id IN (:a, :b, :c)"),
+                {"a": planning_id, "b": running_id, "c": waiting_id},
+            ).all()
+        )
+        error = conn.execute(
+            text("SELECT error FROM agent_runs WHERE id = :i"), {"i": planning_id}
+        ).scalar()
+        approval_status = conn.execute(
+            text("SELECT status FROM agent_approvals WHERE run_id = :i"),
+            {"i": waiting_id},
+        ).scalar()
+    assert statuses[planning_id] == "failed"
+    assert statuses[running_id] == "failed"
+    assert statuses[waiting_id] == "waiting_approval"
+    assert error and "服务重启" in error
+    assert approval_status == "pending"  # 挂起中 run 的审批单不被回收波及

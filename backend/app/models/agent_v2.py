@@ -6,7 +6,7 @@ span 的 input/output_preview 只存 ≤200 字预览，禁止简历正文与密
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Integer, String, Text
+from sqlalchemy import BigInteger, DateTime, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -16,6 +16,15 @@ class AgentRun(Base, TimestampMixin):
     """一次图运行实例（run_type=job_prep_pipeline）。"""
 
     __tablename__ = "agent_runs"
+
+    # 部分索引：只有等待审批的 run 是高频筛选目标，谓词必须与迁移 b7e4a1c90d52 一致
+    __table_args__ = (
+        Index(
+            "ix_agent_runs_status_waiting",
+            "status",
+            postgresql_where=text("status = 'waiting_approval'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
@@ -29,14 +38,13 @@ class AgentRun(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(
         String(30),
         default="planning",
-        index=True,
     )  # planning/running/waiting_approval/verifying/completed/failed/aborted/rejected
     current_node: Mapped[str | None] = mapped_column(String(50))
     output_json: Mapped[str | None] = mapped_column(Text)  # 最终产物（三段摘要）
     error: Mapped[str | None] = mapped_column(Text)  # 面向用户的失败话术
-    iterations: Mapped[int | None]
-    tokens_total: Mapped[int | None]
-    duration_ms: Mapped[int | None]
+    iterations: Mapped[int | None] = mapped_column(Integer)
+    tokens_total: Mapped[int | None] = mapped_column(Integer)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
     approved_by: Mapped[int | None] = mapped_column(BigInteger)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -69,6 +77,15 @@ class AgentApproval(Base, TimestampMixin):
 
     __tablename__ = "agent_approvals"
 
+    # 部分索引：待审批单是唯一的查询目标，谓词必须与迁移 b7e4a1c90d52 一致
+    __table_args__ = (
+        Index(
+            "ix_agent_approvals_status_pending",
+            "status",
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
+
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     run_id: Mapped[int] = mapped_column(BigInteger, index=True)
     trace_id: Mapped[str] = mapped_column(String(64), index=True)
@@ -76,7 +93,7 @@ class AgentApproval(Base, TimestampMixin):
     anonymous_id: Mapped[str | None] = mapped_column(String(64), index=True)
     action_key: Mapped[str] = mapped_column(String(50))  # create_interview_session 等
     payload_json: Mapped[str | None] = mapped_column(Text)  # 动作参数快照（续跑输入）
-    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
     # pending / approved / rejected / expired
     decided_by: Mapped[int | None] = mapped_column(BigInteger)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

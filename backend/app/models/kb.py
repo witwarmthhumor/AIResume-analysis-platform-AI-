@@ -7,7 +7,7 @@ kb_documents 存文档元信息（含归属与状态），kb_chunks 存切块正
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -43,6 +43,17 @@ class KBDocument(Base, TimestampMixin):
 
 class KBChunk(Base, TimestampMixin):
     __tablename__ = "kb_chunks"
+
+    # HNSW 余弦近邻索引（迁移 d292ca7b478b 以裸 SQL 创建）；在此登记让 autogenerate
+    # 认识它，否则 check/生成迁移时会把它当成待删除索引（检索会静默退化为全表扫描）
+    __table_args__ = (
+        Index(
+            "ix_kb_chunks_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     document_id: Mapped[int] = mapped_column(

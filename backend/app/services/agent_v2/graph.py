@@ -16,18 +16,20 @@
 
 import json
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import TypedDict
 
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
-from sqlalchemy import text
+from sqlalchemy import select, text, update
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import SessionLocal
-from app.models.agent_v2 import AgentApproval, AgentSpan
+from app.models.agent_v2 import AgentApproval, AgentRun, AgentSpan
 from app.models.analysis import Analysis
 from app.models.resume import Resume
 from app.services.agent_capabilities import run_job_match, run_question_generation
@@ -41,6 +43,8 @@ logger = get_logger(__name__)
 
 MAX_RETRIES_PER_NODE = settings.agent_v2_max_retries_per_node
 RISK_CREATE_SESSION = "create_interview_session"
+# 审批单展示话术：api 侧（快照/详情/事件）与图侧同源导入，防前后端多处口径漂移
+APPROVAL_SUMMARY = "按本次出题结果创建模拟面试场次（产生持久数据并消耗面试额度）"
 
 
 class JobPrepState(TypedDict, total=False):
@@ -346,7 +350,20 @@ def _make_nodes(deps):
                 .order_by(AgentApproval.id.desc())
                 .first()
             )
-            if approval is None:
+            now = datetime.now(timezone.utc)
+            # 可复用：resume 在途（已 decided）或仍有效（pending 未过期）。
+            # 过期/作废单（TTL 到点或 abort 收尾）不可复用，否则会把僵尸单
+            # 又挂回图上；作废后重建新单，给一次新的审批窗口（质量审计 P2#6）
+            reusable = approval is not None and (
+                approval.status in ("approved", "rejected")
+                or (
+                    approval.status == "pending"
+                    and not (approval.expires_at and approval.expires_at < now)
+                )
+            )
+            if not reusable:
+                if approval is not None and approval.status == "pending":
+                    approval.status = "expired"
                 approval = AgentApproval(
                     run_id=deps.run_id,
                     trace_id=deps.trace_id,
@@ -362,7 +379,7 @@ def _make_nodes(deps):
                     ),
                     status="pending",
                     # TTL 到点后 approve 接口视同失效（_pending_approval 判过期），防僵尸审批单
-                    expires_at=datetime.now(timezone.utc)
+                    expires_at=now
                     + timedelta(minutes=settings.agent_approval_ttl_minutes),
                 )
                 deps.db.add(approval)
@@ -373,7 +390,7 @@ def _make_nodes(deps):
                         "type": "approval_required",
                         "approval_id": approval.id,
                         "action_key": RISK_CREATE_SESSION,
-                        "summary": "按本次出题结果创建模拟面试场次（产生持久数据并消耗面试额度）",
+                        "summary": APPROVAL_SUMMARY,
                         # 前端审批卡倒计时数据源（ISO 串；get_run 详情同口径）
                         "expires_at": approval.expires_at.isoformat()
                         if approval.expires_at
@@ -383,7 +400,7 @@ def _make_nodes(deps):
             payload = {
                 "approval_id": approval.id,
                 "action_key": RISK_CREATE_SESSION,
-                "summary": "按本次出题结果创建模拟面试场次（产生持久数据并消耗面试额度）",
+                "summary": APPROVAL_SUMMARY,
             }
             decision = interrupt(payload)  # 图在此挂起；resume 值即审批决定
             if isinstance(decision, dict) and decision:
@@ -472,7 +489,11 @@ def route_after_verifier(state: JobPrepState) -> str:
 
 
 def _wrap_node(name: str):
-    """节点薄壳：发布 node_start/end、写 span、维护 run.current_node。"""
+    """节点薄壳：发布 node_start/end、写 span、维护 run.current_node。
+
+    节点闭包在 _Deps 构造时生成一次（deps.nodes），薄壳只按名取用——
+    此前每次节点执行都重建全部闭包，纯浪费（质量审计 P3）。
+    """
 
     def _inner(state: JobPrepState, config: dict) -> dict:
         deps = deps_from_config(config)
@@ -480,7 +501,7 @@ def _wrap_node(name: str):
         deps.publish({"type": "node_start", "node": name})
         deps.recorder.status("running", node=name)
         try:
-            result = _make_nodes(deps)[name](state)
+            result = deps.nodes[name](state)
         except Exception as exc:
             deps.recorder.span(
                 "agent_node",
@@ -559,22 +580,35 @@ def build_job_prep_graph(checkpointer):
     return builder.compile(checkpointer=checkpointer)
 
 
-def _make_deps(db, run_id: int, trace_id: str, user_id, anonymous_id):
-    """构造图执行线程的运行期依赖（publish 走事件总线）。"""
+@dataclass
+class _Deps:
+    """图执行线程的运行期依赖：publish 走事件总线，节点闭包构造一次挂 nodes。"""
 
-    class _Deps:
-        pass
+    db: Session
+    run_id: int
+    trace_id: str
+    user_id: int | None
+    anonymous_id: str | None
+    recorder: RunRecorder = field(init=False)
+    nodes: dict = field(init=False)
 
-    deps = _Deps()
-    deps.db = db
-    deps.user_id = user_id
-    deps.anonymous_id = anonymous_id
-    deps.run_id = run_id
-    deps.trace_id = trace_id
-    deps.recorder = RunRecorder(run_id, trace_id, db)
-    deps.ip = None
-    deps.publish = lambda event: event_bus.publish(run_id, event)
-    return deps
+    def __post_init__(self) -> None:
+        self.recorder = RunRecorder(self.run_id, self.trace_id, self.db)
+        self.nodes = _make_nodes(self)
+
+    def publish(self, event: dict) -> None:
+        event_bus.publish(self.run_id, event)
+
+
+def _make_deps(db, run_id: int, trace_id: str, user_id, anonymous_id) -> _Deps:
+    """构造图执行线程的运行期依赖（命名入口，便于测试/调用方对齐）。"""
+    return _Deps(
+        db=db,
+        run_id=run_id,
+        trace_id=trace_id,
+        user_id=user_id,
+        anonymous_id=anonymous_id,
+    )
 
 
 def _dsn() -> str:
@@ -689,3 +723,37 @@ def resume_job_prep(
                 event_bus.publish(
                     run_id, {"type": "fatal", "content": "续跑失败，请稍后重试。"}
                 )
+
+
+def reap_orphan_runs() -> int:
+    """服务启动时回收孤儿 run：图跑在进程内线程里，上个进程残留的
+    planning/running 状态不可能还在执行——标记 failed 让用户可重试。
+
+    waiting_approval 刻意不动：图挂在 checkpoint 上，审批后续跑仍然有效（FR-8）。
+    返回被回收的 run 数（启动日志用）。
+    """
+    with SessionLocal() as db:
+        run_ids = list(
+            db.scalars(
+                select(AgentRun.id).where(AgentRun.status.in_(("planning", "running")))
+            )
+        )
+        if not run_ids:
+            return 0
+        db.execute(
+            update(AgentRun)
+            .where(AgentRun.id.in_(run_ids))
+            .values(
+                status="failed",
+                error="服务重启导致任务中断，请重新发起。",
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
+        db.execute(
+            update(AgentApproval)
+            .where(AgentApproval.run_id.in_(run_ids), AgentApproval.status == "pending")
+            .values(status="expired")
+        )
+        db.commit()
+        logger.info("启动回收孤儿 agent run %d 条：%s", len(run_ids), run_ids)
+        return len(run_ids)

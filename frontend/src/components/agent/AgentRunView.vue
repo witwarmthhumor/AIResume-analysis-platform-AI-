@@ -116,11 +116,12 @@ function handleEvent(event, data) {
     return
   }
   if (event === 'stream_closed') {
-    // 服务端 30s 防御性断流或 waiting_approval 关流：等待审批态照常展示
+    // 服务端 90s 无事件防御性断流，或 waiting_approval 主动关流：
+    // 前者客户端可重连，审批态照常展示（approval_required 已置 waiting_approval）
     if (data.reason === 'waiting_approval') runStatus.value = 'waiting_approval'
     return
   }
-  // snapshot（/stream 重连首帧）：恢复步骤条与审批卡
+  // snapshot（/stream 重连首帧）：恢复步骤条/产物/审批卡（等待审批时后端带 approval）
   if (event === 'snapshot') {
     applySnapshot(data)
   }
@@ -140,6 +141,8 @@ function applySnapshot(snap) {
   runStatus.value = snap.status
   if (snap.plan) initSteps(snap.plan)
   if (snap.output) output.value = snap.output
+  // 等待审批：用后端快照里的 approval（与事件/get 详情同结构）恢复审批卡；
+  // 其余状态清掉审批卡并停表，防过期残留的倒计时在别的状态下继续跑
   if (snap.status === 'waiting_approval' && snap.approval) {
     approval.value = snap.approval
     startCountdown(snap.approval.expires_at)

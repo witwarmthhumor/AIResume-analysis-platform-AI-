@@ -16,12 +16,16 @@ _subscribers: dict[int, list[deque]] = {}
 
 
 def subscribe_with_replay(run_id: int) -> deque:
-    """注册订阅者；若已有其他订阅者，把其缓冲复制一份（重连补发既有状态事件）。"""
+    """注册订阅者；若已有其他订阅者，把其缓冲复制一份（重连补发既有状态事件）。
+
+    补发的是事件 dict 的浅拷贝：消费端会对事件做 event.pop("type") 的破坏性
+    修改，共享引用会让第二个消费者拿到被改过的对象（实测双连接并存时崩流）。
+    """
     with _lock:
         existing = _subscribers.get(run_id, [])
         buf = deque(maxlen=_MAX_BUFFER)
         if existing:
-            buf.extend(existing[0])
+            buf.extend(dict(e) for e in existing[0])
         _subscribers.setdefault(run_id, []).append(buf)
     return buf
 
@@ -36,11 +40,15 @@ def unsubscribe(run_id: int, buf: deque) -> None:
 
 
 def publish(run_id: int, event: dict) -> None:
-    """向该 run 的全部订阅者投递事件（无订阅者时静默——DB 状态是权威）。"""
+    """向该 run 的全部订阅者投递事件（无订阅者时静默——DB 状态是权威）。
+
+    每个订阅者收到独立拷贝：消费端会 pop("type") 破坏性修改事件，
+    多订阅者共享同一 dict 时第二个消费者必崩（KeyError）。
+    """
     with _lock:
         subs = list(_subscribers.get(run_id, []))
     for buf in subs:
-        buf.append(event)
+        buf.append(dict(event))
 
 
 def subscriber_count(run_id: int) -> int:

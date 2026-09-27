@@ -4,6 +4,7 @@
 """
 
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -39,7 +40,22 @@ if settings.jwt_secret_key == "change-me-in-backend-env":
         "JWT_SECRET_KEY 仍是默认占位值，登录凭证可被伪造——请在 backend/.env 设置随机密钥"
     )
 
-app = FastAPI(title="AI 简历分析与模拟面试 API", version=settings.app_version)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """启动钩子：回收上个进程遗留的孤儿 agent run（图线程随进程消亡，无法续跑）。"""
+    from app.services.agent_v2.graph import reap_orphan_runs
+
+    try:
+        reap_orphan_runs()
+    except Exception:  # 回收失败不能拖垮服务启动（如启动时 DB 尚未就绪）
+        logger.warning("启动回收孤儿 agent run 失败", exc_info=True)
+    yield
+
+
+app = FastAPI(
+    title="AI 简历分析与模拟面试 API", version=settings.app_version, lifespan=lifespan
+)
 
 register_all_routers(app)  # RouterRegistry 自动注册 app/api 下全部路由
 

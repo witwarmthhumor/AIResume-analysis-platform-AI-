@@ -4,7 +4,7 @@
 - eval_rag 量**检索**质量；eval_agent_routing 量**工具路由**质量；
   本脚本量**图编排**质量（条件路由/重试回环/HITL 门禁/降级/限额/越权是否按预期流转）。
 
-执行方式：10 个任务全部**离线确定性**跑——能力层（run_job_match / run_question_generation /
+执行方式：11 个任务全部**离线确定性**跑——能力层（run_job_match / run_question_generation /
 analyze_resume）打桩，LLM 不参与任务执行，因此结果可复现、不烧额度、可进 CI；
 「检索不可用降级」一题例外地走真实 run_question_generation（只桩它内部的 kb_retrieve
 与 run_tool_llm），保证降级逻辑本身是被测对象而不是被桩掉。
@@ -14,7 +14,7 @@ AI 通道探针沿用评测脚本约定（同 eval_agent_routing）：通道不�
 避免把"0 条结果"的空报告当成评测产物；--skip-ai 可跳过探针（离线环境用）。
 
 用法（backend/ 目录下）：
-    ./.venv/Scripts/python.exe -m scripts.eval_agent_e2e            # 全量 10 任务
+    ./.venv/Scripts/python.exe -m scripts.eval_agent_e2e            # 全量 11 任务
     ./.venv/Scripts/python.exe -m scripts.eval_agent_e2e --skip-ai  # 跳过 AI 预检
 退出码：0 全过 / 1 有任务失败 / 2 预检失败。
 """
@@ -46,7 +46,7 @@ CASES_PATH = (
     Path(__file__).resolve().parents[1].parent / "data" / "agent_eval" / "e2e.json"
 )
 REPORT_PATH = CASES_PATH.parent / "e2e_report.md"
-# 评测门槛（PRD M4）：≥90%，10 任务即至少 9 过
+# 评测门槛（PRD M4）：≥90%，11 任务即至少 10 过
 PASS_RATE_THRESHOLD = 0.9
 WAIT_TIMEOUT_S = 15.0
 
@@ -181,7 +181,7 @@ def _wait_status(run_id: int, target: str) -> str:
 
 
 def _drain_events(resp, until: tuple[str, ...] = ()) -> list[tuple[str, dict]]:
-    """POST /runs 的 SSE 响应体按 event/data 解析；命中 until 即停。"""
+    """POST /runs 的 SSE 响应体按 event/data 解析；命中 until 中的事件类型即停。"""
     events: list[tuple[str, dict]] = []
     last = None
     for line in resp.text.split("\n"):
@@ -189,6 +189,8 @@ def _drain_events(resp, until: tuple[str, ...] = ()) -> list[tuple[str, dict]]:
             last = line[len("event: ") :]
         elif line.startswith("data: ") and last:
             events.append((last, json.loads(line[len("data: ") :])))
+            if last in until:
+                break
     return events
 
 
@@ -277,7 +279,11 @@ def task_reject_no_session() -> tuple[bool, str]:
 
 
 def task_approval_expired() -> tuple[bool, str]:
-    """审批超时：TTL=0 审批单立即过期，approve 返 410，abort 收尾。"""
+    """审批超时：TTL=0 审批单立即过期——approve 410，run 自动终止为 failed 不再卡死。
+
+    旧语义只到 410 为止，run 永久卡在 waiting_approval 只能 abort（质量审计 P2#6）；
+    新语义下 failed 是终态，retry-node 可从失败节点重试，一并验证。
+    """
     c, uid = _register()
     _create_resume(uid)
     original_ttl = settings.agent_approval_ttl_minutes
@@ -292,9 +298,8 @@ def task_approval_expired() -> tuple[bool, str]:
     )
     if approve_resp.status_code != 410:
         return False, f"过期审批应 410，实际 {approve_resp.status_code}"
-    c.post(f"/api/agent-v2/runs/{run_id}/abort")
-    if _wait_status(run_id, "aborted") != "aborted":
-        return False, "abort 后未 aborted"
+    if _wait_status(run_id, "failed") != "failed":
+        return False, "过期后 run 未自动终止为 failed（仍会卡 waiting_approval）"
     with engine.begin() as conn:
         approval = conn.execute(
             text(
@@ -305,7 +310,16 @@ def task_approval_expired() -> tuple[bool, str]:
         ).scalar()
     if approval != "expired":
         return False, f"审批单状态 {approval!r}（应 expired）"
-    return True, "TTL 到点 approve 410，abort 后 run=aborted、审批单=expired"
+    retry = c.post(f"/api/agent-v2/runs/{run_id}/retry-node")
+    if retry.status_code != 200:  # 直出 SSE 流，StreamingResponse 固定 200
+        return False, f"过期终止后应可重试，实际 {retry.status_code}"
+    new_run = _run_id_of(uid)
+    if (
+        new_run == run_id
+        or _wait_status(new_run, "waiting_approval") != "waiting_approval"
+    ):
+        return False, "重试未新建 run 或新 run 未走到审批"
+    return True, "TTL 到点 approve 410、run 终止 failed、审批单 expired、可重试"
 
 
 def task_no_resume_guidance() -> tuple[bool, str]:

@@ -13,13 +13,14 @@ Create Date: 2026-09-25 23:57:43.170669
 本迁移把 4 张 checkpoint 表预建进 langgraph schema 并把 langgraph 自身的
 10 个版本号全部标记为已应用，setup() 从此是纯读空转，不再执行任何 DDL。
 """
+
 from collections.abc import Sequence
 
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = '08c3d31e023c'
-down_revision: str | None = 'b7e4a1c90d52'
+revision: str = "08c3d31e023c"
+down_revision: str | None = "b7e4a1c90d52"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -79,10 +80,18 @@ def upgrade() -> None:
         )
     """)
     op.execute("ALTER TABLE langgraph.checkpoint_blobs ALTER COLUMN blob DROP NOT NULL")
-    op.execute("ALTER TABLE langgraph.checkpoint_writes ADD COLUMN IF NOT EXISTS task_path TEXT NOT NULL DEFAULT ''")
-    op.execute("CREATE INDEX IF NOT EXISTS checkpoints_thread_id_idx ON langgraph.checkpoints(thread_id)")
-    op.execute("CREATE INDEX IF NOT EXISTS checkpoint_blobs_thread_id_idx ON langgraph.checkpoint_blobs(thread_id)")
-    op.execute("CREATE INDEX IF NOT EXISTS checkpoint_writes_thread_id_idx ON langgraph.checkpoint_writes(thread_id)")
+    op.execute(
+        "ALTER TABLE langgraph.checkpoint_writes ADD COLUMN IF NOT EXISTS task_path TEXT NOT NULL DEFAULT ''"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS checkpoints_thread_id_idx ON langgraph.checkpoints(thread_id)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS checkpoint_blobs_thread_id_idx ON langgraph.checkpoint_blobs(thread_id)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS checkpoint_writes_thread_id_idx ON langgraph.checkpoint_writes(thread_id)"
+    )
     # 旧版本 _dsn() 的 search_path 回退把 checkpoint 表误建到了 public（langgraph schema
     # 不存在时），这些表不受本迁移管理且只含测试期数据，清掉防两套并存造成歧义
     op.execute("""
