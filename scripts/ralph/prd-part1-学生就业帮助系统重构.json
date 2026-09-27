@@ -1,0 +1,380 @@
+{
+  "project": "学生就业帮助系统",
+  "branchName": "ralph/student-employment-refactor",
+  "description": "合并稿 Part 1：学生就业帮助系统重构（企业级架构 + 统一登录 + 用户体系），21 个 story（US-001~021）。⚠️ **本清单属另一个独立仓库，不可在 AIResume 仓库执行**：目标系统源码当前不在本机，US-001（现状核对与视觉基线存档）是硬阻塞项——未完成 US-001 不得开工任何实现类 story；每个 story 的验收项首条都带跨仓库护栏，命中即停并记 blocked。用法：复制本文件到「学生就业帮助系统」仓库的 scripts/ralph/prd.json，以 tasks/prd-学生就业帮助系统重构.md 为需求源，在该仓库另起 Ralph 迭代。ID 说明：US-001~021 与该 PRD 编号一一对应（不再使用合并稿里的 US-101~107 式避让前缀）。",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "现状核对与视觉基线存档（硬阻塞）",
+      "description": "源自合并稿 Part 1（原 US-001）。作为重构实施者，我需要先把旧系统的真实结构记录下来，这样后续迁移才有据可依、不会凭截图猜测。**本 story 是整条链路的硬阻塞项，未完成不得开工任何实现类 story。**",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "若目标系统源码仍不在本机，标记 blocked 并在 notes 写明 `blocked: source code unavailable`，不得凭截图臆造核对结论",
+        "产出 `docs/现状核对表.md`，逐条填写：后端框架与版本、启动方式与端口、静态目录挂载方式、数据库类型与全部表结构",
+        "记录口令存储实证：查 admin 行，判定明文 / MD5 / hash 并截图或导出片段",
+        "导出全部接口清单（URL / 方法 / 入参 / 出参 / 是否鉴权）",
+        "记录 admin 权限实际控制的功能范围（界定「冻结边界」）",
+        "产出 `legacy/` 视觉存档：登录页、主界面、录音分析、面试题生成、模拟面试、管理端三页的页面文件与皮肤 CSS",
+        "确认「返校列车」是否真实业务（是则补功能说明）",
+        "记录录音分析实际调用的转写能力（本地模型 / 云 API / SDK）",
+        "`ruff check .` 通过"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "blocked: wrong repo; blocked: source code unavailable — 本工作目录是 AIResume（无 legacy/ 目录、无「学生就业帮助系统」源码），US-008 属另一独立仓库，需在该仓库执行"
+    },
+    {
+      "id": "US-002",
+      "title": "仓库骨架与环境自检",
+      "description": "源自合并稿 Part 1（原 US-002）。作为开发者，我需要一个能启动的空壳工程与一条自检命令，这样环境问题在写业务前就暴露。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "建出目录骨架；`docker-compose.yml` 起 postgres + redis（具名卷）",
+        "`.env.example` 含数据库/密钥/Redis 变量；`.gitignore` 忽略 `.env`",
+        "`core/config.py`（pydantic-settings）读 `.env`；`jwt_secret_key` 为默认值时启动失败",
+        "`core/errors.py` 输出统一错误体 `{code,message,details}`；`core/logging.py` 可用",
+        "`GET /health` 返回服务与数据库连接状态",
+        "`scripts/check_env.py` 一条命令输出容器/迁移/端口/DB 状态",
+        "`ruff check .` 通过"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "数据层与初始迁移",
+      "description": "源自合并稿 Part 1（原 US-003）。作为开发者，我需要全部业务表通过迁移一次建齐，这样 schema 可演进、可复现。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "建出 users / resumes / audio_jobs / question_banks / interview_sessions / interview_messages / usage_logs / audit_logs 模型",
+        "所有模型在 `models/__init__.py` 登记（漏登记会让 autogenerate 生成 DROP TABLE）",
+        "迁移 `0001_init_users.py` + `0002_init_business.py` 可从零 `alembic upgrade head`",
+        "索引与唯一约束按预期生成（username/email 唯一、外键索引）",
+        "`alembic check` 无差异",
+        "`ruff check .` 通过"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "口令与令牌安全模块",
+      "description": "源自合并稿 Part 1（原 US-004）。作为开发者，我需要一套统一的口令哈希与 JWT 工具，这样任何地方都不会各写一套。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "`core/security.py` 提供 `hash_password` / `verify_password`（argon2id，`pwdlib`）",
+        "提供 `create_access_token(user_id, role, token_version)` 与 `decode_access_token`",
+        "同口令两次哈希结果不同（盐生效），且都能校验通过",
+        "篡改过的 Token 解码返回 `None`，过期 Token 解码返回 `None`",
+        "`ruff check .` 且新增 `pytest` 用例通过"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "注册接口",
+      "description": "源自合并稿 Part 1（原 US-005）。作为新用户，我想注册账号，这样我才能登录并使用系统。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "`POST /api/auth/register` 接受用户名 + 口令（+ 可选邮箱），返回用户基本信息（不含 `password_hash`）",
+        "口令长度 <8 或缺字母/数字时返回 400，并说明规则",
+        "用户名重复返回 409；用户名（`admin`/`root` 等保留字）返回 400",
+        "落库的 `password_hash` 以 `$argon2id$` 开头",
+        "注册接口按 IP 限流（超限 429）",
+        "测试造数用专属用户名前缀并在用例后范围化清理（禁全表 DELETE）",
+        "`ruff check .` 且 `pytest` 通过"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "登录接口与失败锁定",
+      "description": "源自合并稿 Part 1（原 US-006）。作为用户，我想用账号口令登录，这样我能拿到访问凭证。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "`POST /api/auth/login` 校验通过后下发 HttpOnly Cookie（`SameSite=Lax`），响应体返回用户信息与角色",
+        "口令错误返回 401，文案统一为「用户名或密码错误」（不泄露用户是否存在）",
+        "同一 `username+IP` 连续失败 5 次后锁定 15 分钟，期间返回 429/423 并带剩余时间",
+        "登录成功写 `last_login_at`，并写一条审计日志",
+        "错误口令不会在日志或响应中出现",
+        "`ruff check .` 且 `pytest` 通过"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "登出、当前用户与修改密码",
+      "description": "源自合并稿 Part 1（原 US-007）。作为用户，我想退出登录并在需要时改密码，这样我能保护账号。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "`POST /api/auth/logout` 清 Cookie 返回 204",
+        "`GET /api/auth/me` 返回当前用户信息与角色；未登录 401",
+        "`POST /api/auth/change-password` 需原密码 + 新密码 + 二次确认；原密码错返回 400",
+        "新密码不满足强度返回 400",
+        "改密成功后 `token_version` 递增，用改密前的 Cookie 调 `/api/auth/me` 返回 401",
+        "改密成功后 `pwd_changed_at` 更新",
+        "`ruff check .` 且 `pytest` 通过（含「旧 token 失效」用例）"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "admin 账号保留与口令重哈希",
+      "description": "源自合并稿 Part 1（原 US-008）。作为管理员，我需要改造后仍能用 admin/123456 登录并保住原有管理权限。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "迁移 `0003_admin_rehash.py`：把 admin 口令以 argon2id 写入 `password_hash`（脚本只读旧值、不回显）",
+        "`scripts/seed_admin.py` 幂等：重复执行不重复建号、不覆盖已改过的口令",
+        "admin 行 `role='admin'`，用 `admin/123456` 登录成功",
+        "全库校验：`users` 表中不存在明文/32 位 MD5 形态的口令",
+        "旧口径的登录比较分支代码被删除（无残留硬编码 `123456`）",
+        "`ruff check .` 且 `pytest` 通过"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "鉴权闸门与授权依赖",
+      "description": "源自合并稿 Part 1（原 US-009）。作为系统，我需要在入口处统一拦截未授权请求，这样任何新接口都不会漏鉴权。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "所有 `/api/**` 路由默认挂全局认证依赖；白名单仅 `register` / `login` / `health`",
+        "未携带凭证访问任意业务接口返回 401",
+        "`require_admin` 依赖存在：非 admin 访问管理端接口返回 403",
+        "归属校验 helper 统一实现（登录按 `user_id`、匿名要求 `user_id IS NULL AND anonymous_id = ?`）",
+        "归属 helper 不允许退化为「只判 `user_id IS NULL`」（用例覆盖）",
+        "跨用户访问他人资源返回 404（不是 403）",
+        "`ruff check .` 且 `pytest` 通过（覆盖未登录 / 非 admin / 跨用户三类）"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "前端骨架、路由守卫与 401 拦截",
+      "description": "源自合并稿 Part 1（原 US-010）。作为用户，我未登录时不该看到任何业务页面，这样登录就是真正的入口。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "Vite + Vue3 + vue-router + Pinia 骨架可 `npm run dev`",
+        "`router/index.js` 中所有业务路由带 `meta.requiresAuth`；`beforeEach` 未登录跳 `/login?redirect=<原路径>`",
+        "未登录直接访问 `/`、`/audio`、`/questions`、`/interview`、`/admin/*` 均被重定向到登录页",
+        "`api/http.js` 统一解析错误体，并对 401 清状态 + 跳登录",
+        "`meta.requiresAdmin` 路由对普通用户显示 403 页",
+        "`npm run build` 成功",
+        "浏览器验收：未登录访问受限路由被重定向（agent-browser 或 cdp-ui-verify）"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "登录 / 注册 / 修改密码页",
+      "description": "源自合并稿 Part 1（原 US-011）。作为用户，我想在一个页面完成注册、登录与改密，这样入口清晰。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "`LoginView.vue` 含登录 / 注册 / 修改密码三个 Tab",
+        "表单含前端校验（必填、口令强度、二次确认一致）并在提交前拦截",
+        "登录成功按 `redirect` 参数跳回原目标页，无 `redirect` 时进主界面",
+        "错误提示使用后端统一错误体的 `message`（不暴露内部细节）",
+        "摘掉「切换到手机号登录」等未实现文案",
+        "`npm run build` 成功",
+        "浏览器验收：注册 → 登录 → 改密 → 用新口令登录 全链路可用"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "主界面（布局 + 导航 + 首页）",
+      "description": "源自合并稿 Part 1（原 US-012）。作为用户，我登录后要看到与改造前一致的工作台与导航。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "`AppLayout` + `NavSideBar` 成为唯一壳；导航 5 项命名与顺序与截图一致",
+        "`user` 角色不显示管理端菜单；`admin` 角色显示管理端 3 项",
+        "右上角显示用户名与头像；点击可登出",
+        "`HomeView` 展示与改造前一致的功能入口",
+        "皮肤沿用 Hogwarts 配色（深木 / 米金 / 金），标题使用衬线字体",
+        "`npm run build` 成功",
+        "浏览器验收：对照截图逐项核对导航与顶栏"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "录音分析后端",
+      "description": "源自合并稿 Part 1（原 US-013）。作为用户，我想上传录音并按三种目的分析，这样我能拿到转写与审核结果。（偏大 story，若单次迭代吃不下，按「上传+校验」与「Celery 三种结果」拆两步并在 notes 记录）",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "`POST /api/audio/jobs` 接受文件 + `purpose`（`transcribe` / `role_review` / `interview_review`），落盘后建任务返回 job id",
+        "拒绝非 MP3/WAV/M4A、>500MB、超 60 分钟的输入，返回明确错误体",
+        "文件名随机化并存储在 web 根之外；下载/读取走鉴权接口",
+        "长任务经 Celery 执行，`GET /api/audio/jobs/{id}` 返回状态与进度",
+        "三种 `purpose` 各自产出结构化结果字段",
+        "失败可 `POST /api/audio/jobs/{id}/retry`",
+        "他人 job 返回 404",
+        "`ruff check .` 且 `pytest` 通过"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "录音分析前端",
+      "description": "源自合并稿 Part 1（原 US-014）。作为用户，我想在页面里上传并看到三种分析结果，这样我不用命令行操作。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "`AudioAnalysisView.vue` 含三 Tab：录音转文本 / 角色审核 / 面试审核",
+        "上传区支持拖拽，展示与截图一致的提示文案（格式/大小/时长）",
+        "上传后展示进度，完成后分 Tab 渲染对应结果",
+        "历史记录抽屉可打开历史任务并回看结果",
+        "失败态显示错误与重试按钮",
+        "`npm run build` 成功",
+        "浏览器验收：三种 purpose 各跑通一次并回看历史"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "面试题生成后端",
+      "description": "源自合并稿 Part 1（原 US-015）。作为用户，我想用简历生成定制面试题，这样我能针对自己经历刷题。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "`POST /api/question-banks` 接受简历文件（PDF/Word，<10MB），解析后生成题库",
+        "拒绝不支持格式与超限文件，返回明确错误体",
+        "生成结果落 `question_banks.questions`（JSONB），含题目分组与总数",
+        "`GET /api/question-banks` 列历史（标题、题数、时间），`GET /api/question-banks/{id}` 取详情",
+        "他人题库返回 404",
+        "生成过程为异步任务，状态可轮询",
+        "`ruff check .` 且 `pytest` 通过"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "面试题生成前端",
+      "description": "源自合并稿 Part 1（原 US-016）。作为用户，我想在页面里上传简历并查看生成的题库。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "`QuestionGenView.vue` 含拖拽上传区与「基于简历内容生成定制化面试题」提示",
+        "生成中显示进度，完成后按题目列表分组展示",
+        "历史记录可打开过往题库详情",
+        "上传约束（格式/大小）与截图文案一致",
+        "`npm run build` 成功",
+        "浏览器验收：上传 → 生成 → 打开历史 全链路可用"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "模拟面试后端",
+      "description": "源自合并稿 Part 1（原 US-017）。作为用户，我想基于某份简历和某个题库开始一场模拟面试并与 AI 逐条对话。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "`POST /api/interviews` 接受 `resume_id` + `bank_id`，创建会话（校验两者归属，非法返回 404/400）",
+        "`POST /api/interviews/{id}/messages` 接收用户回答并返回 AI 追问，逐条落 `interview_messages`",
+        "`GET /api/interviews` 列历史（时间、简历、题库、状态、轮次）",
+        "`GET /api/interviews/{id}` 返回会话消息（刷新可恢复）",
+        "`DELETE /api/interviews/{id}` 清空会话内容",
+        "他人会话返回 404",
+        "`ruff check .` 且 `pytest` 通过"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "模拟面试前端",
+      "description": "源自合并稿 Part 1（原 US-018）。作为用户，我想选简历与题库后开始对话，并能清空或翻看历史。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "`MockInterviewView.vue` 两个下拉（简历 / 题库，题库显示题数）+「确认加载」按钮",
+        "未选齐两项时按钮不可用（与改造前交互一致）",
+        "加载后进入聊天区，支持发送、逐条追加消息、流式或轮询刷新",
+        "「清空聊天」与「历史记录」两个动作都在且生效",
+        "刷新页面后可恢复当前会话",
+        "`npm run build` 成功",
+        "浏览器验收：完整走一场对话 + 清空 + 打开历史"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "管理端冻结校验",
+      "description": "源自合并稿 Part 1（原 US-019）。作为管理员，我需要改造后三个管理功能与改造前行为一致，且普通用户无法访问。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "使用日志 / 数据看板 / 语料库管理三页在新架构下可用，字段与交互与改造前一致",
+        "普通用户访问管理端页面被前端拦截且有后端 403 兜底",
+        "管理端接口全部经 `require_admin`",
+        "本次不新增、不删除、不改名任何管理端功能",
+        "`npm run build` 成功",
+        "浏览器验收：admin 账号逐页核对三功能；普通账号访问被拒"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-020",
+      "title": "安全加固收口",
+      "description": "源自合并稿 Part 1（原 US-020）。作为 owner，我需要把已知风险逐条堵上，这样重构不会留下新的漏洞面。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "上传校验扩展名 + MIME + 文件头；大小限制在服务端强制执行",
+        "上传文件名随机化；存储目录不在 web 根内；读取走鉴权接口（防路径穿越）",
+        "写操作校验 `Origin`；Cookie 具备 HttpOnly + `SameSite=Lax`",
+        "登录/注册限流生效；日志对口令、Token、邮箱打码",
+        "越权用例覆盖全部资源类型（简历/录音/题库/面试会话/管理端）",
+        "禁用 `v-html` 或做白名单过滤（XSS 面）",
+        "`ruff check .` 且 `pytest` 通过"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-021",
+      "title": "回归、交付与文档收口",
+      "description": "源自合并稿 Part 1（原 US-021）。作为 owner，我需要在交付前确认功能零丢失、四关全绿。",
+      "acceptanceCriteria": [
+        "⚠️ 跨仓库护栏：本 story 属「学生就业帮助系统」仓库（非本仓库 AIResume）。开工前确认工作目录存在独立 `backend/` + `frontend/` 骨架与 `legacy/` 目录；若不是，立即停止、不写任何文件、notes 记 `blocked: wrong repo`",
+        "模块迁移映射表逐条打勾，产出验收报告（含截图对照）",
+        "`ruff check .` / `alembic check` / `pytest` / `npm run build` 四关全绿",
+        "Docker 化交付：`docker compose up` 可起前后端 + 依赖；README 含启动步骤",
+        "`docs/` 含数据库设计、接口清单、现状核对表",
+        "旧 `.html` 已归档至 `legacy/` 且不被静态托管",
+        "环境自检命令在 README 中说明"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
