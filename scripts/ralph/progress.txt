@@ -222,3 +222,12 @@ Started: 2026-09-27
 - **Learnings for future iterations：**
   - **本 PRD 在 AIResume 仓库已进入终态死循环**：Part 2（US-001~007）全绿入库，Part 1（US-008~028）全部属另一仓库且 US-008 硬阻塞 —— 后续每次迭代都会停在 US-008 且无事可做。判据一眼可查：`ls -d legacy` 不存在。
   - 人工介入二选一：① 到「学生就业帮助系统」目标仓库另起 Ralph（以 `tasks/学生就业帮助系统重构/prd-学生就业帮助系统重构.md` 作为该仓库 PRD）；② 若近期不做 Part 1，则把本 PRD 的 Part 1 段移出/归档，使 AIResume 侧收敛为全 `passes:true`。
+
+## 2026-09-27 · US-008 第三次复核 —— ⛔ 仍 BLOCKED（wrong repo，终态确认）
+
+- **结论**：本轮**无任何可实施 story、不写项目文件、不提交**。最高优先级 `passes:false` = US-008，命中 Part 1 跨仓库硬护栏（与前两次迭代结论一致）。
+- **复核证据（本轮重跑）**：分支 `ralph/agent-tool-expansion-v2` ✓；`git rev-parse --show-toplevel` = `E:/AIDevelop/AIProject/AIResume`；`ls -d legacy` → MISSING；`find /e/AIDevelop/AIProject -maxdepth 3 -type d -name legacy` → 零命中；兄弟目录无「学生就业帮助系统」仓库。`git status --porcelain` 仅有未跟踪的 Ralph 控制/文档文件，无 tracked 改动。
+- **动作**：不改 `prd.json`（US-008 `notes` 已含 `blocked: wrong repo; blocked: source code unavailable`，`passes` 保持 `false`）；不跑 ruff/pytest（无代码改动）；**不标 `passes: true`**。
+- **Learnings for future iterations：**
+  - **本 PRD 在 AIResume 侧已确认进入终态死循环（第 3 次复跑，结论零变化）**：Part 2（US-001~007）全绿入库，Part 1（US-008~028）全属另一仓库且 US-008 硬阻塞。判据一眼可查：`ls -d legacy` 不存在。
+  - **继续复跑无信息增量**。人工介入二选一（同上轮）：① 到「学生就业帮助系统」目标仓库另起 Ralph（用 `tasks/学生就业帮助系统重构/prd-学生就业帮助系统重构.md`）；② 若近期不做 Part 1，把本 PRD 的 Part 1 段移出/归档，使 AIResume 侧收敛为全 `passes:true` 从而 Ralph 可正常报 COMPLETE。
