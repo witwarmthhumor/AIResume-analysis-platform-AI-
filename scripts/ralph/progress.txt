@@ -194,3 +194,20 @@ Started: 2026-09-27
 - **未做 / 说明**：Part 2（US-001~007）**全部完成**；US-008 起为 Part 1「学生就业帮助系统重构」，属**另一个独立仓库**（源码不在本机、US-008 硬阻塞），本仓库不动。
 
 ---
+
+## 2026-09-27 · US-008 现状核对与视觉基线存档 —— ⛔ BLOCKED（wrong repo）
+
+- **结论**：本 story **未实现、不写任何项目文件**。触发 Part 1 的**跨仓库硬护栏**：US-008 属「学生就业帮助系统」仓库，而当前工作目录是 **AIResume**。
+- **护栏核对（逐条）**：
+  - 工作目录根 = `E:\AIDevelop\AIProject\AIResume`（git 仓库根即此目录），`git branch --show-current` = `ralph/agent-tool-expansion-v2` ✓（分支正确）
+  - 存在 `backend/` + `frontend/` 骨架，但**那是 AIResume 自己的**，不是目标系统的
+  - **`legacy/` 目录不存在**（`ls -d legacy` → MISSING；`find /e/AIDevelop -maxdepth 3 -type d -name legacy` → 零命中）
+  - 兄弟目录 `/e/AIDevelop/AIProject/` 下无「学生就业帮助系统」仓库（AIResume / Auto Drive System / E-commerce… / Educational learning system / Intelligent Customer 等均非目标）
+- **动作**：立即停止、不写任何项目文件；`prd.json` US-008 `notes` 记 `blocked: wrong repo; blocked: source code unavailable`，`passes` 保持 `false`。
+- **Learnings for future iterations：**
+  - **US-008~028（Part 1 全链）共享同一条硬护栏**，且 US-008 是硬阻塞项：在本仓库（AIResume）跑 Ralph 时**永远会停在 US-008**。判据一眼可查：`ls -d legacy` 不存在即 wrong repo，不必再做别的核对。
+  - Part 2（US-001~007）已全部 `passes: true` 并入库（`a0c2f64`），本仓库可交付部分**已收官**；Part 1 必须在目标仓库另起 Ralph 迭代，或把该仓库源码放到本机后再开。
+  - **不要**为了让循环继续而把 US-008 标 `passes: true`（未实现即造假）；也**不要**把 `passes: false` 的 Part 1 story 挪到 AIResume 实现（会造成两个仓库职责混淆）。正确信号 = `notes` 里的 `blocked:` 标记 + 人工介入。
+  - 记录 blocked 的写文件范围仅限 Ralph 控制文件（`prd.json` / `progress.txt`）——**项目源码一行都不动**，符合护栏「不写任何文件」的本意。
+- **验证**：无代码改动 → 不跑 ruff/pytest（无意义且会污染基线）；`prd.json` 经 `json.loads` 校验合法、CRLF 计数 `\r\n == \n`（517/517 → 保持）。
+- **未做 / 需人工介入**：Part 1「学生就业帮助系统重构」（US-008~028，21 个 story）**全部阻塞**，需在**目标独立仓库**执行。

@@ -158,7 +158,7 @@
       ],
       "priority": 8,
       "passes": false,
-      "notes": ""
+      "notes": "blocked: wrong repo; blocked: source code unavailable — 本工作目录是 AIResume（无 legacy/ 目录、无「学生就业帮助系统」源码），US-008 属另一独立仓库，需在该仓库执行"
     },
     {
       "id": "US-009",
