@@ -52,6 +52,9 @@ def _clean_chat_and_usage():
             {"a": aid},
         )
         conn.execute(text("DELETE FROM usage_logs WHERE id > :s"), {"s": snap})
+        # 最后删账号本身：此前只清会话与记账，`chatview-%` 账号会原地留下
+        # （实测一次全量测试残留 3 个），污染用户计数与「空库首用户提权」类断言。
+        conn.execute(text("DELETE FROM users WHERE email LIKE 'chatview-%'"))
 
 
 # —— 会话 CRUD ——

@@ -48,6 +48,7 @@ CHECK_PLAN: list[tuple[str, str]] = [
     ("端口与探针", "check_port_frontend"),
     ("端口与探针", "check_health_endpoints"),
     ("语料", "check_kb_corpus"),
+    ("数据一致性", "check_data_integrity"),
     ("AI 通道", "check_ai_channel"),
 ]
 
@@ -281,6 +282,77 @@ def check_kb_corpus() -> CheckResult:
             fix="cd backend && .venv\\Scripts\\python -m scripts.seed_kb_preset",
         )
     return CheckResult("语料", "kb_chunks 条数", OK, f"{count} 块")
+
+
+def check_data_integrity() -> CheckResult:
+    """⑩ 数据一致性：查孤儿行（子表引用已不存在的父行）。
+
+    为什么要查：历次测试 + 进程被强杀会让开发库累积孤儿——测试夹具只删主表
+    （users / resumes）没删关联表，重启后残留就变成「指向不存在主体的行」。
+    实测一次性查出 334 条（139 analyses/resumes 指向丢失的 user、16 analyses
+    指向丢失的 resume、34 sessions、6 messages）。孤儿不会让接口报错，但会污染
+    看板统计与列表分页，属于静默失真，所以放进自检。
+    """
+    orphan_queries = [
+        (
+            "analyses→resumes",
+            "SELECT count(*) FROM analyses WHERE resume_id NOT IN (SELECT id FROM resumes)",
+        ),
+        (
+            "analyses→users",
+            "SELECT count(*) FROM analyses WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)",
+        ),
+        (
+            "resumes→users",
+            "SELECT count(*) FROM resumes WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)",
+        ),
+        (
+            "sessions→resumes/users",
+            (
+                "SELECT count(*) FROM interview_sessions WHERE resume_id NOT IN (SELECT id FROM resumes) "
+                "OR (user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users))"
+            ),
+        ),
+        (
+            "messages→sessions",
+            "SELECT count(*) FROM interview_messages WHERE session_id NOT IN (SELECT id FROM interview_sessions)",
+        ),
+        (
+            "chat_messages→sessions",
+            "SELECT count(*) FROM chat_messages WHERE session_id NOT IN (SELECT id FROM chat_sessions)",
+        ),
+        (
+            "kb_chunks→documents",
+            "SELECT count(*) FROM kb_chunks WHERE document_id NOT IN (SELECT id FROM kb_documents)",
+        ),
+    ]
+    try:
+        with engine.connect() as conn:
+            hits = {
+                name: conn.execute(text(sql)).scalar_one()
+                for name, sql in orphan_queries
+            }
+    except Exception:  # noqa: BLE001  检查器必须吞掉一切异常转为 FAIL 结论
+        return CheckResult(
+            "数据一致性",
+            "孤儿行",
+            FAIL,
+            "查询失败（表不存在或数据库不可达）",
+            fix="cd backend && .venv\\Scripts\\python -m alembic upgrade head",
+        )
+
+    total = sum(hits.values())
+    if total:
+        detail = "、".join(f"{name} {n}" for name, n in hits.items() if n)
+        return CheckResult(
+            "数据一致性",
+            "孤儿行",
+            FAIL,
+            f"发现 {total} 条孤儿（{detail}）",
+            fix="cd backend && .venv\\Scripts\\python -m scripts.clean_dev_residue --dry-run"
+            "  # 确认后去掉 --dry-run 执行",
+        )
+    return CheckResult("数据一致性", "孤儿行", OK, "无孤儿（7 类关联全部完整）")
 
 
 def check_ai_channel() -> CheckResult:

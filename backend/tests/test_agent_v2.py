@@ -99,6 +99,34 @@ def _seed_placeholder_and_clean():
                 "(SELECT id FROM users WHERE email LIKE 'av2-%')"
             )
         )
+        # 业务数据：图节点（load_resume / analyzer / questioner / 审批副作用）会写
+        # resumes、analyses、interview_sessions、interview_messages。这几张表此前**完全
+        # 没有清理**，而本文件又会先删 users —— 残留下来就是孤儿行（实测一次全量测试
+        # 留下 8 份 av2 简历 + 8 条分析 + 2 个场次，且 user_id 指向已删用户）。
+        # 顺序必须遵循「子表先于父表」，简历最后删。
+        conn.execute(
+            text(
+                "DELETE FROM interview_messages WHERE session_id IN "
+                "(SELECT id FROM interview_sessions WHERE user_id IN "
+                "(SELECT id FROM users WHERE email LIKE 'av2-%') "
+                "OR resume_id IN (SELECT id FROM resumes WHERE filename LIKE 'av2-%'))"
+            )
+        )
+        conn.execute(
+            text(
+                "DELETE FROM interview_sessions WHERE user_id IN "
+                "(SELECT id FROM users WHERE email LIKE 'av2-%') "
+                "OR resume_id IN (SELECT id FROM resumes WHERE filename LIKE 'av2-%')"
+            )
+        )
+        conn.execute(
+            text(
+                "DELETE FROM analyses WHERE user_id IN "
+                "(SELECT id FROM users WHERE email LIKE 'av2-%') "
+                "OR resume_id IN (SELECT id FROM resumes WHERE filename LIKE 'av2-%')"
+            )
+        )
+        conn.execute(text("DELETE FROM resumes WHERE filename LIKE 'av2-%'"))
         conn.execute(text("DELETE FROM users WHERE email LIKE 'av2-%'"))
 
 

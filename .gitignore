@@ -46,3 +46,6 @@ scripts/ralph/.last-branch
 .coverage
 *.coverage
 .quality-gate/
+
+# 数据库备份（清理前留档，体积大且可能含用户数据，永不入库）
+.backups/

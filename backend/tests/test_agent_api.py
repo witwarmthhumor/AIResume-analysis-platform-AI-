@@ -49,6 +49,10 @@ def _clean_agent():
         )
         conn.execute(text(f"DELETE FROM chat_sessions WHERE {owner_sql}"), {"a": aids})
         conn.execute(text("DELETE FROM usage_logs WHERE id > :s"), {"s": snap})
+        # 最后删用户本身：此前只清了会话与记账，`agent-%` 账号会原地留下
+        # （实测一次全量测试残留 1 个）——账号不清会让下一次「空库首用户提权」类
+        # 断言失效，也会被数据看板的用户计数统计进去。
+        conn.execute(text("DELETE FROM users WHERE email LIKE 'agent-%'"))
 
 
 def _fake_events(*_args, **_kwargs):

@@ -3,11 +3,33 @@
 import uuid
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
+from app.db.session import engine
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _clean_tasks_users():
+    """清理本文件注册的 `tasks-%` 账号。
+
+    本文件此前**没有任何清理夹具**：用例走 /api/auth/register 建账号后就不管了，
+    每跑一次全量测试就多留 1 个账号（实测残留），会让「空库首个用户自动提权 admin」
+    一类断言失效，也会被管理端用户计数统计进去。
+    """
+    yield
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "DELETE FROM usage_logs WHERE user_id IN "
+                "(SELECT id FROM users WHERE email LIKE 'tasks-%')"
+            )
+        )
+        conn.execute(text("DELETE FROM users WHERE email LIKE 'tasks-%'"))
 
 
 def test_task_submission_requires_login() -> None:

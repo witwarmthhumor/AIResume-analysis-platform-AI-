@@ -54,8 +54,18 @@ def fake_analysis_result() -> AnalysisResult:
 
 @pytest.fixture(autouse=True)
 def _clean_state():
-    """按标记清理本文件造的数据（简历文件名前缀 rt-），真实数据不受影响。"""
+    """按标记清理本文件造的数据（简历文件名前缀 rt-），真实数据不受影响。
+
+    usage_logs 用 id 快照兜底而不是只按 aid 匹配：`_upload_ok()` 是**匿名**上传，
+    服务端会签发/轮换 anonymous_id，teardown 时再从 cookie jar 反查会漏掉轮换前的
+    那一批（实测每跑一次全量就漏 1 条 parse 记账）。顺序执行下「测试期间新增的行」
+    用 id > 快照过滤绝对精确。
+    """
     _uploads_before = {f.name for f in UPLOAD_DIR.iterdir() if f.is_file()}
+    with engine.begin() as conn:
+        _usage_snap = conn.execute(
+            text("SELECT COALESCE(MAX(id), 0) FROM usage_logs")
+        ).scalar()
     yield
     with engine.begin() as conn:
         conn.execute(
@@ -79,12 +89,16 @@ def _clean_state():
         )
         conn.execute(
             text(
-                "DELETE FROM usage_logs WHERE anonymous_id = ANY(:a) "
+                "DELETE FROM usage_logs WHERE id > :s "
+                "OR anonymous_id = ANY(:a) "
                 "OR user_id IN (SELECT id FROM users WHERE email LIKE 'test-interview-%')"
             ),
-            {"a": _anon_aids()},
+            {"s": _usage_snap, "a": _anon_aids()},
         )
         conn.execute(text("DELETE FROM resumes WHERE filename LIKE 'rt-%'"))
+        # 最后删账号本身：此前只清了业务数据与记账，`test-interview-%` 账号会原地
+        # 留下（实测一次全量测试残留 1 个），污染用户计数与首用户提权类断言。
+        conn.execute(text("DELETE FROM users WHERE email LIKE 'test-interview-%'"))
     for f in UPLOAD_DIR.iterdir():
         if f.is_file() and f.name not in _uploads_before:
             f.unlink()

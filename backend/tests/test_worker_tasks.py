@@ -45,13 +45,16 @@ def _clean_worker_data(monkeypatch):
     uploads_before = {f.name for f in UPLOAD_DIR.iterdir() if f.is_file()}
     yield
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM resumes WHERE filename LIKE 'worker-%'"))
+        # 顺序：子表（analyses）先于父表（resumes）。反过来的话，resumes 一删，
+        # 第 2 条的 `resume_id IN (SELECT ... FROM resumes ...)` 子查询就查不到任何行，
+        # analyses 会被原地留下变成孤儿（历史上确实漏了这一条）。
         conn.execute(
             text(
                 "DELETE FROM analyses WHERE resume_id IN "
                 "(SELECT id FROM resumes WHERE filename LIKE 'worker-%')"
             )
         )
+        conn.execute(text("DELETE FROM resumes WHERE filename LIKE 'worker-%'"))
         conn.execute(text("DELETE FROM usage_logs WHERE anonymous_id LIKE 'worker-%'"))
         conn.execute(
             text(
