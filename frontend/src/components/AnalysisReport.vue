@@ -2,6 +2,7 @@
 // AI 分析报告卡：挂载时先查历史报告（刷新可恢复），没有则提供「开始分析」按钮。
 // 状态机 idle(未分析) → loading(10~30s 同步等待) → done(有报告) | error(友好提示)。
 // v3.5：同一简历的历次分析（不同 prompt_version）可并排对比差异。
+// v3.8：done 状态提供「导出 PDF」——走浏览器打印对话框，打印样式在 assets/main.css 的 @media print。
 import { computed, onMounted, ref } from 'vue'
 
 import { get, post } from '../api.js'
@@ -14,6 +15,15 @@ const state = ref('idle') // idle | loading | done | error
 const analysis = ref(null) // AnalysisOut（含 report 六块 + token/耗时元信息）
 const cached = ref(false)
 const errorMsg = ref('')
+
+/**
+ * 导出 PDF：调起浏览器打印对话框，用户在「目标打印机」里选「另存为 PDF」。
+ * 之所以不做后端渲染（weasyprint 等）：报告是纯文本 + 手写 SVG，打印 CSS 足够还原，
+ * 省掉一个重型依赖与一条服务端链路。打印时导航与按钮由 .no-print 隐藏。
+ */
+function exportPdf() {
+  window.print()
+}
 
 // 报告字段 → 展示元信息。kind 决定渲染成列表/标签/编号
 const SECTION_META = {
@@ -120,6 +130,14 @@ onMounted(async () => {
     <div class="head">
       <h2>AI 简历分析</h2>
       <span v-if="cached" class="badge ok">已有报告 · 未重复调用</span>
+      <button
+        v-if="state === 'done'"
+        class="btn btn-ghost no-print export-btn"
+        title="用浏览器打印对话框导出为 PDF"
+        @click="exportPdf"
+      >
+        🖨 导出 PDF
+      </button>
     </div>
 
     <template v-if="state === 'idle'">
@@ -248,6 +266,12 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 4px;
+}
+/* 导出按钮靠右：head 是 space-between，徽标与按钮之间用 auto 外边距把它顶到最右 */
+.export-btn {
+  margin-left: auto;
+  padding: 4px 10px;
+  font-size: 12px;
 }
 .hint {
   margin: 0 0 14px;

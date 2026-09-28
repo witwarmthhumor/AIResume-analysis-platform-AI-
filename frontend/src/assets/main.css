@@ -248,3 +248,73 @@
     transform: rotate(360deg);
   }
 }
+
+/* —— 打印 / 导出 PDF（v3.8·8.3）——
+   轻方案：不引后端渲染。报告页的「导出 PDF」按钮调 window.print()，
+   由这里的规则把导航与交互元素藏掉，只留正文，并统一成白底黑字。
+   要加新的可导出页面时：给该页的交互元素（按钮/输入/切换）挂 .no-print 即可。 */
+@media print {
+  /* 隐藏外壳与一切交互元素 */
+  .topbar,
+  .sidebar,
+  .no-print {
+    display: none !important;
+  }
+
+  /* 去掉布局约束，让内容区占满整页 */
+  .shell {
+    display: block !important;
+    min-height: auto;
+  }
+  .content {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    overflow: visible !important;
+  }
+
+  /* 白底黑字：屏幕上的深色底与渐变在纸上会糊成一片 */
+  body,
+  .card,
+  .panel {
+    background: #fff !important;
+    color: #111 !important;
+    box-shadow: none !important;
+    border-color: #bbb !important;
+  }
+  .muted {
+    color: #555 !important;
+  }
+
+  /* 卡片、列表项不要被从中间切断 */
+  .card,
+  .panel,
+  li,
+  section,
+  .ar-sec,
+  .sec-title {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* 展开折叠内容：引用来源、工具过程在纸上没法点开 */
+  details,
+  details > summary + * {
+    display: block !important;
+  }
+  details > summary {
+    list-style: none;
+  }
+
+  /* 页面边距由打印驱动控制，这里只补一点上边距保证标题不贴边 */
+  @page {
+    margin: 14mm 12mm;
+  }
+
+  /* 大字号的评分/雷达图在纸上按实际尺寸缩放，避免撑破一页 */
+  svg {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+}

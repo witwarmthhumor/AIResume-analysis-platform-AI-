@@ -1,4 +1,6 @@
 <script setup>
+// 面试结束评价卡（v3.5 起）：四维评分 + 手写 SVG 雷达图，可叠加历史场次对比。
+// v3.8：提供「导出 PDF」——走浏览器打印对话框，打印样式在 assets/main.css 的 @media print。
 import { computed, onMounted, ref } from 'vue'
 
 import { get } from '../api.js'
@@ -8,6 +10,14 @@ const props = defineProps({
   // 当前场次 id：用于从历史对比列表里排除自己
   sessionId: { type: Number, default: null },
 })
+
+/**
+ * 导出 PDF：调起浏览器打印对话框（目标打印机选「另存为 PDF」）。
+ * 雷达图是内联 SVG，打印 CSS 里已限制 max-width，避免撑破一页。
+ */
+function exportPdf() {
+  window.print()
+}
 
 const SCORES = computed(() => [
   ['技术深度', props.report.technical_depth],
@@ -111,7 +121,16 @@ onMounted(async () => {
 
 <template>
   <section class="card report">
-    <h2>面试结束评价</h2>
+    <div class="head">
+      <h2>面试结束评价</h2>
+      <button
+        class="btn btn-ghost no-print export-btn"
+        title="用浏览器打印对话框导出为 PDF"
+        @click="exportPdf"
+      >
+        🖨 导出 PDF
+      </button>
+    </div>
 
     <div class="report-body">
       <div class="radar-col">
@@ -206,8 +225,19 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
 .report h2 {
   margin-bottom: 14px;
+}
+/* 导出按钮靠右，与 h2 基线对齐（h2 自带下边距，这里补掉视觉偏移） */
+.export-btn {
+  margin: -8px 0 0 auto;
+  padding: 4px 10px;
+  font-size: 12px;
 }
 .report-body {
   display: flex;
