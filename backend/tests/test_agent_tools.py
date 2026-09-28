@@ -755,7 +755,9 @@ def test_conversation_search_skips_deleted_sessions(db_session) -> None:
     assert "没有搜到" in _tool(db, "conversation_search").invoke(
         {"keyword": "缓存穿透"}
     )
-    assert "暂无历史对话记录" in _tool(db, "conversation_search").invoke({"keyword": ""})
+    assert "暂无历史对话记录" in _tool(db, "conversation_search").invoke(
+        {"keyword": ""}
+    )
 
 
 def test_conversation_search_clamps_limit(db_session) -> None:
@@ -1258,7 +1260,9 @@ def test_kb_search_limits_scope_to_matched_document(db_session, monkeypatch) -> 
     assert ctx.citations and ctx.citations[0]["document_id"] == doc.id
 
 
-def test_kb_search_multiple_documents_returns_candidates(db_session, monkeypatch) -> None:
+def test_kb_search_multiple_documents_returns_candidates(
+    db_session, monkeypatch
+) -> None:
     """标题匹配到多篇时不擅自选一篇：列候选（标题 + 块数），且一次检索都不做。"""
     db = db_session
     _add_kb_document(db, "MySQL 索引上.md", chunk_texts=("a", "b"))
@@ -1285,7 +1289,9 @@ def test_kb_search_unknown_document_lists_existing(db_session, monkeypatch) -> N
     assert seen == {}
 
 
-def test_kb_search_without_document_keeps_default_scope(db_session, monkeypatch) -> None:
+def test_kb_search_without_document_keeps_default_scope(
+    db_session, monkeypatch
+) -> None:
     """不传 document 时旧行为不回归：检索不限定文档，命中话术照旧。"""
     seen = _patch_kb_retrieval(
         monkeypatch,

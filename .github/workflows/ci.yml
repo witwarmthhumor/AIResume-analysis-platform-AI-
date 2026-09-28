@@ -53,6 +53,9 @@ jobs:
       - name: ruff 检查
         run: python -m ruff check .
 
+      - name: ruff 格式校验（与 .pre-commit-config.yaml 同口径）
+        run: python -m ruff format --check .
+
       - name: 数据库迁移到 head
         run: python -m alembic upgrade head
 

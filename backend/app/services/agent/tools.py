@@ -619,7 +619,9 @@ def make_tools(
                     "没找到这场面试，无法调出问答原文。"
                     "可提示用户确认场次，或省略 session_id 直接查看最近一场。"
                 )
-            return "该用户名下暂无模拟面试记录。可提示用户到首页基于简历开始一场模拟面试。"
+            return (
+                "该用户名下暂无模拟面试记录。可提示用户到首页基于简历开始一场模拟面试。"
+            )
 
         try:
             # 取最近 limit 条（倒序），渲染前再翻成正序——问答要从先到后读
@@ -642,9 +644,7 @@ def make_tools(
             if session.created_at
             else "时间未知"
         )
-        position = _POSITION_LABELS.get(
-            session.position_type or "", _POSITION_DEFAULT
-        )
+        position = _POSITION_LABELS.get(session.position_type or "", _POSITION_DEFAULT)
         status = _INTERVIEW_STATUS_LABELS.get(session.status, session.status)
         head = (
             f"该用户一场模拟面试的问答原文（{when} · {position} · {status}"
