@@ -145,12 +145,12 @@ npm run build
 - `docs/后续开发规划.md`：v3.4 之后的方向、优先级与推进顺序
 
 
-## 技术亮点（真实代码支撑 · v3.4）
+## 技术亮点（真实代码支撑 · v4.0.1）
 
 ### 架构与工程
 - **Router → Service → Model 三层**：API 路由不堆业务逻辑，限流/记账/分析落库全下沉到 `services/`（`usage_service.py`、`analysis_service.py`），`RouterRegistry` 自动注册路由，`main.py` 仅保留两行注册调用
 - **统一错误体系**：自定义异常类（`ValidationError` / `AuthenticationError` / `NotFoundError` / `RateLimitError`） + 全局 `exception_handler`，所有 4xx/5xx 输出 `{"code":"...","message":"...","details":null}`，成功响应保持原结构
-- **Alembic 版本化迁移**：8 次迁移全线可用（含 pgvector 向量表与 HNSW 索引），禁止手改表；`created_at` 全表索引，`user_id` / `session_id` / `anonymous_id` 等关键查询字段均索引
+- **Alembic 版本化迁移**：11 次迁移全线可用（含 pgvector 向量表与 HNSW 索引、`langgraph` checkpoint schema 预建、v4.0 四张编排表），禁止手改表；`alembic check` 无漂移；`created_at` 全表索引，`user_id` / `session_id` / `anonymous_id` 等关键查询字段均索引
 - **Docker 六容器生产编排**：Nginx + FastAPI + Celery Worker + PostgreSQL（pgvector）+ Redis + Ollama，健康探针 + 依赖编排 + 具名卷持久化，`docker compose -f docker-compose.prod.yml up -d --build` 一键启动
 
 ### AI 与异步
@@ -162,9 +162,11 @@ npm run build
 - **可量化的检索质量**：`scripts/eval_rag.py` 同一份 49 题黄金问答集并排跑「纯向量 vs 混合」——hit@1 **71.4% → 87.8%**，hit@5 **91.8% → 100%**，报告落 `data/kb_eval/report.md`
 - **异步入库**（v3.0）：`ingest_kb` Celery 任务切块+向量化，用户上传文档提交任务后状态 pending→processing→ready
 - **LangChain ReAct Agent**（v3.4 / v3.5 扩工具）：`services/agent/` 四件套——`llm_factory`（ChatOpenAI streaming，未配 Key 抛 ValueError → API 503）、`tools`（**每请求闭包工厂**，绑定本次请求的 db 会话与归属者，杜绝多请求串数据）、`executor`（AgentExecutor + 后台线程 + 自定义 Callback，把 `on_tool_start` / `on_tool_end` / `on_llm_new_token` 转成 action / observation / delta 事件队列）
-- **四个 Agent 工具**（v3.5）：`kb_search`（知识库）、`resume_lookup`（本人简历）、`interview_history`（本人面试记录与评分）、`usage_stats`（本人用量）——全部按归属者过滤，无身份时明确拒绝而非返回空结果
+- **13 个 Agent 工具**（v3.10）：检索/查询类 9 个——`kb_search`（知识库，可按 `document` 限定单篇）、`resume_lookup`（本人简历 + 关键词定位）、`interview_history`（本人面试场次与四维评分）、`interview_transcript`（本人面试问答原文）、`score_trend`（评分趋势）、`conversation_search`（历史对话检索）、`usage_stats`（本人用量，可按 `action` 过滤）、`analysis_read`（读本人分析报告）、`kb_list`（语料清单）；静态类 1 个 `platform_help`；工具内 LLM 类 3 个 `job_match` / `question_gen` / `answer_review`（走 `_run_tool_llm` 独立限额）。全部按归属者过滤，无身份时明确拒绝而非返回空结果
+- **路由准确率有量化兜底**：`scripts/eval_agent_routing.py` 40 题 × 13 工具，top-1 **40/40 = 100%**（`data/agent_eval/report.md`）；工具描述按「什么时候用 / 什么时候**不**用」三段式写，易撞的工具互相点名排他（如 `resume_lookup` 原文 ↔ `analysis_read` 结论）
 - **Agent SSE 事件协议**（v3.4）：`meta → (action → observation)* → delta* → done{content, iterations, tokens, citations, message_id}`，异常走 `error` 事件；工具调用过程落库 `chat_messages.tool_steps`（JSONB），前端可折叠回看
 - **Agent 工具容错**：工具内部吞掉检索类异常并返回自然语言说明，让 Agent 换通用知识兜底而非整轮崩掉；未命中时清空上一轮残留引用，避免它编造「知识库说」
+- **LangGraph 长流程编排**（v4.0）：`services/agent_v2/` 用 `StateGraph` 串起 `planner → load → analyzer? → matcher → questioner → verifier(回环≤2) → hitl_gate → deliver`，条件边跳过已有分析；`PostgresSaver` 断点持久化（Alembic 预建 schema，不在请求路径跑 `setup()`，规避 `CREATE INDEX CONCURRENTLY` 与流式事务互等死锁）；`interrupt` 人工审批（TTL 30min，到点终止并可 `retry-node` 续跑）；approve/abort 走条件更新乐观锁；事件总线进程内订阅 + 重连回放；lifespan 回收停机孤儿的 run——与 v1 ReAct 轨双轨并存，`agent_v2_enabled` 一键回退
 
 ### 安全与隐私
 - **JWT HttpOnly Cookie + Argon2 密码哈希**：密码不落明文，JWT 不可读
@@ -184,8 +186,8 @@ npm run build
 - **报告版本对比**（v3.5）：简历分析报告可取历次 `prompt_version` 两版并排，逐条标出「仅本版有」——改提示词后能直观看出结论变化
 
 ### 测试
-- **143 个 pytest 全量覆盖**：上传校验、分析、面试（SSE/状态机）、认证、任务、隔离、软删除、知识库（切块器/检索/owner 隔离/Playground SSE）、**混合检索（BM25 分词/排序/阈值回退）**、在线对话（多会话 CRUD/隔离/标题自动生成）、管理端语料库、使用日志筛选分页、Agent（工具命中/未命中兜底/回调事件/SSE 编排/归属校验/限额/503）、**Agent 个人数据工具（归属隔离/无身份拒绝/聚合口径）**、**面试评分列表与分析版本列表**；全部 mock AI/embedding 不烧额度
-- ruff 全绿、npm build 通过
+- **330 个 pytest 全量覆盖**：上传校验、分析、面试（SSE/状态机）、认证、任务、隔离、软删除、知识库（切块器/检索/owner 隔离/Playground SSE）、**混合检索（BM25 分词/排序/阈值回退）**、在线对话（多会话 CRUD/隔离/标题自动生成）、管理端语料库、使用日志筛选分页、Agent（工具命中/未命中兜底/回调事件/SSE 编排/归属校验/限额/503）、**Agent 个人数据工具（归属隔离/无身份拒绝/聚合口径）**、**面试评分列表与分析版本列表**、**LangGraph v2 编排（图节点/审批超时与并发乐观锁/事件总线多订阅者/断点重连快照/孤儿 run 回收/SQL 分页聚合）**；全部 mock AI/embedding 不烧额度
+- ruff check + ruff format --check 全绿（CI 两道都跑）、npm build 通过
 - **RAG 有量化基线**：`scripts/eval_rag.py` 跑 49 题黄金问答集并排对比「纯向量 / 混合」，改检索逻辑必须对比 `data/kb_eval/report.md`
 - **工具路由有量化基线**：`scripts/eval_agent_routing.py` 40 题 40/40 = 100%（`data/agent_eval/report.md`），改工具描述/增删工具必须对比
 - **Agent v2 有端到端基线**：`scripts/eval_agent_e2e.py` 11 个黄金任务离线确定性全过（`data/agent_eval/e2e_report.md`），改图结构/节点逻辑必须对比

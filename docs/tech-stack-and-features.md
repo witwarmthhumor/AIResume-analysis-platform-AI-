@@ -1,13 +1,13 @@
 # 技术栈与功能点
 
 > 本文档汇总「AI 简历分析 + AI 模拟面试」项目用到的全部技术栈与功能模块，供学习回顾与作品集展示。
-> 最后更新：2026-09-27 · 对应版本 v3.10（13 工具 + 路由评测 + DB 快速失败 + 环境自检）
+> 最后更新：2026-09-28 · 对应版本 v4.0.1（LangGraph 一键求职准备 + 13 工具 + 路由评测 + DB 快速失败 + 环境自检）
 
 ---
 
 ## 一、项目定位
 
-上传简历 → AI 生成结构化分析报告 → 基于简历开展多轮文字模拟面试并给出结束评价；v3.0 起叠加基于向量检索的知识库问答，v3.1 升级为多会话在线对话，v3.4 引入 LangChain ReAct Agent 做 AI 客服。个人学习 + 求职作品集项目。
+上传简历 → AI 生成结构化分析报告 → 基于简历开展多轮文字模拟面试并给出结束评价；v3.0 起叠加基于向量检索的知识库问答，v3.1 升级为多会话在线对话，v3.4 引入 LangChain ReAct Agent 做 AI 客服，v3.5 把检索升级为混合检索，v4.0 用 LangGraph 状态图做「一键求职准备」长流程编排（断点续跑 + 人工审批）。个人学习 + 求职作品集项目。
 
 ## 二、整体架构
 
@@ -24,6 +24,9 @@ flowchart LR
   API --> Agent[LangChain ReAct Agent<br/>AgentExecutor + SSE]
   Agent --> Ollama
   Agent --> LLM
+  API --> Graph[LangGraph 状态图 v4.0<br/>一键求职准备 + 断点续跑 + 人工审批]
+  Graph --> PG
+  Graph --> LLM
   Worker --> Ollama
 ```
 
@@ -47,6 +50,7 @@ flowchart LR
 | SSE | Server-Sent Events | 面试、RAG 问答、AI 客服三处逐字流式输出 |
 | LangChain | 0.3 稳定线（`>=0.3,<0.4`） | v3.4 AI 客服 Agent 层（`services/agent/`）：ReAct + AgentExecutor（0.3 专属，1.x 已移除并改走 langgraph，故封顶） |
 | langchain-openai | 0.3 线 | `ChatOpenAI` 走 OpenAI 兼容协议，通义 / DeepSeek 均可驱动 Agent |
+| langgraph | 0.2.76（`>=0.2,<0.3`） | v4.0「一键求职准备」的状态图编排 + PostgresSaver 断点持久化。**必须锁 0.2 线**：默认装 1.x 会把 `langchain-core` 升到 1.6 线，直接打断现有 AgentExecutor 层 |
 | jieba | 0.42 | 中文分词（v3.5 混合检索的词法路），纯 Python 无系统依赖 |
 
 **架构模式**
@@ -79,6 +83,9 @@ flowchart LR
 | Agent 流式 | 后台 daemon 线程跑 `AgentExecutor`，自定义 Callback 把 `on_tool_start / on_tool_end / on_llm_new_token` 转成 action / observation / delta 事件队列，API 层转 SSE |
 | Agent 工具工厂 | `make_tools(db, user_id, anonymous_id, ctx)` **每请求闭包工厂**：工具实例绑定本次请求的 db 会话与归属者，杜绝多请求共享导致串数据 |
 | Agent 事件协议 | `meta → (action → observation)* → delta* → done{content, iterations, tokens, citations, message_id}`，异常走 `error` |
+| LangGraph 状态图（v4.0） | `langgraph 0.2.76` `StateGraph`：`planner → load → analyzer? → matcher → questioner → verifier(回环≤2) → hitl_gate → deliver`，条件边跳过已有分析；`PostgresSaver` 断点续跑（`langgraph` schema 由 Alembic 预建，不靠运行时 `setup()`） |
+| 人工介入（v4.0） | `interrupt` 审批闸：审批单 TTL 30 分钟，到点 run 终止为 `failed` 且可 `retry-node` 续跑；approve/abort 用条件更新乐观锁（`WHERE status='waiting_approval'` 判 rowcount，输家 409） |
+| 任务追踪（v4.0） | `agent_runs / agent_spans / agent_approvals / audit_logs` 四表；事件总线进程内订阅 + 重连回放（按订阅者拷贝 payload），管理端可查 runs / spans / stats |
 
 ### 4. 前端
 
@@ -108,12 +115,15 @@ flowchart LR
 
 | 工具/机制 | 说明 |
 |---|---|
-| pytest | 260 个用例（v3.6），AI/embedding 全部 mock，不烧真实调用额度 |
+| pytest | 330 个用例（v4.0.1），AI/embedding 全部 mock，不烧真实调用额度 |
 | 测试护栏 | `conftest.py` 校验 `DATABASE_URL` host，非本地直接终止，防误清远程库 |
-| ruff | lint + format，提交前全绿 |
+| 测试隔离 | 各测试文件用专属标记（`anonymous_id` 前缀 / `resume_id` 常量 / 邮箱前缀）只清自己造的数据，**不再全表 DELETE**；跑全量不会清空业务表与 `kb_*` |
+| ruff | `ruff check` + `ruff format --check`，提交前全绿；CI 两道都跑 |
 | 固定测试简历集 | `test-resumes/` 5 份 PDF，改解析/提示词后必须回归对比 |
 | RAG 评测 | `scripts/eval_rag.py` + 49 题黄金问答集，并排对比纯向量 / 混合，改检索必跑（见模块 10） |
-| Git | Conventional Commits（feat/fix/docs/refactor…）+ 版本 tag（v0.1 ~ v3.4）；已推 GitHub |
+| Agent 路由评测 | `scripts/eval_agent_routing.py` + 40 题（13 工具）用例集，增删工具 / 改工具描述必跑（基线 40/40，见 `data/agent_eval/report.md`） |
+| Agent v2 端到端评测 | `scripts/eval_agent_e2e.py` 11 个黄金任务离线确定性执行，改图结构 / 节点逻辑必跑（基线 11/11，见 `data/agent_eval/e2e_report.md`） |
+| Git | Conventional Commits（feat/fix/docs/refactor…）+ 版本 tag（v0.1 ~ v4.0.1）；已推 GitHub |
 
 **本机开发环境**：Python 3.13.9、Node.js 24.12.0、Docker Desktop（含 Compose）、Git 2.52；Windows + PowerShell。
 
@@ -225,6 +235,22 @@ flowchart LR
 - **典型救回场景**：术语类中文短查询（「垃圾回收算法」「类的加载过程」「线程池核心参数」）——纯向量把人名/岗位 JD 排在前面，BM25 靠字面命中把它们拉回正确来源，且**无任何一题变差**。
 - **参数扫描方法**：在评测集上扫 RRF `k ∈ {5,10,20,30,60}` × 候选池 `{20,50}`，实测 k=5 / 50 最优（k=60 时 41/49）——中文短查询的头部名次含金量高于英文长文场景。
 - **回归纪律**：改切块 / embedding / 检索逻辑后必须重跑本脚本对比基线；`kb_hybrid_enabled=False` 可随时退回纯向量口径复现旧数据。
+
+### 模块 11 · 一键求职准备（LangGraph 编排，v4.0）
+
+> 与模块 6 的分工：模块 6 是**对话式单轮工具编排**（ReAct + AgentExecutor，一次提问 ≤6 步）；本模块是**多阶段长流程编排**（状态图 + 断点持久化 + 人工审批），一次任务跨越多节点、可中断可续跑。
+
+- **状态图节点**：`planner`（规则式拆解，不调模型）→ `load_resume` → `need_analysis`（条件边：已有有效分析则跳过 analyzer）→ `analyzer` → `matcher` → `questioner` → `verifier`（校验产物，不合格回环重出，**上限 2 次**）→ `hitl_gate`（`interrupt` 人工审批）→ `deliver`；任一步失败走 `fail`。
+- **断点持久化**：`langgraph 0.2.76` 的 `PostgresSaver`，checkpoint 落在 `langgraph` schema（表与版本标记由 Alembic 迁移预建，**不在请求路径上跑 `setup()`**——否则其 `CREATE INDEX CONCURRENTLY` 会与流式响应中的 idle-in-transaction 会话互等死锁）。
+- **人工审批（HITL）**：`hitl_gate` 通过 `interrupt` 暂停并落 `agent_approvals` 审批单，TTL 30 分钟；批准后 `POST /runs/{id}/approve` 走 `Command(resume=...)` 续跑（202）。**TTL 到点语义（v4.0.1）**：run 自动终止为 `failed` 并允许 `retry-node` 续跑，不再永久卡在 `waiting_approval`。
+- **乐观锁并发保护（v4.0.1）**：approve / abort 用条件更新（`UPDATE ... WHERE status='waiting_approval'` 判 rowcount），并发时输家返回 409——此前并发下 abort 可能覆盖 resume 的 `completed` 终态。
+- **事件总线**：进程内订阅 + 重连回放；`publish` 与回放**按订阅者拷贝 payload**（消费端 `pop("type")` 是破坏性修改，双标签页并存时第二个消费者会 KeyError 崩流）。
+- **API**：`POST /api/agent-v2/runs`（发起，SSE 推进）、`GET /runs`、`GET /runs/{id}`、`GET /runs/{id}/stream`（断线重连快照）、`POST /runs/{id}/approve`、`POST /runs/{id}/retry-node`、`POST /runs/{id}/abort`、`GET /api/agent-v2/admin/runs[/stats|/{id}/spans]`。列表与统计走 **SQL 分页 / GROUP BY 聚合下推**，不把全量拉进内存。
+- **停机自愈**：lifespan 启动钩子回收孤儿 run（`planning` / `running` → `failed`；`waiting_approval` 保留，图挂在 checkpoint 上续跑仍有效）。
+- **双轨开关**：`agent_v2_enabled` 默认 `True`（v2 = LangGraph 轨）；置 `False` 一键退回 v1 ReAct 轨，两轨共用同一套会话与限流底座。
+- **独立限额**：`daily_agent_v2_run_limit`，记账动作 `agent_run_v2`，与 v1 的 `daily_agent_limit` 分开统计。
+- **前端**：AI 客服页「一键求职准备」页签——步骤条、审批卡（含倒计时）、结果三分区（匹配 / 出题 / 校验）、失败重试、断点恢复（`runSeq` 竞态守卫）；管理端可查 runs / spans / 统计。
+- **端到端评测**：`scripts/eval_agent_e2e.py` 11 个黄金任务（正常链路 / 审批通过副作用 / 审批拒绝 / 审批超时 / 无简历引导…），**离线确定性打桩、不烧 LLM 额度**，当前 11/11。
 
 ## 五、明确不做（范围边界）
 
