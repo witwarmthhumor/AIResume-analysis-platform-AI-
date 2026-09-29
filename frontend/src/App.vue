@@ -3,7 +3,7 @@ import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { get, post } from './api.js'
 import HomeView from './components/HomeView.vue'
 import ChatView from './components/ChatView.vue'
-import LoginPanel from './components/LoginPanel.vue'
+import LoginView from './components/LoginView.vue'
 import HistoryView from './components/HistoryView.vue'
 // 管理端三视图仅 admin 可达：异步分包，普通用户首屏不下载这部分代码
 const AdminPanel = defineAsyncComponent(() => import('./components/AdminPanel.vue'))
@@ -23,13 +23,11 @@ const activeView = ref('home') // home / resume / interview / chat / history / a
 const collapsed = ref(false)
 const viewRef = ref(null) // 动态组件实例引用，用于调用 ResumeView.refreshList
 const viewEpoch = ref(0) // 登录/登出时 +1：重挂载全部视图，清空 KeepAlive 里的跨账号缓存
-const pendingView = ref(null) // 未登录点击需登录项时记下目标视图，登录成功后送回去（方案「保留原路径」的内存态实现）
 const pendingResumeId = ref(null) // ResumeView → InterviewView 的「拿这份简历去面试」交接
 const pendingBankId = ref(null) // QuestionGenView → InterviewView 的「拿这套题去面试」交接
 
 // —— 用户与登录 ——
 const currentUser = ref(null)
-const showLogin = ref(false)
 const showUserMenu = ref(false)
 const showProfile = ref(false) // v4.2 个人信息弹窗
 
@@ -86,12 +84,7 @@ const navItems = computed(() => {
 })
 
 function selectView(item) {
-  // 未登录点需登录项 → 记下目标视图并弹登录模态，登录成功后送回去
-  if (item.requireAuth && !currentUser.value) {
-    pendingView.value = item.key
-    showLogin.value = true
-    return
-  }
+  // 登录后才进系统（v4.2.1 独立登录首屏），导航点击不再需要 requireAuth 拦截分支
   showUserMenu.value = false
   pendingResumeId.value = null
   activeView.value = item.key
@@ -116,11 +109,8 @@ async function logout() {
   try {
     await post('/api/auth/logout')
   } finally {
-    currentUser.value = null
-    showLogin.value = false
+    currentUser.value = null // 回到独立登录首屏（v4.2.1）
     showUserMenu.value = false
-    if (activeView.value !== 'home') activeView.value = 'home'
-    pendingView.value = null
     pendingResumeId.value = null
     viewEpoch.value += 1 // 重挂载全部视图：KeepAlive 里缓存的上一账号状态必须清空
     viewRef.value?.refreshList?.()
@@ -128,14 +118,8 @@ async function logout() {
 }
 
 function onLoggedIn(user) {
-  currentUser.value = user
-  showLogin.value = false
+  currentUser.value = user // 登录成功 → 跳转进入系统（落地页）
   viewEpoch.value += 1 // 换账号登录同样重挂载，避免读到上个账号的会话缓存
-  // 「保留原路径」（内存态）：登录前想去的视图在登录后自动送达
-  if (pendingView.value) {
-    activeView.value = pendingView.value
-    pendingView.value = null
-  }
   viewRef.value?.refreshList?.()
 }
 
@@ -143,6 +127,9 @@ onMounted(loadUser)
 </script>
 
 <template>
+  <!-- v4.2.1 独立登录首屏：未登录只见登录页，登录成功才跳转进入系统 -->
+  <LoginView v-if="!currentUser" @logged-in="onLoggedIn" />
+  <div v-else class="shell">
   <div class="shell">
     <!-- —— 顶栏 —— -->
     <header class="topbar">
@@ -184,7 +171,6 @@ onMounted(loadUser)
               <div v-if="showUserMenu" class="dropdown-backdrop" @click="showUserMenu = false"></div>
             </div>
           </template>
-          <button v-else class="btn btn-ghost topbar-btn" @click="pendingView = activeView; showLogin = true">登录 / 注册</button>
         </div>
       </div>
     </header>
@@ -245,12 +231,6 @@ onMounted(loadUser)
     <!-- —— 管理端右下角悬浮 AI 客服（仅 admin；用户端无悬浮，用整页 AI客服）—— -->
     <AgentWidget v-if="isAdmin" />
 
-    <!-- —— 登录模态（居中遮罩）—— -->
-    <div v-if="showLogin && !currentUser" class="modal-overlay" @click.self="showLogin = false">
-      <div class="modal-box">
-        <button class="modal-close" @click="showLogin = false" aria-label="关闭登录">✕</button>
-        <LoginPanel @logged-in="onLoggedIn" />
-      </div>
     </div>
 
     <!-- —— 个人信息弹窗（v4.2）—— -->
@@ -414,53 +394,6 @@ onMounted(loadUser)
   inset: 0;
   z-index: 25;
   background: transparent;
-}
-
-/* —— 登录模态 —— */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 50;
-  padding: 20px;
-  animation: modal-fade 0.2s ease both;
-}
-.modal-box {
-  position: relative;
-  width: 100%;
-  max-width: 420px;
-  animation: modal-pop 0.22s ease both;
-}
-.modal-close {
-  position: absolute;
-  top: -12px;
-  right: -12px;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 0;
-  background: #fff;
-  color: var(--c-muted);
-  font-size: 14px;
-  cursor: pointer;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
-  z-index: 1;
-  transition: color 0.12s ease, transform 0.12s ease;
-}
-.modal-close:hover {
-  color: var(--c-text);
-  transform: scale(1.08);
-}
-@keyframes modal-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@keyframes modal-pop {
-  from { opacity: 0; transform: translateY(12px) scale(0.97); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* —— 主体行 —— */

@@ -11,6 +11,7 @@ const identifier = ref('') // 登录标识：用户名 / 邮箱 / 手机号
 const regUsername = ref('') // 注册用户名
 const email = ref('') // 注册邮箱
 const regPhone = ref('') // 注册手机号（v4.2）
+const regConfirm = ref('') // 确认密码（v4.2.1，对齐参考注册页）
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
@@ -42,12 +43,13 @@ async function submit() {
 
 // 登录：标识非空 + 密码非空即可提交（内置 admin 的 6 位口令也要能登录）
 const loginReady = () => identifier.value.trim() && password.value
-// 注册：用户名过前端正则 + 邮箱含 @ + 手机号合法 + 密码 ≥8（与后端校验同口径）
+// 注册：用户名过前端正则 + 邮箱含 @ + 手机号合法 + 密码 ≥8 且两次一致（与后端校验同口径）
 const registerReady = () =>
   USERNAME_RE.test(regUsername.value.trim().toLowerCase()) &&
   email.value.includes('@') &&
   PHONE_RE.test(regPhone.value.trim()) &&
-  password.value.length >= 8
+  password.value.length >= 8 &&
+  password.value === regConfirm.value
 </script>
 
 <template>
@@ -74,6 +76,17 @@ const registerReady = () =>
         type="password"
         :autocomplete="mode === 'login' ? 'current-password' : 'new-password'"
       />
+      <template v-if="mode === 'register'">
+        <label class="label" for="reg-confirm">确认密码</label>
+        <input
+          id="reg-confirm"
+          v-model="regConfirm"
+          type="password"
+          autocomplete="new-password"
+          placeholder="请再次输入密码"
+        />
+        <p v-if="regConfirm && password !== regConfirm" class="msg warn" style="margin:6px 0 0">两次输入的密码不一致</p>
+      </template>
       <button
         class="btn btn-primary"
         type="submit"
