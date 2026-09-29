@@ -18,6 +18,10 @@ from app.services.login_throttle import reset_failures
 
 client = TestClient(app)
 
+# 本文件造的用户前缀：`auth-xxx@example.com`（常规用例）+ `noemailxxx`（v4.2.1「注册不带邮箱」用例）。
+# ⚠️ 后者 email 为 NULL，`email LIKE` 判不出来，必须按 username 前缀单独兜一层。
+_AUTH_USER_PREDICATE = "email LIKE 'auth-%' OR username LIKE 'noemail%'"
+
 
 @pytest.fixture(autouse=True)
 def _clean_auth_users():
@@ -27,10 +31,10 @@ def _clean_auth_users():
     单跑 test_auth 必残留（v3.7 审计 P1 修复；一文件一前缀约定）。
     """
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM users WHERE email LIKE 'auth-%'"))
+        conn.execute(text(f"DELETE FROM users WHERE {_AUTH_USER_PREDICATE}"))
     yield
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM users WHERE email LIKE 'auth-%'"))
+        conn.execute(text(f"DELETE FROM users WHERE {_AUTH_USER_PREDICATE}"))
 
 
 def email() -> str:

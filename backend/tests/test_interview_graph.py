@@ -84,7 +84,7 @@ def _graph_mode(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _clean_ig_data():
-    """前后双清 ig- 标记数据（含 usage id 快照兜底）。"""
+    """前后双清 ig- 标记数据（含 usage id 快照兜底 + v4.2 题库表）。"""
     with engine.begin() as conn:
         snap = conn.execute(
             text("SELECT COALESCE(MAX(id), 0) FROM usage_logs")
@@ -109,6 +109,15 @@ def _clean_ig_data():
         conn.execute(
             text(
                 "DELETE FROM interview_sessions WHERE resume_id IN "
+                "(SELECT id FROM resumes WHERE filename LIKE 'ig-%')"
+            )
+        )
+        # v4.2 新增表：题库按 user_id / resume_id 双路清
+        # （此前漏掉 → 每跑一轮留一批 `ig-题库` 孤儿行，2026-09-30 实测抓到 11 条）
+        conn.execute(
+            text(
+                "DELETE FROM question_banks WHERE user_id IN "
+                "(SELECT id FROM users WHERE email LIKE 'ig-%') OR resume_id IN "
                 "(SELECT id FROM resumes WHERE filename LIKE 'ig-%')"
             )
         )

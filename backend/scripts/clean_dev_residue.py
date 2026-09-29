@@ -35,8 +35,11 @@ from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.resume import Resume
 
-# 测试用户的判定：example.com 域。本项目所有真实账号均为外部邮箱域。
-TEST_USER_PREDICATE = "email LIKE '%@example.com'"
+# 测试用户的判定：
+# ① example.com 域（本项目所有真实账号均为外部邮箱域）；
+# ② v4.2.1 起注册**不再收集邮箱**（email 可为 NULL）——`email LIKE` 对 NULL 求值为 NULL
+#    （不成立），只按 ① 判会让 `noemail*` 这类测试账号永远清不掉，故必须再按 username 前缀兜一层。
+TEST_USER_PREDICATE = "email LIKE '%@example.com' OR username LIKE 'noemail%'"
 
 # 孤儿行判定：(表, where 条件)。条件一律用「左连接后右表为空」这种可证明的写法。
 ORPHAN_PREDICATES: list[tuple[str, str]] = [
@@ -55,6 +58,13 @@ ORPHAN_PREDICATES: list[tuple[str, str]] = [
     ("chat_sessions", "user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"),
     ("usage_logs", "user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"),
     ("kb_chunks", "document_id NOT IN (SELECT id FROM kb_documents)"),
+    # v4.2 新增的两张表此前漏判 —— 测试夹具不删子表时，行会原地变孤儿且无人发现
+    ("question_banks", "user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"),
+    (
+        "question_banks",
+        "resume_id IS NOT NULL AND resume_id NOT IN (SELECT id FROM resumes)",
+    ),
+    ("audio_analyses", "user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"),
 ]
 
 # 受测试用户牵连的关联表：删用户前先把这些表里属于测试用户的行清掉。
@@ -74,6 +84,9 @@ CASCADE_TABLES: list[tuple[str, str]] = [
     ),
     ("chat_sessions", f"user_id IN {_TEST_USERS}"),
     ("usage_logs", f"user_id IN {_TEST_USERS}"),
+    # v4.2 新增表：必须在删 users / resumes 之前清，否则行原地变孤儿
+    ("question_banks", f"user_id IN {_TEST_USERS}"),
+    ("audio_analyses", f"user_id IN {_TEST_USERS}"),
     ("resumes", f"user_id IN {_TEST_USERS}"),
 ]
 
