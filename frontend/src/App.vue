@@ -1,7 +1,6 @@
 <script setup>
 import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { get, post } from './api.js'
-import HomeView from './components/HomeView.vue'
 import ChatView from './components/ChatView.vue'
 import LoginView from './components/LoginView.vue'
 import HistoryView from './components/HistoryView.vue'
@@ -10,7 +9,6 @@ const AdminPanel = defineAsyncComponent(() => import('./components/AdminPanel.vu
 const KbAdminView = defineAsyncComponent(() => import('./components/KbAdminView.vue'))
 import AgentChatView from './components/agent/AgentChatView.vue'
 import AgentWidget from './components/agent/AgentWidget.vue'
-import ProfileView from './components/ProfileView.vue'
 import ResumeView from './components/ResumeView.vue'
 import InterviewView from './components/InterviewView.vue'
 import QuestionGenView from './components/QuestionGenView.vue'
@@ -19,7 +17,7 @@ import ProfileDialog from './components/ProfileDialog.vue'
 import { avatarPreset } from './utils.js'
 
 // —— 布局与视图 ——
-const activeView = ref('home') // home / resume / interview / chat / history / admin / kb-admin / agent / profile
+const activeView = ref('resume') // resume / interview / audio / question-gen / chat / history / admin / kb-admin / agent
 const collapsed = ref(false)
 const viewRef = ref(null) // 动态组件实例引用，用于调用 ResumeView.refreshList
 const viewEpoch = ref(0) // 登录/登出时 +1：重挂载全部视图，清空 KeepAlive 里的跨账号缓存
@@ -44,7 +42,6 @@ const avatarColor = computed(() => avatarPresetInfo.value?.color || null)
 // chat/history/agent 仍保留在映射里：管理端在线对话/使用日志、admin 悬浮客服继续使用，
 // 用户端导航已收起（方案 §2.2，代码不删）。
 const viewComponents = {
-  home: HomeView,
   resume: ResumeView,
   interview: InterviewView,
   'question-gen': QuestionGenView,
@@ -54,32 +51,28 @@ const viewComponents = {
   admin: AdminPanel,
   'kb-admin': KbAdminView,
   agent: AgentChatView,
-  profile: ProfileView,
 }
-const currentViewComponent = computed(() => viewComponents[activeView.value] || HomeView)
+const currentViewComponent = computed(() => viewComponents[activeView.value] || ResumeView)
 
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
 
 // —— 侧边栏导航项：双端分离 ——
-// 管理端口径冻结（方案 §2.2）；用户端收敛为 首页 + 两大业务模块 + 个人中心，
-// 业务模块强制登录（requireAuth），AI客服 / 知识库 / Playground 不再露出
+// 用户端 = 参考侧边栏的四业务模块（v4.2.1：首页落地页与个人中心导航已去冗余——
+// 个人信息/改密/退出全在顶栏头像下拉里）；管理端去掉首页（落地页已删）
 const navItems = computed(() => {
   if (isAdmin.value) {
     return [
-      { key: 'home', label: '首页', icon: '🏠', requireAuth: false },
-      { key: 'chat', label: '在线对话', icon: '💬', requireAuth: false },
-      { key: 'history', label: '使用日志', icon: '📋', requireAuth: true },
-      { key: 'admin', label: '数据看板', icon: '📊', requireAuth: true },
-      { key: 'kb-admin', label: '语料库管理', icon: '📚', requireAuth: true },
+      { key: 'chat', label: '在线对话', icon: '💬' },
+      { key: 'history', label: '使用日志', icon: '📋' },
+      { key: 'admin', label: '数据看板', icon: '📊' },
+      { key: 'kb-admin', label: '语料库管理', icon: '📚' },
     ]
   }
   return [
-    { key: 'home', label: '首页', icon: '🏠', requireAuth: false },
-    { key: 'resume', label: '简历评估', icon: '📄', requireAuth: true },
-    { key: 'audio', label: '录音分析', icon: '🎧', requireAuth: true },
-    { key: 'question-gen', label: '面试题生成', icon: '📝', requireAuth: true },
-    { key: 'interview', label: '模拟面试', icon: '🎤', requireAuth: true },
-    { key: 'profile', label: '个人中心', icon: '👤', requireAuth: true },
+    { key: 'resume', label: '简历评估', icon: '📄' },
+    { key: 'audio', label: '录音分析', icon: '🎧' },
+    { key: 'question-gen', label: '面试题生成', icon: '📝' },
+    { key: 'interview', label: '模拟面试', icon: '🎤' },
   ]
 })
 
@@ -118,7 +111,8 @@ async function logout() {
 }
 
 function onLoggedIn(user) {
-  currentUser.value = user // 登录成功 → 跳转进入系统（落地页）
+  currentUser.value = user // 登录成功 → 直接落到第一个可用模块（对齐参考侧边栏）
+  activeView.value = user.role === 'admin' ? 'chat' : 'resume'
   viewEpoch.value += 1 // 换账号登录同样重挂载，避免读到上个账号的会话缓存
   viewRef.value?.refreshList?.()
 }
@@ -198,13 +192,12 @@ onMounted(loadUser)
       </aside>
 
       <main class="content">
-        <div class="page" :class="{ wide: ['admin', 'agent', 'profile'].includes(activeView) }">
+        <div class="page" :class="{ wide: ['admin', 'agent'].includes(activeView) }">
           <!-- 视图切换：不用 KeepAlive —— 实测 KeepAlive+动态组件在本项目下
                切换时 patch 崩溃（deactivate is not a function），主区停在旧视图；
                移除后恢复。代价是切视图丢组件内状态，各视图 onMounted 自行刷新。 -->
-          <HomeView v-if="activeView === 'home'" @navigate="gotoView" />
           <ResumeView
-            v-else-if="activeView === 'resume'"
+            v-if="activeView === 'resume'"
             :key="viewEpoch"
             ref="viewRef"
             @navigate="gotoView"
