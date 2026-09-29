@@ -12,6 +12,7 @@ from redis import Redis
 from sqlalchemy.exc import InterfaceError, OperationalError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.gate import auth_gate_middleware
 from app.core.config import settings
 from app.core.errors import (
     AppError,
@@ -58,6 +59,10 @@ app = FastAPI(
 )
 
 register_all_routers(app)  # RouterRegistry 自动注册 app/api 下全部路由
+
+# —— v4.1 A3 强制登录闸门（/api/** 默认拒绝，白名单见 app/api/gate.py）——
+# 先于 log_requests 注册：日志中间件在最外层，401 拒绝也会留下访问日志（可审计）
+app.middleware("http")(auth_gate_middleware)
 
 # —— 统一错误体系（P2）：所有错误输出 {"code","message","details"} ——
 app.add_exception_handler(AppError, app_error_handler)

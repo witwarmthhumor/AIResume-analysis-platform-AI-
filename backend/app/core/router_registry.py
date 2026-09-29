@@ -26,6 +26,11 @@ def _iter_router_modules() -> list[ModuleType]:
 
 
 def register_all_routers(app: FastAPI) -> None:
-    """自动发现并注册所有路由模块。"""
+    """自动发现并注册所有路由模块。
+
+    鉴权说明（v4.1 A3）：/api/** 的强制登录由 ASGI 中间件统一把关
+    （app/api/gate.py，含白名单与测试旁路开关），不在注册层逐个挂依赖——
+    新增路由模块自动受闸门保护。
+    """
     for mod in _iter_router_modules():
         app.include_router(mod.router)

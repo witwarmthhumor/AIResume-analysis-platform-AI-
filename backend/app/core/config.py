@@ -122,6 +122,13 @@ class Settings(BaseSettings):
     # 关闭后管理员唯一来源是 scripts/seed_admin.py——新库上"谁先注册谁是管理员"是安全洞
     auto_promote_first_user: bool = False
 
+    # v4.1 A3 强制登录闸门：/api/** 默认拒绝（白名单见 app/api/gate.py）。
+    # 测试经 monkeypatch 关闭以保留匿名业务流用例；生产恒开
+    auth_gate_enabled: bool = True
+    # v4.1 A3：停止签发匿名 cookie（数据归属一律登录 user_id）；
+    # 开关仅为存量匿名测试流可达保留，生产恒关
+    issue_anonymous_cookie: bool = False
+
     # 阶段4：JWT 与 Celery/Redis
     jwt_secret_key: str = "change-me-in-backend-env"
     jwt_expire_minutes: int = 60 * 24

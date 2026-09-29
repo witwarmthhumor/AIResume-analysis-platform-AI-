@@ -32,3 +32,17 @@ def _auth_defaults(monkeypatch):
     打挂一批 403 断言（原「占位用户占首位」的 fixture 套路因此作废删除）。
     """
     monkeypatch.setattr(settings, "auto_promote_first_user", False)
+
+
+@pytest.fixture(autouse=True)
+def _auth_gate_bypass(monkeypatch):
+    """v4.1 A3：测试默认关「强制登录闸门」+ 开「匿名 cookie 签发」。
+
+    两者都是生产语义的测试侧让步：闸门关闭让既有 16 个文件的匿名业务流用例
+    继续覆盖 owner_clause 语义（代码按方案 R1 保留）；匿名 cookie 签发让
+    多请求匿名流（上传 → 轮询）不断链。闸门与"不再签发"的真实行为在
+    tests/test_auth_gate.py 显式反转后真身验证。
+    """
+    monkeypatch.setattr(settings, "auth_gate_enabled", False)
+    monkeypatch.setattr(settings, "issue_anonymous_cookie", True)
+    yield

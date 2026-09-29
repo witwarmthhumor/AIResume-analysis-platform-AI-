@@ -24,18 +24,21 @@ def get_anonymous_id(
     response: Response,
     anonymous_id: str | None = Cookie(default=None, alias=ANONYMOUS_COOKIE),
 ) -> str:
-    """取匿名身份；没有则现发一个并写入响应 cookie（httponly，前端脚本读不到）。"""
+    """取匿名身份。v4.1 A3 起默认**不再签发**匿名 cookie（强制登录后归属一律
+    登录 user_id；开关 issue_anonymous_cookie 仅为存量匿名测试流保留）：
+    有旧 cookie 读旧值保证可追溯，没有就给请求内临时 id。"""
     if anonymous_id:
         return anonymous_id
     new_id = uuid.uuid4().hex
-    response.set_cookie(
-        ANONYMOUS_COOKIE,
-        new_id,
-        max_age=_COOKIE_MAX_AGE,
-        httponly=True,
-        samesite="lax",
-        secure=settings.jwt_secure_cookie,  # 与登录 cookie 同口径：HTTPS 下不再明文
-    )
+    if settings.issue_anonymous_cookie:
+        response.set_cookie(
+            ANONYMOUS_COOKIE,
+            new_id,
+            max_age=_COOKIE_MAX_AGE,
+            httponly=True,
+            samesite="lax",
+            secure=settings.jwt_secure_cookie,  # 与登录 cookie 同口径：HTTPS 下不再明文
+        )
     return new_id
 
 
