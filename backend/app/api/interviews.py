@@ -9,6 +9,7 @@
 
 import json
 import time
+from collections.abc import Iterator
 
 from app.core.logging import get_logger
 
@@ -35,6 +36,7 @@ from app.schemas.interview import (
     SessionOut,
     StartSessionOut,
 )
+from app.services import interview_graph
 from app.services.ai_client import AIError, chat_json, stream_chat
 from app.services.interview_prompts import (
     INTERVIEW_PROMPT_VERSION,
@@ -133,6 +135,7 @@ def _session_out(db: Session, session: InterviewSession) -> SessionOut:
 def start_interview(
     resume_id: int,
     body: StartInterviewIn | None = None,
+    request: Request = None,  # 图路径记账取客户端 IP（FastAPI 注入 Request，恒非空）
     db: Session = Depends(get_db),  # noqa: B008  FastAPI 依赖注入官方惯用法
     anonymous_id: str = Depends(get_anonymous_id),
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
@@ -180,8 +183,32 @@ def start_interview(
         position_type=(body.position_type if body else None),
     )
     db.add(session)
-    db.flush()  # 拿到 session.id 给开场白用
+    db.flush()  # 拿到 session.id
     _touch_last_session(db, user, session.id)
+
+    if settings.interview_graph_enabled:
+        # S1 图路径：开场白与第一问由图节点落库（第一问经 LLM 生成，起点即"已提问"），
+        # checkpoint 挂在 wait_answer 等候选人作答；崩溃后从 checkpoint 续跑
+        db.commit()  # 先落会话行（图节点用同一会话写消息与状态）
+        tokens_used = interview_graph.graph_start(db, session)
+        if tokens_used:
+            db.add(
+                UsageLog(
+                    user_id=user.id if user else None,
+                    anonymous_id=anonymous_id,
+                    action_type="interview_message",
+                    model_name=settings.ai_model,
+                    tokens_total=tokens_used,
+                    ip_address=request.client.host if request.client else None,
+                )
+            )
+            db.commit()
+        db.refresh(session)
+        return StartSessionOut(
+            interview_prompt_version=INTERVIEW_PROMPT_VERSION,
+            session=_session_out(db, session),
+        )
+
     db.add(
         InterviewMessage(
             session_id=session.id, role="interviewer", content=OPENING_MESSAGE
@@ -331,6 +358,64 @@ def send_message(
     _touch_last_session(db, user, session_id)  # 每轮活跃都刷新「继续上次会话」指针
     db.commit()
 
+    def sse(event: str, payload: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    # —— S1 图路径：图会话（有 checkpoint）从 checkpoint 续跑作答 ——
+    # 每次续跑都从 PostgresSaver 恢复状态：进程重启后同一入口即可续跑（崩溃恢复同源）
+    if settings.interview_graph_enabled and interview_graph.has_checkpoint(session_id):
+        try:
+            last = interview_graph.graph_answer(db, session, body.content)
+        except AIError as fail:
+            # 异常对象在 except 块外会被解绑，先取值再进闭包（F821 防线）
+            error_message = fail.message
+
+            def graph_error_stream() -> Iterator[str]:
+                yield sse("error", {"content": error_message})
+
+            return StreamingResponse(
+                graph_error_stream(), media_type="text/event-stream"
+            )
+        question = last.get("last_question") or ""
+        tokens_used = last.get("tokens_used") or 0
+        db.add(
+            UsageLog(
+                user_id=user.id if user else None,
+                anonymous_id=anonymous_id,
+                action_type="interview_message",
+                model_name=settings.ai_model,
+                tokens_total=tokens_used,
+                ip_address=request.client.host if request.client else None,
+            )
+        )
+        db.commit()
+        ask_turn = session.turn_count
+        ask_stage = stage_for_turn(ask_turn, settings.max_interview_turns)
+
+        def graph_event_stream() -> Iterator[str]:
+            # 前端协议保持 meta/delta/done 不变：图内生成的问题按块推送（协议兼容）
+            yield sse("meta", {"turn": ask_turn, "stage": ask_stage})
+            step = 24
+            for i in range(0, len(question), step):
+                yield sse("delta", {"content": question[i : i + step]})
+            yield sse(
+                "done",
+                {
+                    "turn": ask_turn,
+                    "stage": ask_stage,
+                    "content": question,
+                    "tokens_prompt": None,
+                    "tokens_completion": None,
+                    "duration_ms": None,
+                },
+            )
+
+        return StreamingResponse(
+            graph_event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     # 对话历史截断（P1）：保留最近 6 条，控制 token 用量
     _RECENT_KEEP = 6
     history = list(
@@ -360,9 +445,6 @@ def send_message(
         {"role": "user" if m.role == "candidate" else "assistant", "content": m.content}
         for m in history
     ]
-
-    def sse(event: str, payload: dict) -> str:
-        return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
     def event_stream():
         started = time.monotonic()
@@ -485,6 +567,26 @@ def finish_interview(
         f"{'面试官' if m.role == 'interviewer' else '候选人'}：{m.content}"
         for m in history
     )
+
+    # —— S1 图路径：图会话经 Command(resume={"finish": True}) 续跑出报告 ——
+    if settings.interview_graph_enabled and interview_graph.has_checkpoint(session_id):
+        try:
+            last = interview_graph.graph_answer(db, session, {"finish": True})
+        except AIError as exc:
+            raise HTTPException(502, exc.message) from exc
+        db.add(
+            UsageLog(
+                user_id=user.id if user else None,
+                anonymous_id=anonymous_id,
+                action_type="interview_message",
+                model_name=settings.ai_model,
+                tokens_total=last.get("tokens_used") or 0,
+                ip_address=request.client.host if request.client else None,
+            )
+        )
+        db.commit()
+        db.refresh(session)
+        return _session_out(db, session)
 
     try:
         result = chat_json(

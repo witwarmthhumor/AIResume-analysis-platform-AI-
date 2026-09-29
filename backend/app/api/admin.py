@@ -28,12 +28,43 @@ def admin_stats(
     db: Session = Depends(get_db),  # noqa: B008
     user: User = Depends(_admin_only),  # noqa: B008
 ) -> dict:
+    # S1 面试图编排量化指标（方案 §11.4）：完成率 / 断点续跑次数 / 平均每轮 token
+    finished = (
+        db.scalar(
+            select(func.count())
+            .select_from(InterviewSession)
+            .where(InterviewSession.status == "finished")
+        )
+        or 0
+    )
+    total_interviews = (
+        db.scalar(select(func.count()).select_from(InterviewSession)) or 0
+    )
+    resumed_total = (
+        db.scalar(select(func.coalesce(func.sum(InterviewSession.resume_count), 0)))
+        or 0
+    )
+    total_turns = (
+        db.scalar(
+            select(func.coalesce(func.sum(InterviewSession.turn_count), 0)).where(
+                InterviewSession.status == "finished"
+            )
+        )
+        or 0
+    )
+    interview_tokens = (
+        db.scalar(
+            select(func.coalesce(func.sum(UsageLog.tokens_total), 0)).where(
+                UsageLog.action_type == "interview_message"
+            )
+        )
+        or 0
+    )
     return {
         "users": db.scalar(select(func.count()).select_from(User)) or 0,
         "resumes": db.scalar(select(func.count()).select_from(Resume)) or 0,
         "analyses": db.scalar(select(func.count()).select_from(Analysis)) or 0,
-        "interviews": db.scalar(select(func.count()).select_from(InterviewSession))
-        or 0,
+        "interviews": total_interviews,
         "tokens_today": db.scalar(
             select(func.coalesce(func.sum(UsageLog.tokens_total), 0)).where(
                 UsageLog.created_at
@@ -43,6 +74,16 @@ def admin_stats(
             )
         )
         or 0,
+        "interview_graph": {
+            "finished": finished,
+            "completion_rate": round(finished * 100 / total_interviews, 1)
+            if total_interviews
+            else 0.0,
+            "resume_count_total": int(resumed_total),
+            "avg_tokens_per_turn": round(interview_tokens / total_turns, 1)
+            if total_turns
+            else 0.0,
+        },
     }
 
 

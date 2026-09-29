@@ -23,6 +23,10 @@ class InterviewSession(Base, TimestampMixin):
     # 面试状态机：intro → technical → deep_dive → wrapup
     stage: Mapped[str] = mapped_column(String(20), default="intro")
     turn_count: Mapped[int] = mapped_column(Integer, default=0)  # 设上限防无限聊
+    # S1 图编排指标：从 checkpoint 续跑的次数（每轮作答都是一次续跑，崩溃恢复同源）
+    resume_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # S1 trace：图节点执行记录（node/turn/tokens/duration），报告与看板可回看
+    trace_json: Mapped[dict | None] = mapped_column(JSONB)
     final_report_json: Mapped[dict | None] = mapped_column(
         JSONB
     )  # 结束评价报告（分维度评分）

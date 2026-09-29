@@ -1,0 +1,96 @@
+[
+  {
+    "id": "full_flow_3turns",
+    "title": "完整三轮问答后正常出报告",
+    "actions": [
+      "start",
+      "answer",
+      "answer",
+      "finish"
+    ],
+    "expect": {
+      "final_status": "finished",
+      "turn_count": 3,
+      "resume_count": 3,
+      "report_present": true,
+      "trace_contains": [
+        "intro",
+        "ask_question",
+        "score_answer",
+        "generate_report"
+      ],
+      "opening_count": 1
+    }
+  },
+  {
+    "id": "finish_after_single_answer",
+    "title": "一答即结：作答一轮后立即结束出报告",
+    "actions": [
+      "start",
+      "answer",
+      "finish"
+    ],
+    "expect": {
+      "final_status": "finished",
+      "turn_count": 2,
+      "resume_count": 2,
+      "report_present": true,
+      "opening_count": 1
+    }
+  },
+  {
+    "id": "max_turns_finish_fallback",
+    "title": "达上限后 send 被 400 拦、finish 兜底出报告（守卫优先于路由）",
+    "max_turns": 2,
+    "actions": [
+      "start",
+      "answer",
+      "finish"
+    ],
+    "expect": {
+      "final_status": "finished",
+      "turn_count": 2,
+      "report_present": true,
+      "resume_count": 2
+    }
+  },
+  {
+    "id": "checkpoint_recovery",
+    "title": "每轮请求重建图对象：续跑状态全部来自 PostgresSaver（崩溃恢复语义）",
+    "actions": [
+      "start",
+      "answer"
+    ],
+    "expect": {
+      "resume_count": 1,
+      "turn_count": 2,
+      "final_status": "in_progress",
+      "checkpoint_present": true
+    }
+  },
+  {
+    "id": "opening_idempotent",
+    "title": "开场白幂等：完整流程跑完开场白只有一条",
+    "actions": [
+      "start",
+      "answer",
+      "finish"
+    ],
+    "expect": {
+      "opening_count": 1,
+      "final_status": "finished"
+    }
+  },
+  {
+    "id": "usage_accounting",
+    "title": "记账闭环：开局+作答的 LLM 消耗都写入 usage_logs",
+    "actions": [
+      "start",
+      "answer"
+    ],
+    "expect": {
+      "usage_tokens_min": 400,
+      "final_status": "in_progress"
+    }
+  }
+]

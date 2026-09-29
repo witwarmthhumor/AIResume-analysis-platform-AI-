@@ -252,6 +252,19 @@ async function toggleV2Spans(run) {
       </div>
     </div>
 
+    <!-- —— 面试图编排指标（S1 LangGraph） —— -->
+    <div v-if="stats?.interview_graph" class="panel-card">
+      <div class="panel-head">
+        <h3>🎤 面试图编排（S1 LangGraph）</h3>
+      </div>
+      <div class="v2-stats-row">
+        <span>已完成场次 <b>{{ stats.interview_graph.finished ?? 0 }}</b></span>
+        <span>完成率 <b>{{ stats.interview_graph.completion_rate ?? 0 }}%</b></span>
+        <span>断点续跑次数 <b>{{ stats.interview_graph.resume_count_total ?? 0 }}</b></span>
+        <span>平均每轮 Token <b>{{ stats.interview_graph.avg_tokens_per_turn ?? 0 }}</b></span>
+      </div>
+    </div>
+
     <!-- —— Agent 任务追踪（v4.0 LangGraph 试点） —— -->
     <div v-if="v2Stats" class="panel-card">
       <div class="panel-head">

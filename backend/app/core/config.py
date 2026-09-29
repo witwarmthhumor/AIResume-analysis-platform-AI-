@@ -129,6 +129,10 @@ class Settings(BaseSettings):
     # 开关仅为存量匿名测试流可达保留，生产恒关
     issue_anonymous_cookie: bool = False
 
+    # S1 面试图编排（方案 §11）：开启后新面试会话经 LangGraph 图驱动（checkpoint 可续跑）；
+    # 旧行为会话（无 checkpoint）自动回退单轮路径，关掉即整体回退
+    interview_graph_enabled: bool = True
+
     # 阶段4：JWT 与 Celery/Redis
     jwt_secret_key: str = "change-me-in-backend-env"
     jwt_expire_minutes: int = 60 * 24

@@ -54,6 +54,14 @@ def fake_analysis_result() -> AnalysisResult:
 
 
 @pytest.fixture(autouse=True)
+def _legacy_interviews(monkeypatch):
+    """本文件锚定「单轮路径」的行为语义：S1 图编排有专属测试文件
+    （test_interview_graph.py + scripts/eval_interview_graph.py），这里统一关图
+    开关，防图路径的 LLM 调用绕过本文件的 mock 打到真实模型。"""
+    monkeypatch.setattr(settings, "interview_graph_enabled", False)
+
+
+@pytest.fixture(autouse=True)
 def _clean_state():
     """按标记清理本文件造的数据（简历文件名前缀 rt-），真实数据不受影响。
 
