@@ -131,6 +131,7 @@ _ACTION_LABELS = {
     "agent": "AI 客服问答",
     "agent_create": "新建客服会话",
     "agent_tool_llm": "工具内 AI 调用",
+    "question_bank": "面试题生成",  # v4.2 题库生成
 }
 
 # 面试结束评价的分维度中文名（与 interview_prompts 的 JSON 结构一一对应）

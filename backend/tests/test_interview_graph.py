@@ -23,6 +23,8 @@ from app.services.interview_prompts import OPENING_MESSAGE
 
 client = TestClient(app)
 
+_graph_stub_calls: list = []
+
 _IG_PREFIX = "ig-"  # 一文件一前缀：本文件造的账号/简历全部带此标记
 
 
@@ -225,3 +227,57 @@ def test_finish_generates_report_via_graph() -> None:
     assert body["status"] == "finished"
     assert body["final_report"]["summary"] == "stub 报告"
     assert body["final_report"]["overall"] == 7
+
+
+def test_bank_driven_interview_skips_question_llm() -> None:
+    """v4.2 题库驱动：开局带 bank_id → 出题按题库顺序（零 LLM 出题调用）；
+    题库问完后回落 AI 出题；游标随 checkpoint 前进（续跑不重复同一题）。"""
+    c, resume_id = _register_and_upload()
+    # 直接入库造题库（题库生成本身有专属测试文件覆盖）
+    with engine.begin() as conn:
+        uid = conn.execute(
+            text("SELECT id FROM users WHERE email LIKE 'ig-%' ORDER BY id DESC LIMIT 1")
+        ).scalar()
+        bank_id = conn.execute(
+            text(
+                "INSERT INTO question_banks (user_id, resume_id, title, question_count, "
+                "questions_json) VALUES (:uid, :rid, 'ig-题库', 2, "
+                "'{\"questions\": [{\"question\": \"bank-q-1\", \"category\": \"项目\", "
+                "\"difficulty\": 3}, {\"question\": \"bank-q-2\", \"category\": \"基础\", "
+                "\"difficulty\": 2}]}'::jsonb) RETURNING id"
+            ),
+            {"uid": uid, "rid": resume_id},
+        ).scalar_one()
+
+    start = c.post(f"/api/resumes/{resume_id}/interviews", json={"bank_id": bank_id})
+    assert start.status_code == 201, start.text
+    session = start.json()["session"]
+    questions = [m["content"] for m in session["messages"] if m["role"] == "interviewer"]
+    assert questions[-1] == "bank-q-1"  # 第一题来自题库（开场白之后）
+
+    # 作答：评分仍走 LLM（stub 记 score），第二题来自题库
+    resp = c.post(
+        f"/api/interviews/{session['id']}/messages", json={"content": "我的回答。"}
+    )
+    events = _parse_sse(resp.text)
+    assert events["done"]["content"] == "bank-q-2"
+
+    # 题库耗尽 → 回落 AI 出题（stub 记到 question 调用，序号 1）
+    resp2 = c.post(
+        f"/api/interviews/{session['id']}/messages", json={"content": "继续。"}
+    )
+    events2 = _parse_sse(resp2.text)
+    assert events2["done"]["content"] == "stub-question-1"
+
+    # 全程出题零 LLM（stub.calls 里 score 有、question 在回落前没有）
+    stub_calls = list(_graph_stub_calls)
+    assert "score" in stub_calls
+    assert stub_calls.index("question") > stub_calls.index("score")  # 回落后的首次出题
+
+
+@pytest.fixture(autouse=True)
+def _capture_stub_calls(_graph_mode):
+    """把 _StubLLM 的调用序列暴露给用例断言（fixture 链：先拿到 _graph_mode 的 stub）。"""
+    global _graph_stub_calls
+    _graph_stub_calls = _graph_mode.calls
+    yield

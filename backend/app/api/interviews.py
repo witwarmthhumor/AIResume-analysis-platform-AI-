@@ -27,6 +27,7 @@ from app.api.deps import enforce_daily_limit, get_anonymous_id
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.interview import InterviewMessage, InterviewSession
+from app.models.question_bank import QuestionBank
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
 from app.models.user import User
@@ -56,6 +57,9 @@ class SendMessageIn(BaseModel):
 class StartInterviewIn(BaseModel):
     position_type: str | None = Field(
         default=None, description="intern/fresh/senior，空=通用（P5 智能出题）"
+    )
+    bank_id: int | None = Field(
+        default=None, description="v4.2 题库驱动：开局加载的题库 id（仅图路径生效）"
     )
 
 
@@ -186,11 +190,26 @@ def start_interview(
     db.flush()  # 拿到 session.id
     _touch_last_session(db, user, session.id)
 
+    # v4.2 题库解析（先于图分支）：归属校验 + 取题；仅图路径支持（legacy 明确拒绝）
+    bank_questions: list = []
+    if body and body.bank_id:
+        bank = db.get(QuestionBank, body.bank_id)
+        if bank is None or user is None or bank.user_id != user.id:
+            raise HTTPException(404, "题库不存在或已删除")
+        bank_questions = [
+            q
+            for q in bank.questions_json.get("questions", [])
+            if str(q.get("question") or "").strip()
+        ]
+        if not bank_questions:
+            raise HTTPException(400, "该题库没有可用题目")
+        if not settings.interview_graph_enabled:
+            raise HTTPException(400, "题库加载需要面试图编排开启（interview_graph_enabled）")
     if settings.interview_graph_enabled:
         # S1 图路径：开场白与第一问由图节点落库（第一问经 LLM 生成，起点即"已提问"），
         # checkpoint 挂在 wait_answer 等候选人作答；崩溃后从 checkpoint 续跑
         db.commit()  # 先落会话行（图节点用同一会话写消息与状态）
-        tokens_used = interview_graph.graph_start(db, session)
+        tokens_used = interview_graph.graph_start(db, session, bank_questions)
         if tokens_used:
             db.add(
                 UsageLog(

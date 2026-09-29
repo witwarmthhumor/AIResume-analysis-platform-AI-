@@ -133,6 +133,9 @@ class Settings(BaseSettings):
     # 旧行为会话（无 checkpoint）自动回退单轮路径，关掉即整体回退
     interview_graph_enabled: bool = True
 
+    # v4.2 面试题库：每归属者每日生成套数上限（一次生成 = 一次大调用，单独限额好归因）
+    daily_question_bank_limit: int = 10
+
     # 阶段4：JWT 与 Celery/Redis
     jwt_secret_key: str = "change-me-in-backend-env"
     jwt_expire_minutes: int = 60 * 24

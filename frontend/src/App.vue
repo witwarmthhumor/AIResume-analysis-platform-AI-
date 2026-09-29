@@ -13,6 +13,7 @@ import AgentWidget from './components/agent/AgentWidget.vue'
 import ProfileView from './components/ProfileView.vue'
 import ResumeView from './components/ResumeView.vue'
 import InterviewView from './components/InterviewView.vue'
+import QuestionGenView from './components/QuestionGenView.vue'
 import ProfileDialog from './components/ProfileDialog.vue'
 import { avatarPreset } from './utils.js'
 
@@ -23,6 +24,7 @@ const viewRef = ref(null) // 动态组件实例引用，用于调用 ResumeView.
 const viewEpoch = ref(0) // 登录/登出时 +1：重挂载全部视图，清空 KeepAlive 里的跨账号缓存
 const pendingView = ref(null) // 未登录点击需登录项时记下目标视图，登录成功后送回去（方案「保留原路径」的内存态实现）
 const pendingResumeId = ref(null) // ResumeView → InterviewView 的「拿这份简历去面试」交接
+const pendingBankId = ref(null) // QuestionGenView → InterviewView 的「拿这套题去面试」交接
 
 // —— 用户与登录 ——
 const currentUser = ref(null)
@@ -46,6 +48,7 @@ const viewComponents = {
   home: HomeView,
   resume: ResumeView,
   interview: InterviewView,
+  'question-gen': QuestionGenView,
   chat: ChatView,
   history: HistoryView,
   admin: AdminPanel,
@@ -73,6 +76,7 @@ const navItems = computed(() => {
   return [
     { key: 'home', label: '首页', icon: '🏠', requireAuth: false },
     { key: 'resume', label: '简历评估', icon: '📄', requireAuth: true },
+    { key: 'question-gen', label: '面试题生成', icon: '📝', requireAuth: true },
     { key: 'interview', label: '模拟面试', icon: '🎤', requireAuth: true },
     { key: 'profile', label: '个人中心', icon: '👤', requireAuth: true },
   ]
@@ -91,8 +95,9 @@ function selectView(item) {
 }
 
 // 业务视图内部跳转（首页入口卡 / 简历评估「去模拟面试」/ 面试空态引导）
-function gotoView(key, resumeId = null) {
+function gotoView(key, resumeId = null, bankId = null) {
   pendingResumeId.value = resumeId
+  pendingBankId.value = bankId
   activeView.value = key
 }
 
@@ -219,8 +224,14 @@ onMounted(loadUser)
             v-else-if="activeView === 'interview'"
             :key="viewEpoch"
             :pending-resume-id="pendingResumeId"
+            :pending-bank-id="pendingBankId"
             @navigate="gotoView"
-            @pending-consumed="pendingResumeId = null"
+            @pending-consumed="pendingResumeId = null; pendingBankId = null"
+          />
+          <QuestionGenView
+            v-else-if="activeView === 'question-gen'"
+            :key="viewEpoch"
+            @navigate="gotoView"
           />
           <component :is="currentViewComponent" v-else :key="viewEpoch" ref="viewRef" @logout="logout" />
         </div>

@@ -9,10 +9,16 @@ import InterviewChat from './InterviewChat.vue'
 import InterviewReport from './InterviewReport.vue'
 
 const emit = defineEmits(['navigate', 'pending-consumed'])
-const props = defineProps({ pendingResumeId: { type: Number, default: null } })
+const props = defineProps({
+  pendingResumeId: { type: Number, default: null },
+  pendingBankId: { type: Number, default: null }, // v4.2：从题库页跳转时预选的题库
+})
 
 const resumes = ref([]) // 仅 parse 成功的简历可选
 const resumesState = ref('loading') // loading / ready / error
+const banks = ref([]) // v4.2 我的题库（可选加载）
+const banksState = ref('loading') // loading / ready / empty / error
+const selectedBankId = ref(null) // 开局是否带题库（题库驱动出题，省 LLM 额度）
 const activeResume = ref(null) // 开聊中的简历（挂 InterviewChat）
 const lastSession = ref(null) // 最近一场（可能进行中/已结束）
 const lastState = ref('loading') // loading / ready / none / error
@@ -28,6 +34,16 @@ async function loadResumes() {
     resumesState.value = 'ready'
   } catch {
     resumesState.value = 'error'
+  }
+}
+
+async function loadBanks() {
+  banksState.value = 'loading'
+  try {
+    banks.value = await get('/api/question-banks')
+    banksState.value = banks.value.length ? 'ready' : 'empty'
+  } catch {
+    banksState.value = 'error'
   }
 }
 
@@ -90,7 +106,8 @@ function closeChat() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadResumes(), loadHistory(), loadLast()])
+  await Promise.all([loadResumes(), loadBanks(), loadHistory(), loadLast()])
+  if (props.pendingBankId) selectedBankId.value = props.pendingBankId // 题库页跳转预选
   if (props.pendingResumeId) {
     // 从「简历评估 → 去模拟面试」跳转而来：自动开聊
     try {
@@ -119,6 +136,7 @@ onMounted(async () => {
     v-else-if="activeResume"
     :key="activeResume.id"
     :resume="activeResume"
+    :bank-id="selectedBankId"
     @close="closeChat"
   />
 
@@ -147,7 +165,14 @@ onMounted(async () => {
 
     <!-- ② 选简历开新面试 -->
     <section class="card">
-      <div class="section-head"><h3>开一场新面试</h3><span class="muted">选择一份解析成功的简历</span></div>
+      <div class="section-head"><h3>开一场新面试</h3><span class="muted">选择简历，可选加载题库</span></div>
+      <div v-if="banksState === 'ready'" class="bank-select-row">
+        <span class="muted">📋 面试题库</span>
+        <select v-model="selectedBankId" class="bank-select">
+          <option :value="null">不使用题库（AI 自由出题）</option>
+          <option v-for="b in banks" :key="b.id" :value="b.id">{{ b.title }}（{{ b.question_count }} 题）</option>
+        </select>
+      </div>
       <p v-if="resumesState === 'error'" class="msg error">
         简历列表加载失败 <button class="link-btn" @click="loadResumes">重试</button>
       </p>
@@ -297,5 +322,20 @@ onMounted(async () => {
   font-size: 12.5px;
   text-decoration: underline;
   padding: 0;
+}
+.bank-select-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.bank-select {
+  min-width: 280px;
+  border: 1.5px solid var(--c-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  font-family: inherit;
+  background: #fff;
 }
 </style>

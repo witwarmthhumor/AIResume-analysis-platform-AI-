@@ -10,6 +10,7 @@ from app.models.base import Base
 from app.models.chat import ChatMessage, ChatSession
 from app.models.interview import InterviewMessage, InterviewSession
 from app.models.kb import KBChunk, KBDocument
+from app.models.question_bank import QuestionBank
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
 from app.models.user import User
@@ -27,6 +28,7 @@ __all__ = [
     "InterviewSession",
     "KBChunk",
     "KBDocument",
+    "QuestionBank",
     "Resume",
     "UsageLog",
     "User",

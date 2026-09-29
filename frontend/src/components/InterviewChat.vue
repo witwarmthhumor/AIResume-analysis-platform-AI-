@@ -5,7 +5,10 @@ import { nextTick, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 
 import { parseSseBlock, post, streamChat } from '../api.js'
 import InterviewReport from './InterviewReport.vue'
 
-const props = defineProps({ resume: { type: Object, required: true } })
+const props = defineProps({
+  resume: { type: Object, required: true },
+  bankId: { type: Number, default: null }, // v4.2 题库驱动：开局加载的题库（可选）
+})
 const emit = defineEmits(['close'])
 const session = ref(null)
 const messages = ref([])
@@ -33,6 +36,7 @@ async function startOrResume() {
   try {
     const body = await post(`/api/resumes/${props.resume.id}/interviews`, {
       position_type: positionType.value || null,
+      bank_id: props.bankId || null,
     })
     session.value = body.session
     messages.value = [...body.session.messages]

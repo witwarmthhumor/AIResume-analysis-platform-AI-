@@ -81,6 +81,10 @@ class InterviewState(TypedDict, total=False):
     finish_requested: bool
     last_score: dict
     report: dict
+    # v4.2 题库驱动：加载题库后 ask_question 按序取题（不调 LLM），问完回落 AI 出题。
+    # 随 checkpoint 持久化，session 表无需加列
+    bank_questions: list
+    bank_index: int
 
 
 @dataclass
@@ -158,7 +162,7 @@ def _make_nodes(deps: _Deps) -> dict:
         return {"session_id": session.id, "turn_count": 0, "stage": "intro"}
 
     def ask_question(state: InterviewState) -> dict:
-        """出题：LLM 基于简历与阶段生成下一问，落库并推进 turn_count/stage。
+        """出题：题库模式按序取题（零 LLM 调用），问完回落 AI 出题；落库并推进轮次。
 
         stage 口径与单轮路径对齐：**刚问的问题**属于 stage_for_turn(turn)（进 state，
         供路由与 SSE meta），而 session.stage 存"下一问所处阶段"= stage_for_turn(turn+1)
@@ -167,26 +171,37 @@ def _make_nodes(deps: _Deps) -> dict:
         started = time.monotonic()
         turn = (state.get("turn_count") or 0) + 1
         ask_stage = stage_for_turn(turn, settings.max_interview_turns)
-        system = build_interviewer_system_prompt(
-            deps.resume_text,
-            ask_stage,
-            turn,
-            settings.max_interview_turns,
-            session.position_type,
-        )
+
+        # v4.2 题库优先：bank_questions 里还有题就直接取，省一次 LLM 调用
+        bank = state.get("bank_questions") or []
+        idx = state.get("bank_index") or 0
+        source = "ai"
         result: AnalysisResult | None = None
-        try:
-            result = chat_json(
-                system, _QUESTION_INSTRUCTION, settings, NextQuestion.model_validate
+        if idx < len(bank):
+            question = str(bank[idx].get("question") or "").strip()[:2000]
+            source = "bank"
+            if not question:
+                question = FALLBACK_QUESTION
+        else:
+            system = build_interviewer_system_prompt(
+                deps.resume_text,
+                ask_stage,
+                turn,
+                settings.max_interview_turns,
+                session.position_type,
             )
-            question = (result.report.get("question") or "").strip()[
-                :2000
-            ] or FALLBACK_QUESTION
-        except AIError:
-            logger.warning(
-                "面试图出题失败 session=%s，使用兜底问题", session.id, exc_info=True
-            )
-            question = FALLBACK_QUESTION
+            try:
+                result = chat_json(
+                    system, _QUESTION_INSTRUCTION, settings, NextQuestion.model_validate
+                )
+                question = (result.report.get("question") or "").strip()[
+                    :2000
+                ] or FALLBACK_QUESTION
+            except AIError:
+                logger.warning(
+                    "面试图出题失败 session=%s，使用兜底问题", session.id, exc_info=True
+                )
+                question = FALLBACK_QUESTION
         db.add(
             InterviewMessage(
                 session_id=session.id,
@@ -202,9 +217,13 @@ def _make_nodes(deps: _Deps) -> dict:
             turn,
             result,
             duration_ms=int((time.monotonic() - started) * 1000),
+            source=source,
         )
         db.commit()
-        return {"turn_count": turn, "stage": ask_stage, "last_question": question}
+        patch: dict = {"turn_count": turn, "stage": ask_stage, "last_question": question}
+        if source == "bank":
+            patch["bank_index"] = idx + 1  # 题库游标随 checkpoint 前进
+        return patch
 
     def wait_answer(state: InterviewState) -> dict:
         """挂起等作答。**纯 interrupt、零副作用**——resume 时本节点会从头重执行（坑 #3），
@@ -352,7 +371,9 @@ def _fresh_deps(db: Session, session: InterviewSession) -> _Deps:
     return _Deps(db=db, session=session, resume_text=resume_text)
 
 
-def graph_start(db: Session, session: InterviewSession) -> int:
+def graph_start(
+    db: Session, session: InterviewSession, bank_questions: list | None = None
+) -> int:
     """开局：跑 intro + 第一问，图挂在 wait_answer 等候选人作答。返回消耗 token 数。"""
     deps = _fresh_deps(db, session)
     with PostgresSaver.from_conn_string(_dsn()) as checkpointer:
@@ -365,6 +386,8 @@ def graph_start(db: Session, session: InterviewSession) -> int:
                 "position_type": session.position_type,
                 "turn_count": 0,
                 "stage": "intro",
+                "bank_questions": bank_questions or [],
+                "bank_index": 0,
             },
             _thread(session.id),
         )
