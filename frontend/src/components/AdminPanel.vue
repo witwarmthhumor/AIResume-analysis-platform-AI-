@@ -3,6 +3,10 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import { get } from '../api.js'
 import { fmtNum, pageNumbers } from '../utils.js'
 
+// v4.2.1：数据看板双口径——管理员看全站，普通用户看本人（同一入口按角色分叉）
+const props = defineProps({ user: { type: Object, required: true } })
+const isAdmin = computed(() => props.user?.role === 'admin')
+
 const stats = ref(null)
 const users = ref([])
 const usage = ref([])
@@ -11,14 +15,21 @@ const error = ref('')
 async function load() {
   error.value = ''
   try {
-    const [s, u, us] = await Promise.all([
-      get('/api/admin/stats'),
-      get('/api/admin/users'),
-      get('/api/admin/usage'),
-    ])
-    stats.value = s
-    users.value = u
-    usage.value = us
+    if (isAdmin.value) {
+      const [s, u, us] = await Promise.all([
+        get('/api/admin/stats'),
+        get('/api/admin/users'),
+        get('/api/admin/usage'),
+      ])
+      stats.value = s
+      users.value = u
+      usage.value = us
+    } else {
+      // 普通用户：本人口径（/api/me/* 均按当前用户过滤）
+      const [s, us] = await Promise.all([get('/api/me/stats'), get('/api/me/usage')])
+      stats.value = s
+      usage.value = us
+    }
   } catch (e) {
     error.value = e.message || '加载失败'
   }
@@ -28,6 +39,16 @@ async function load() {
 const cards = computed(() => {
   const s = stats.value
   if (!s) return []
+  if (!isAdmin.value) {
+    // 普通用户：本人五卡
+    return [
+      { label: '我的简历', value: s.resumes, color: '#10b981', icon: '📄' },
+      { label: '我的分析', value: s.analyses, color: '#3b82f6', icon: '📊' },
+      { label: '我的面试', value: s.interviews, color: '#f59e0b', icon: '🎤' },
+      { label: '今日 Token', value: s.tokens_today, color: '#06b6d4', icon: '⚡' },
+      { label: '累计 Token', value: s.tokens_total, color: '#8b5cf6', icon: '🏆' },
+    ]
+  }
   return [
     { label: '用户', value: s.users, color: '#10b981', icon: '👥' },
     { label: '简历', value: s.resumes, color: '#3b82f6', icon: '📄' },
@@ -94,7 +115,10 @@ function fmtDateTime(iso) {
 }
 
 onMounted(load)
-onMounted(loadV2)
+onMounted(() => {
+  load()
+  if (isAdmin.value) loadV2() // v2 任务追踪是管理员 API，普通用户不调
+})
 
 // —— Agent 任务追踪（v4.0 LangGraph 试点）：近 20 条 run + 展开看 span/审批 ——
 const v2Runs = ref([])
@@ -160,8 +184,8 @@ async function toggleV2Spans(run) {
       </div>
     </div>
 
-    <!-- —— 用户列表卡片 —— -->
-    <div class="panel-card">
+    <!-- —— 用户列表卡片（仅管理员） —— -->
+    <div v-if="isAdmin" class="panel-card">
       <div class="panel-head">
         <h3>👥 用户列表</h3>
         <span class="count-badge">共 {{ users.length }} 人</span>

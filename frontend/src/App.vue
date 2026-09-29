@@ -8,7 +8,6 @@ import HistoryView from './components/HistoryView.vue'
 const AdminPanel = defineAsyncComponent(() => import('./components/AdminPanel.vue'))
 const KbAdminView = defineAsyncComponent(() => import('./components/KbAdminView.vue'))
 import AgentChatView from './components/agent/AgentChatView.vue'
-import AgentWidget from './components/agent/AgentWidget.vue'
 import ResumeView from './components/ResumeView.vue'
 import InterviewView from './components/InterviewView.vue'
 import QuestionGenView from './components/QuestionGenView.vue'
@@ -56,23 +55,17 @@ const currentViewComponent = computed(() => viewComponents[activeView.value] || 
 
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
 
-// —— 侧边栏导航项：双端分离 ——
-// 用户端 = 参考侧边栏的四业务模块（v4.2.1：首页落地页与个人中心导航已去冗余——
-// 个人信息/改密/退出全在顶栏头像下拉里）；管理端去掉首页（落地页已删）
+// —— 侧边栏导航项：全角色统一（v4.2.1）——
+// 四业务模块 + 使用日志（本人口径）+ 数据看板（管理员全站 / 普通用户本人，AdminPanel 内按角色分叉）；
+// 在线对话 / 语料库管理 / AI 客服 / 首页落地页 / 个人中心导航按指示先去掉（代码保留）
 const navItems = computed(() => {
-  if (isAdmin.value) {
-    return [
-      { key: 'chat', label: '在线对话', icon: '💬' },
-      { key: 'history', label: '使用日志', icon: '📋' },
-      { key: 'admin', label: '数据看板', icon: '📊' },
-      { key: 'kb-admin', label: '语料库管理', icon: '📚' },
-    ]
-  }
   return [
     { key: 'resume', label: '简历评估', icon: '📄' },
     { key: 'audio', label: '录音分析', icon: '🎧' },
     { key: 'question-gen', label: '面试题生成', icon: '📝' },
     { key: 'interview', label: '模拟面试', icon: '🎤' },
+    { key: 'history', label: '使用日志', icon: '📋' },
+    { key: 'admin', label: '数据看板', icon: '📊' },
   ]
 })
 
@@ -111,8 +104,8 @@ async function logout() {
 }
 
 function onLoggedIn(user) {
-  currentUser.value = user // 登录成功 → 直接落到第一个可用模块（对齐参考侧边栏）
-  activeView.value = user.role === 'admin' ? 'chat' : 'resume'
+  currentUser.value = user // 登录成功 → 直落简历评估（第一个业务模块）
+  activeView.value = 'resume'
   viewEpoch.value += 1 // 换账号登录同样重挂载，避免读到上个账号的会话缓存
   viewRef.value?.refreshList?.()
 }
@@ -216,13 +209,19 @@ onMounted(loadUser)
             @navigate="gotoView"
           />
           <AudioView v-else-if="activeView === 'audio'" :key="viewEpoch" />
+          <AdminPanel
+            v-else-if="activeView === 'admin'"
+            :key="viewEpoch"
+            ref="viewRef"
+            :user="currentUser"
+            @logout="logout"
+          />
           <component :is="currentViewComponent" v-else :key="viewEpoch" ref="viewRef" @logout="logout" />
         </div>
       </main>
     </div>
 
-    <!-- —— 管理端右下角悬浮 AI 客服（仅 admin；用户端无悬浮，用整页 AI客服）—— -->
-    <AgentWidget v-if="isAdmin" />
+    <!-- —— AI 客服悬浮窗：v4.2.1 按"其余先去掉"指示收起（组件保留） —— -->
 
     </div>
 
