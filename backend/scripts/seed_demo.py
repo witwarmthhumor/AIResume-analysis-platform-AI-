@@ -7,8 +7,8 @@
 
 造什么：
 - 两个账号（覆盖双端导航）：
-  - `demo@airesume.local`（管理员，演示「管理端五项 + 右下角 AI 客服悬浮」）
-  - `demo@user.local`（普通用户，演示「首页 / AI 客服 / 个人中心」）——业务数据挂在这个号名下
+  - `admin@airesume-demo.com`（管理员，演示「管理端五项 + 右下角 AI 客服悬浮」）
+  - `user@airesume-demo.com`（普通用户，演示「首页 / AI 客服 / 个人中心」）——业务数据挂在这个号名下
 - 1 份简历（从 `test-resumes/` 取 PDF，走真实解析器拿正文，落真实 uploads 文件）
 - 1 份已完成分析报告（结构与 AI 实际返回一致：7 个字段全给）
 - 1 场已结束的模拟面试（四维评分 + 6 条对话消息）
@@ -16,7 +16,7 @@
 - 近 7 天的使用记账（让看板柱状图与使用日志列表都有数据）
 
 幂等：重复执行不会重复造数；`--reset` 先清掉演示账号名下全部数据再重建。
-演示数据用独立邮箱域 `@airesume.local` / `@user.local`，与真实账号、与测试残留
+演示数据用独立邮箱域 `@airesume-demo.com`，与真实账号、与测试残留
 （`@example.com`）都区分得开。
 
 用法：
@@ -47,9 +47,9 @@ from app.models.user import User
 from app.services.pdf_parser import ParseError, parse_pdf
 from app.services.prompts import PROMPT_VERSION
 
-# 演示账号：两个邮箱域都不与真实账号(*) 或测试残留(@example.com) 重叠
-ADMIN_EMAIL = "demo@airesume.local"
-USER_EMAIL = "demo@user.local"
+# 演示账号：独立邮箱域 @airesume-demo.com，不与真实账号或测试残留(@example.com) 重叠
+ADMIN_EMAIL = "admin@airesume-demo.com"
+USER_EMAIL = "user@airesume-demo.com"
 DEMO_PASSWORD = "demo-resume-2026"  # 满足后端 8 位下限；文档里会写明
 DEMO_EMAILS = (ADMIN_EMAIL, USER_EMAIL)
 
