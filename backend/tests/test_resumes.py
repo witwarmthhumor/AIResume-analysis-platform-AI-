@@ -98,17 +98,23 @@ def test_non_pdf_rejected_415() -> None:
     assert resp.status_code == 415
 
     resp2 = upload(b"plain text, not a pdf at all", "rt-resume.pdf")
+
+    resp3 = upload(b"plain text, not a docx at all", "rt-resume.docx")
+    assert resp3.status_code == 415
     assert resp2.status_code == 415
 
     assert client.get("/api/resumes").json() == []
 
 
-def test_oversize_rejected_413() -> None:
-    big = b"%PDF-1.4" + b"0" * (5 * 1024 * 1024 + 1)  # 文件头合法、内容超 5MB
+def test_oversize_rejected_413(monkeypatch) -> None:
+    """超限 413：v4.2 上限提到 10MB，用 monkeypatch 收紧上限验证同一拦截路径。"""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "upload_max_size", 1024)  # 1KB，避免造 10MB 大对象
+    big = b"%PDF-1.4" + b"0" * 2048  # 文件头合法、内容超 1KB
     resp = upload(big)
     assert resp.status_code == 413
-    assert "5MB" in resp.json()["message"]
-
+    assert "MB" in resp.json()["message"]
 
 def test_too_many_pages_rejected_400() -> None:
     resp = upload(make_text_pdf(["page content with enough text here"] * 6))
@@ -204,3 +210,33 @@ def test_anonymous_isolation_cannot_read_or_delete_others() -> None:
 
     # A 自己仍可正常访问（确认修复没有误伤）
     assert client_a.get(f"/api/resumes/{rid}").status_code == 200
+
+
+def test_docx_upload_parses() -> None:
+    """v4.2：Word docx 上传 → 解析成功、可开始面试/分析；正文完整入库。"""
+    from io import BytesIO
+
+    from docx import Document as DocxDocument
+
+    doc = DocxDocument()
+    doc.add_paragraph("李四，Python 后端工程师，5 年经验。")
+    for i in range(3):
+        doc.add_paragraph(f"项目经历 {i}：负责高并发订单服务的设计与落地。")
+    buf = BytesIO()
+    doc.save(buf)
+    resp = upload(buf.getvalue(), "rt-resume.docx")
+    assert resp.status_code == 201, resp.text
+    body = resp.json()["resume"]
+    assert body["parse_status"] == "success"
+    assert "高并发订单服务" in body["raw_text"]
+
+    # 同一文件重复上传 → 去重复用
+    dup = upload(buf.getvalue(), "rt-resume.docx")
+    assert dup.status_code == 201 and dup.json()["duplicate"] is True
+
+
+def test_doc_corrupt_magic_fails_gracefully() -> None:
+    """docx 头合法但内容损坏 → 201 + parse_status=failed 落库留痕（不炸请求）。"""
+    resp = upload(b"PK\x03\x04" + b"junk" * 10, "rt-resume.docx")
+    assert resp.status_code == 201
+    assert resp.json()["resume"]["parse_status"] == "failed"

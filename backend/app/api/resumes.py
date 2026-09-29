@@ -20,7 +20,7 @@ from app.db.session import get_db
 from app.models.resume import Resume
 from app.models.user import User
 from app.schemas.resume import ResumeDetail, ResumeOut, UploadResult
-from app.services.pdf_parser import PDF_MAGIC, ParseError, parse_pdf
+from app.services.pdf_parser import DOCX_MAGIC, PDF_MAGIC, ParseError, parse_resume_file
 from app.services.usage_service import write_usage
 
 router = APIRouter(prefix="/api", tags=["resumes"])
@@ -55,9 +55,17 @@ async def upload_resume(
         file.filename or "resume.pdf"
     ).name  # 消毒：只留文件名本身，剥掉路径部分
 
-    # 上传拦截：类型（扩展名 + 文件头双校验）与页数在此校验，大小已在读前预检/读后兜底——都不落库
-    if not filename.lower().endswith(".pdf") or not data.startswith(PDF_MAGIC):
-        raise HTTPException(415, "只支持 PDF 文件，请上传 PDF 格式的简历")
+    # 上传拦截（v4.2）：扩展名白名单（PDF/docx）→ 文件头二次校验交给 parse_resume_file；
+    # 大小已在读前预检/读后兜底——都不落库
+    lower_name = filename.lower()
+    if not lower_name.endswith((".pdf", ".docx")):
+        raise HTTPException(415, "只支持 PDF 或 Word（.docx）格式的简历")
+    # 文件头 415：扩展名对但 magic 不符在 API 层拦（保留旧语义：客户端可立即重传），
+    # 解析层的同名校验只作服务层防御
+    if (lower_name.endswith(".pdf") and not data.startswith(PDF_MAGIC)) or (
+        lower_name.endswith(".docx") and not data.startswith(DOCX_MAGIC)
+    ):
+        raise HTTPException(415, "文件内容与扩展名不符，可能已损坏")
     if (
         len(data) > settings.upload_max_size
     ):  # 兜底：无 Content-Length 时 size 可能为 None
@@ -93,18 +101,18 @@ async def upload_resume(
     raw_text: str | None = None
     page_count: int | None = None
     try:
-        result = parse_pdf(data, settings.upload_max_pages)
+        result = parse_resume_file(data, filename, settings.upload_max_pages)
     except ParseError as exc:
         if exc.kind == "too_many_pages":
             raise HTTPException(400, exc.message) from exc
-        parse_status = exc.kind  # unsupported（扫描件）/ failed（损坏）：落库留痕
+        parse_status = exc.kind  # unsupported（扫描件/旧版 doc/空文档）/ failed（损坏）：落库留痕
         parse_error = exc.message
     else:
         raw_text = result.text
         page_count = result.page_count
 
-    # 文件以内容 hash 命名：同内容只存一份，且文件名不可预测
-    storage_path = UPLOAD_DIR / f"{file_hash}.pdf"
+    # 文件以内容 hash + 原扩展名命名：同内容只存一份，且文件名不可预测
+    storage_path = UPLOAD_DIR / f"{file_hash}{lower_name[-5:]}"
     storage_path.write_bytes(data)
 
     resume = Resume(

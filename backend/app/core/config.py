@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     daily_upload_limit: int = (
         10  # 简历上传每日上限（按归属者统计，防匿名刷磁盘与解析 CPU）
     )
-    upload_max_size: int = 5 * 1024 * 1024  # 5MB
+    upload_max_size: int = 10 * 1024 * 1024  # 10MB（v4.2：支持 PDF/Word 后放宽，与参考口径一致）
     upload_max_pages: int = 5
     # 相对启动目录（和 .env 一样，统一从 backend/ 启动）；在 web 根目录之外，不对外暴露
     upload_dir: str = "uploads"
