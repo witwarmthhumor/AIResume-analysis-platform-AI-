@@ -1,6 +1,11 @@
-"""用户认证接口：注册、登录、登出、当前用户。"""
+"""用户认证接口：注册（用户名）、登录（用户名/邮箱兼容）、改密、登出、当前用户。
 
-import time
+v4.1 企业级改造·A2（方案 §3）：
+- 注册支持自选 username（过渡期不传则按 email 前缀派生，老客户端零感知）；
+- 登录入参改为 username，兼容邮箱值与旧 email 字段（含 @ 即按邮箱查）；
+- 新增 change-password：改密 +1 token_version 使所有旧 JWT 立即失效（全端下线）；
+- 登录失败锁定从进程内字典迁 Redis（多 worker 正确，fail-open，见 login_throttle）。
+"""
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func, select, text
@@ -12,8 +17,15 @@ from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.auth import AuthCredentials, AuthResponse, UserOut
-from app.services.username_service import derive_username
+from app.schemas.auth import (
+    AuthResponse,
+    ChangePasswordRequest,
+    LoginCredentials,
+    RegisterCredentials,
+    UserOut,
+)
+from app.services.login_throttle import failure_count, record_failure, reset_failures
+from app.services.username_service import derive_username, is_valid_username
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -26,43 +38,42 @@ _COOKIE_KWARGS = {
     "max_age": settings.jwt_expire_minutes * 60,
 }
 
-# 登录失败锁定（防爆破）：按 IP+邮箱记最近失败时间戳，窗口内超限即 429。
-# 内存实现——单 worker 部署够用，进程重启即解锁；多 worker 部署需换 Redis 集中计数
-_login_failures: dict[str, list[float]] = {}
-_FAILURE_WINDOW_SECONDS = settings.login_lockout_minutes * 60
+# 防用户名枚举的时序均等化：账号不存在也跑一次真哈希校验，让"查无此人"与
+# "密码错误"的响应时间不可区分。哈希在 import 时算一次（argon2 百毫秒级），运行期只 verify
+_DUMMY_PASSWORD_HASH = hash_password("timing-equalization-dummy")
 
 
-def _recent_failure_count(key: str, now: float) -> int:
-    """取窗口内的失败次数（顺手清掉过期记录，避免字典无限增长）。"""
-    recent = [
-        t for t in _login_failures.get(key, []) if now - t < _FAILURE_WINDOW_SECONDS
-    ]
-    if not recent:
-        # 窗口全过期后连 key 一起删：恶意刷不同 IP:邮箱时字典不无限增长
-        _login_failures.pop(key, None)
-        return 0
-    _login_failures[key] = recent
-    return len(recent)
+def _issue_session(response: Response, user: User) -> None:
+    """注册/登录成功后统一签发会话 cookie；JWT 带 ver 声明（token_version）。"""
+    response.set_cookie(
+        ACCESS_COOKIE, create_access_token(user.id, user.token_version), **_COOKIE_KWARGS
+    )
 
 
 @router.post(
     "/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED
 )
 def register(
-    credentials: AuthCredentials,
+    credentials: RegisterCredentials,
     response: Response,
     db: Session = Depends(get_db),  # noqa: B008
 ) -> AuthResponse:
     email = str(credentials.email).lower()
-    # 首个注册用户自动成为 admin（P6 管理面板引导入口）——v4.1 起受开关控制且默认关：
-    # 关闭后管理员唯一来源是 scripts/seed_admin.py，新库上"谁先注册谁是管理员"是安全洞。
-    # 并发首注可产生双 admin，仍用事务级咨询锁串行化"查计数 → 插入"窗口
+    # username：自选值先过校验（小写归一 + 3~64 位 + 保留字）；过渡期不传则按
+    # email 前缀派生（老调用零感知；A4 前端起注册表单强制填写）
+    if credentials.username is not None:
+        username = credentials.username.strip().lower()
+        if not is_valid_username(username):
+            raise HTTPException(
+                422, "用户名需为 3~64 位小写字母、数字或下划线，且不能用保留字"
+            )
+    else:
+        username = derive_username(email, set(db.scalars(select(User.username)).all()))
+    # 首个注册用户自动提权受开关控制且默认关（A1）；管理员唯一来源是 seed_admin.py。
+    # 事务级咨询锁串行化"查计数 → 插入"窗口，防并发首注产生双 admin
     db.execute(text("SELECT pg_advisory_xact_lock(hashtext('first-user')::bigint)"))
     is_first_user = db.scalar(select(func.count()).select_from(User)) == 0
     promote = settings.auto_promote_first_user and is_first_user
-    # A1 过渡期：注册入参还没有 username，先按 email 前缀服务端自动分配
-    # （A2 切换入参后改为用户自选 + is_valid_username 校验）
-    username = derive_username(email, set(db.scalars(select(User.username)).all()))
     user = User(
         email=email,
         username=username,
@@ -74,38 +85,69 @@ def register(
         db.commit()
     except IntegrityError:
         db.rollback()
-        # 有意保留 409 明确话术：注册页不是防枚举的重点场景（登录侧已模糊化），
-        # 体验上明确告知"邮箱被占用"比含糊话术更有用——若要防枚举再统一调整
-        raise HTTPException(409, "该邮箱已注册") from None
+        # 409 明确话术区分撞了哪个唯一键（注册页不是防枚举重点，明确比含糊有用）
+        if db.scalar(select(User).where(User.email == email)) is not None:
+            raise HTTPException(409, "该邮箱已注册") from None
+        raise HTTPException(409, "该用户名已被占用") from None
     db.refresh(user)
-    response.set_cookie(ACCESS_COOKIE, create_access_token(user.id), **_COOKIE_KWARGS)
+    _issue_session(response, user)
     return AuthResponse(user=UserOut.model_validate(user))
 
 
 @router.post("/login", response_model=AuthResponse)
 def login(
-    credentials: AuthCredentials,
+    credentials: LoginCredentials,
     response: Response,
     request: Request,
     db: Session = Depends(get_db),  # noqa: B008
 ) -> AuthResponse:
-    email = str(credentials.email).lower()
+    # identifier：新 username 字段优先；旧 email 字段兼容（测试/老前端零改动）。
+    # 含 @ 按邮箱查，否则按用户名查
+    identifier = (credentials.username or credentials.email or "").strip().lower()
+    if not identifier:
+        raise HTTPException(422, "请输入用户名或邮箱")
     client_ip = request.client.host if request.client else "unknown"
-    key = f"{client_ip}:{email}"
-    now = time.monotonic()
-    if _recent_failure_count(key, now) >= settings.login_max_failures:
+    throttle_key = f"{client_ip}:{identifier}"
+    if failure_count(throttle_key) >= settings.login_max_failures:
         raise HTTPException(
             429,
             f"登录失败次数过多，请 {settings.login_lockout_minutes} 分钟后再试",
         )
-    user = db.scalar(select(User).where(User.email == email))
-    if user is None or not verify_password(credentials.password, user.password_hash):
-        # 失败不区分"邮箱不存在/密码错误"——不给爆破者枚举线索
-        _login_failures.setdefault(key, []).append(now)
-        raise HTTPException(401, "邮箱或密码错误")
-    _login_failures.pop(key, None)  # 登录成功清空该组合的失败记录
-    response.set_cookie(ACCESS_COOKIE, create_access_token(user.id), **_COOKIE_KWARGS)
+    lookup = (
+        select(User).where(User.email == identifier)
+        if "@" in identifier
+        else select(User).where(User.username == identifier)
+    )
+    user = db.scalar(lookup)
+    # 时序均等化：无论账号是否存在都跑一次真哈希校验
+    password_ok = verify_password(
+        credentials.password, user.password_hash if user else _DUMMY_PASSWORD_HASH
+    )
+    if user is None or not password_ok or not user.is_active:
+        # 失败不区分"账号不存在/密码错误/已停用"——不给爆破者枚举线索
+        record_failure(throttle_key, settings.login_lockout_minutes * 60)
+        raise HTTPException(401, "账号或密码错误")
+    reset_failures(throttle_key)  # 登录成功清空该组合的失败记录
+    _issue_session(response, user)
     return AuthResponse(user=UserOut.model_validate(user))
+
+
+@router.post("/change-password")
+def change_password(
+    payload: ChangePasswordRequest,
+    response: Response,
+    user: User = Depends(get_current_user),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+):
+    """修改密码：原密码校验通过后 token_version +1——所有已签发 JWT 的 ver 立刻
+    对不上，等价全端下线；当前端清除 cookie 要求用新密码重登。"""
+    if not verify_password(payload.old_password, user.password_hash):
+        raise HTTPException(400, "原密码不正确")
+    user.password_hash = hash_password(payload.new_password)
+    user.token_version += 1
+    db.commit()
+    response.delete_cookie(ACCESS_COOKIE)
+    return {"ok": True, "message": "密码已更新，请使用新密码重新登录"}
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
