@@ -11,12 +11,16 @@ const KbAdminView = defineAsyncComponent(() => import('./components/KbAdminView.
 import AgentChatView from './components/agent/AgentChatView.vue'
 import AgentWidget from './components/agent/AgentWidget.vue'
 import ProfileView from './components/ProfileView.vue'
+import ResumeView from './components/ResumeView.vue'
+import InterviewView from './components/InterviewView.vue'
 
 // —— 布局与视图 ——
-const activeView = ref('home') // home / chat / history / admin
+const activeView = ref('home') // home / resume / interview / chat / history / admin / kb-admin / agent / profile
 const collapsed = ref(false)
-const viewRef = ref(null) // 动态组件实例引用，用于调用 HomeView.refreshList
+const viewRef = ref(null) // 动态组件实例引用，用于调用 ResumeView.refreshList
 const viewEpoch = ref(0) // 登录/登出时 +1：重挂载全部视图，清空 KeepAlive 里的跨账号缓存
+const pendingView = ref(null) // 未登录点击需登录项时记下目标视图，登录成功后送回去（方案「保留原路径」的内存态实现）
+const pendingResumeId = ref(null) // ResumeView → InterviewView 的「拿这份简历去面试」交接
 
 // —— 用户与登录 ——
 const currentUser = ref(null)
@@ -29,9 +33,13 @@ const avatarLetter = computed(() => {
   return ch ? ch.toUpperCase() : '?'
 })
 
-// —— 视图组件映射：home/chat/history/admin/kb-admin/agent/profile 七视图（双端按角色可见性由 navItems 控制）——
+// —— 视图组件映射（v4.1 A4：首页落地化，简历评估/模拟面试独立成视图）——
+// chat/history/agent 仍保留在映射里：管理端在线对话/使用日志、admin 悬浮客服继续使用，
+// 用户端导航已收起（方案 §2.2，代码不删）。
 const viewComponents = {
   home: HomeView,
+  resume: ResumeView,
+  interview: InterviewView,
   chat: ChatView,
   history: HistoryView,
   admin: AdminPanel,
@@ -43,8 +51,9 @@ const currentViewComponent = computed(() => viewComponents[activeView.value] || 
 
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
 
-// —— 侧边栏导航项：双端分离（v3.4）——
-// 管理端保持现状五项；用户端仅 首页 / AI客服(整页) / 个人中心（必须登录）。
+// —— 侧边栏导航项：双端分离 ——
+// 管理端口径冻结（方案 §2.2）；用户端收敛为 首页 + 两大业务模块 + 个人中心，
+// 业务模块强制登录（requireAuth），AI客服 / 知识库 / Playground 不再露出
 const navItems = computed(() => {
   if (isAdmin.value) {
     return [
@@ -57,19 +66,28 @@ const navItems = computed(() => {
   }
   return [
     { key: 'home', label: '首页', icon: '🏠', requireAuth: false },
-    { key: 'agent', label: 'AI客服', icon: '🤖', requireAuth: false },
+    { key: 'resume', label: '简历评估', icon: '📄', requireAuth: true },
+    { key: 'interview', label: '模拟面试', icon: '🎤', requireAuth: true },
     { key: 'profile', label: '个人中心', icon: '👤', requireAuth: true },
   ]
 })
 
 function selectView(item) {
-  // 未登录点需登录项 → 弹登录模态，不切换视图
+  // 未登录点需登录项 → 记下目标视图并弹登录模态，登录成功后送回去
   if (item.requireAuth && !currentUser.value) {
+    pendingView.value = item.key
     showLogin.value = true
     return
   }
   showUserMenu.value = false
+  pendingResumeId.value = null
   activeView.value = item.key
+}
+
+// 业务视图内部跳转（首页入口卡 / 简历评估「去模拟面试」/ 面试空态引导）
+function gotoView(key, resumeId = null) {
+  pendingResumeId.value = resumeId
+  activeView.value = key
 }
 
 async function loadUser() {
@@ -87,9 +105,9 @@ async function logout() {
     currentUser.value = null
     showLogin.value = false
     showUserMenu.value = false
-    if (['history', 'admin', 'kb-admin', 'profile', 'chat', 'agent'].includes(activeView.value)) {
-      activeView.value = 'home'
-    }
+    if (activeView.value !== 'home') activeView.value = 'home'
+    pendingView.value = null
+    pendingResumeId.value = null
     viewEpoch.value += 1 // 重挂载全部视图：KeepAlive 里缓存的上一账号状态必须清空
     viewRef.value?.refreshList?.()
   }
@@ -99,6 +117,11 @@ function onLoggedIn(user) {
   currentUser.value = user
   showLogin.value = false
   viewEpoch.value += 1 // 换账号登录同样重挂载，避免读到上个账号的会话缓存
+  // 「保留原路径」（内存态）：登录前想去的视图在登录后自动送达
+  if (pendingView.value) {
+    activeView.value = pendingView.value
+    pendingView.value = null
+  }
   viewRef.value?.refreshList?.()
 }
 
@@ -143,7 +166,7 @@ onMounted(loadUser)
               <div v-if="showUserMenu" class="dropdown-backdrop" @click="showUserMenu = false"></div>
             </div>
           </template>
-          <button v-else class="btn btn-ghost topbar-btn" @click="showLogin = true">登录 / 注册</button>
+          <button v-else class="btn btn-ghost topbar-btn" @click="pendingView = activeView; showLogin = true">登录 / 注册</button>
         </div>
       </div>
     </header>
@@ -175,7 +198,21 @@ onMounted(loadUser)
           <!-- 视图切换：不用 KeepAlive —— 实测 KeepAlive+动态组件在本项目下
                切换时 patch 崩溃（deactivate is not a function），主区停在旧视图；
                移除后恢复。代价是切视图丢组件内状态，各视图 onMounted 自行刷新。 -->
-          <component :is="currentViewComponent" :key="viewEpoch" ref="viewRef" @logout="logout" />
+          <HomeView v-if="activeView === 'home'" @navigate="gotoView" />
+          <ResumeView
+            v-else-if="activeView === 'resume'"
+            :key="viewEpoch"
+            ref="viewRef"
+            @navigate="gotoView"
+          />
+          <InterviewView
+            v-else-if="activeView === 'interview'"
+            :key="viewEpoch"
+            :pending-resume-id="pendingResumeId"
+            @navigate="gotoView"
+            @pending-consumed="pendingResumeId = null"
+          />
+          <component :is="currentViewComponent" v-else :key="viewEpoch" ref="viewRef" @logout="logout" />
         </div>
       </main>
     </div>

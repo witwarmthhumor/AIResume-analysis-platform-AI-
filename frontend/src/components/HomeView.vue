@@ -1,107 +1,42 @@
 <script setup>
-import { onMounted, ref } from 'vue'
-import { get } from '../api.js'
-import UploadCard from './UploadCard.vue'
-import ResumeList from './ResumeList.vue'
-import AnalysisReport from './AnalysisReport.vue'
-import InterviewChat from './InterviewChat.vue'
-
-// —— 简历业务：列表 + 当前查看的详情 + 面试 ——
-const resumes = ref([])
-const currentResume = ref(null)
-const interviewResume = ref(null)
-
-// 解析状态徽标映射来自 utils.RESUME_STATUS（与 ResumeList 同一份，文案不再漂移）
-import { RESUME_STATUS as STATUS } from '../utils.js'
-
-
-async function refreshList() {
-  try {
-    resumes.value = await get('/api/resumes')
-  } catch {
-    /* 后端没起时列表留空，各组件内嵌错误提示 */
-  }
-}
-
-async function onUploaded(resume) {
-  currentResume.value = resume
-  await refreshList()
-}
-
-async function onDeleted(id) {
-  if (currentResume.value?.id === id) currentResume.value = null
-  await refreshList()
-}
-
-function startInterview() {
-  if (currentResume.value?.parse_status === 'success') interviewResume.value = currentResume.value
-}
-
-async function onSelect(id) {
-  interviewResume.value = null
-  currentResume.value = null
-  try {
-    currentResume.value = await get(`/api/resumes/${id}`)
-  } catch {
-    /* 网络异常时详情区留空，重试即可 */
-  }
-}
-
-onMounted(refreshList)
-
-// 暴露给 App.vue：登录/退出成功后主动刷新列表
-defineExpose({ refreshList })
+/* HomeView —— 首页落地页（v4.1 A4 导航收敛）。
+   导航收敛后首页只承担「分流」职责：两张业务入口卡（简历评估 / 模拟面试），
+   业务功能分别移入 ResumeView / InterviewView。点击卡片 emit navigate 交由 App 切视图。 */
+const emit = defineEmits(['navigate'])
 </script>
 
 <template>
-  <p class="tagline">
-    <b>上传简历</b> · AI 深度分析 · <b>模拟实战面试</b> —— 求职路上的私人面试官
-  </p>
-
-  <UploadCard @uploaded="onUploaded" />
-  <ResumeList
-    :resumes="resumes"
-    :current-id="currentResume?.id"
-    @select="onSelect"
-    @deleted="onDeleted"
-  />
-
-  <section v-if="currentResume" class="card detail">
-    <div class="detail-head">
-      <h2 class="detail-name">{{ currentResume.filename }}</h2>
-      <span class="badge" :class="STATUS[currentResume.parse_status]?.cls">
-        {{ STATUS[currentResume.parse_status]?.label ?? currentResume.parse_status }}
-      </span>
-    </div>
-    <p class="meta">
-      {{ currentResume.page_count ?? '-' }} 页 ·
-      {{ currentResume.file_size ? Math.round(currentResume.file_size / 1024) : '-' }} KB ·
-      {{ new Date(currentResume.created_at).toLocaleString() }}
+  <section class="landing">
+    <p class="tagline">
+      <b>上传简历</b> · AI 深度分析 · <b>模拟实战面试</b> —— 求职路上的私人面试官
     </p>
-    <p v-if="currentResume.parse_status !== 'success'" class="msg warn">
-      {{ currentResume.parse_error }}
-    </p>
-    <pre v-else class="raw-text">{{ currentResume.raw_text }}</pre>
-    <div v-if="currentResume.parse_status === 'success'" class="detail-actions">
-      <button class="btn btn-primary" @click="startInterview">🤖 开始模拟面试</button>
+
+    <div class="entry-row">
+      <button class="entry-card resume" @click="emit('navigate', 'resume')">
+        <span class="entry-icon">📄</span>
+        <span class="entry-title">简历评估</span>
+        <span class="entry-desc">上传简历 PDF，AI 逐维度生成评估报告：岗位匹配度、优势短板、量化建议</span>
+        <span class="entry-go">进入 →</span>
+      </button>
+      <button class="entry-card interview" @click="emit('navigate', 'interview')">
+        <span class="entry-icon">🎤</span>
+        <span class="entry-title">模拟面试</span>
+        <span class="entry-desc">基于你的简历多轮实战问答：自我介绍 → 技术问答 → 深入追问，结束生成四维评分复盘</span>
+        <span class="entry-go">进入 →</span>
+      </button>
     </div>
+
+    <p class="hint">💡 提示：两项功能均需登录使用；历史记录会保存在你的账号下，换设备登录也能找回。</p>
   </section>
-
-  <InterviewChat
-    v-if="interviewResume"
-    :key="interviewResume.id"
-    :resume="interviewResume"
-    @close="interviewResume = null"
-  />
-
-  <AnalysisReport
-    v-if="currentResume?.parse_status === 'success'"
-    :key="currentResume.id"
-    :resume="currentResume"
-  />
 </template>
 
 <style scoped>
+.landing {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding-top: 4vh;
+}
 .tagline {
   text-align: center;
   font-size: 13px;
@@ -113,42 +48,59 @@ defineExpose({ refreshList })
   color: var(--c-primary-dark);
   font-weight: 600;
 }
-
-/* —— 简历详情卡 —— */
-.detail-head {
+.entry-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.entry-card {
   display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.detail-name {
-  margin: 0;
-  font-size: 16px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.meta {
-  margin: 8px 0 12px;
-  color: var(--c-muted);
-  font-size: 12.5px;
-}
-.raw-text {
-  background: var(--c-bg-soft);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: left;
   border: 1px solid var(--c-border);
-  border-radius: 10px;
-  padding: 14px;
+  border-radius: 16px;
+  background: #fff;
+  padding: 26px 24px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+.entry-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(15, 118, 110, 0.12);
+  border-color: #6ee7b7;
+}
+.entry-card.resume { --entry: #10b981; }
+.entry-card.interview { --entry: #f59e0b; }
+.entry-icon {
+  font-size: 30px;
+  line-height: 1;
+}
+.entry-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--c-text);
+}
+.entry-desc {
   font-size: 12.5px;
   line-height: 1.8;
-  color: #475569;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 420px;
-  overflow: auto;
-  margin: 0;
+  color: var(--c-muted);
 }
-.detail-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 14px;
+.entry-go {
+  margin-top: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--entry);
+}
+.hint {
+  text-align: center;
+  font-size: 12px;
+  color: var(--c-faint);
+  margin: 4px 0 0;
+}
+@media (max-width: 700px) {
+  .entry-row { grid-template-columns: 1fr; }
 }
 </style>

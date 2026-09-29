@@ -3,7 +3,7 @@
    四区块：个人信息卡(含退出) / 本人五卡(第5卡=累计Token) / 近7日用量柱图 / 精简使用日志。
    数据全部是"本人"口径：/api/me/*；日志复用 /api/usage/logs（后端本就按当前用户过滤）。 */
 import { computed, onMounted, ref } from 'vue'
-import { get } from '../api.js'
+import { get, post } from '../api.js'
 import { fmtDateTime, fmtNum, shortDate } from '../utils.js'
 
 const emit = defineEmits(['logout'])
@@ -14,6 +14,33 @@ const usage = ref([])
 const logs = ref([])
 const logTotal = ref(0)
 const error = ref('')
+
+// —— 修改密码（v4.1 A4）：成功后后端已让所有旧会话失效（token_version +1），前端回到登录 ——
+const pwd = ref({ old: '', neu: '', confirm: '' })
+const pwdBusy = ref(false)
+const pwdMsg = ref('')
+const pwdOk = ref(false)
+
+async function changePassword() {
+  if (pwdBusy.value) return
+  pwdBusy.value = true
+  pwdMsg.value = ''
+  try {
+    await post('/api/auth/change-password', {
+      old_password: pwd.value.old,
+      new_password: pwd.value.neu,
+    })
+    pwdOk.value = true
+    pwdMsg.value = '密码已更新，所有登录状态已失效，即将返回登录页…'
+    pwd.value = { old: '', neu: '', confirm: '' }
+    setTimeout(() => emit('logout'), 1500)
+  } catch (e) {
+    pwdOk.value = false
+    pwdMsg.value = e.message || '修改失败，请重试'
+  } finally {
+    pwdBusy.value = false
+  }
+}
 
 // 日志分页（精简，无筛选）
 const page = ref(1)
@@ -105,6 +132,39 @@ onMounted(loadAll)
         </div>
       </div>
       <button class="logout-btn" @click="logout">退出登录</button>
+    </div>
+
+    <!-- ①.5 修改密码（v4.1 A4）：新密码 ≥8 位且两次一致；成功即全端下线 -->
+    <div class="panel-card">
+      <div class="panel-head"><h3>🔑 修改密码</h3></div>
+      <form class="pwd-form" @submit.prevent="changePassword">
+        <input
+          v-model="pwd.old"
+          type="password"
+          placeholder="原密码"
+          autocomplete="current-password"
+        />
+        <input
+          v-model="pwd.neu"
+          type="password"
+          placeholder="新密码（至少 8 位，含字母数字）"
+          autocomplete="new-password"
+        />
+        <input
+          v-model="pwd.confirm"
+          type="password"
+          placeholder="确认新密码"
+          autocomplete="new-password"
+        />
+        <button
+          class="btn btn-primary pwd-save"
+          type="submit"
+          :disabled="pwdBusy || !pwd.old || pwd.neu.length < 8 || pwd.neu !== pwd.confirm"
+        >
+          {{ pwdBusy ? '保存中…' : '保存新密码' }}
+        </button>
+      </form>
+      <p v-if="pwdMsg" class="msg" :class="pwdOk ? 'ok' : 'error'" style="margin:8px 0 0">{{ pwdMsg }}</p>
     </div>
 
     <!-- ② 本人五卡（第5卡=累计Token） -->
@@ -501,5 +561,30 @@ onMounted(loadAll)
     padding-left: 0;
     padding-top: 12px;
   }
+}
+
+/* —— 修改密码表单（v4.1 A4）—— */
+.pwd-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 360px;
+}
+.pwd-form input {
+  border: 1.5px solid var(--c-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.pwd-form input:focus {
+  border-color: #6ee7b7;
+  box-shadow: 0 0 0 3px rgb(16 185 129 / 12%);
+}
+.pwd-save {
+  align-self: flex-start;
+  padding: 9px 18px;
 }
 </style>

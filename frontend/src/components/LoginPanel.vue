@@ -1,43 +1,79 @@
 <script setup>
 /* LoginPanel —— 登录/注册双模式表单（模态内使用）。
-   成功后 emit logged-in 交由 App 写入全局用户态；本组件不处理会话持久化。 */
+   v4.1 A4 认证改造：登录用「用户名或邮箱」标识（发送 username 字段，后端含 @ 自动按邮箱查）；
+   注册必填用户名（3~64 位小写字母/数字/下划线）。成功后 emit logged-in 交由 App 写入全局用户态。 */
 import { ref } from 'vue'
 import { post } from '../api.js'
 
 const emit = defineEmits(['logged-in'])
 const mode = ref('login')
-const email = ref('')
+const identifier = ref('') // 登录标识：用户名或邮箱
+const regUsername = ref('') // 注册用户名
+const email = ref('') // 注册邮箱
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
+
+const USERNAME_RE = /^[a-z0-9_]{3,64}$/
 
 async function submit() {
   error.value = ''
   loading.value = true
   try {
-    const body = await post(`/api/auth/${mode.value}`, {
-      email: email.value, password: password.value,
-    })
-    emit('logged-in', body.user)
+    if (mode.value === 'login') {
+      const body = await post('/api/auth/login', {
+        username: identifier.value.trim(),
+        password: password.value,
+      })
+      emit('logged-in', body.user)
+    } else {
+      const body = await post('/api/auth/register', {
+        username: regUsername.value.trim().toLowerCase(),
+        email: email.value.trim(),
+        password: password.value,
+      })
+      emit('logged-in', body.user)
+    }
   } catch (e) { error.value = e.message || '网络异常' } finally { loading.value = false }
 }
+
+// 登录：标识非空 + 密码非空即可提交（内置 admin 的 6 位口令也要能登录）
+const loginReady = () => identifier.value.trim() && password.value
+// 注册：用户名过前端正则 + 邮箱含 @ + 密码 ≥8（与后端校验同口径，提前拦截体验更好）
+const registerReady = () =>
+  USERNAME_RE.test(regUsername.value.trim().toLowerCase()) &&
+  email.value.includes('@') &&
+  password.value.length >= 8
 </script>
 
 <template>
   <section class="card" style="max-width:420px">
     <h2 style="margin-bottom:8px">{{ mode === 'login' ? '登录' : '注册账号' }}</h2>
-    <!-- 包一层 form：密码框回车即可提交（原先只能点按钮） -->
+    <!-- 包一层 form：密码框回车即可提交 -->
     <form @submit.prevent="submit">
-      <label class="label" for="login-email">邮箱</label>
-      <input id="login-email" v-model="email" type="email" autocomplete="email" placeholder="your@email.com" />
-      <label class="label" for="login-pass">密码（至少 8 位）</label>
+      <template v-if="mode === 'login'">
+        <label class="label" for="login-id">用户名或邮箱</label>
+        <input id="login-id" v-model="identifier" autocomplete="username" placeholder="admin 或 your@email.com" />
+      </template>
+      <template v-else>
+        <label class="label" for="reg-username">用户名</label>
+        <input id="reg-username" v-model="regUsername" autocomplete="username" placeholder="3~64 位小写字母、数字或下划线" />
+        <label class="label" for="reg-email">邮箱</label>
+        <input id="reg-email" v-model="email" type="email" autocomplete="email" placeholder="your@email.com" />
+      </template>
+      <label class="label" for="login-pass">密码{{ mode === 'register' ? '（至少 8 位）' : '' }}</label>
       <input
         id="login-pass"
         v-model="password"
         type="password"
         :autocomplete="mode === 'login' ? 'current-password' : 'new-password'"
       />
-      <button class="btn btn-primary" type="submit" :disabled="loading || !email || password.length < 8" style="width:100%;margin-top:10px;padding:11px">
+      <button
+        class="btn btn-primary"
+        type="submit"
+        :disabled="loading || !(mode === 'login' ? loginReady() : registerReady())"
+        style="width:100%;margin-top:10px;padding:11px"
+      >
         {{ loading ? '处理中…' : mode === 'login' ? '登 录' : '注册并登录' }}
       </button>
     </form>

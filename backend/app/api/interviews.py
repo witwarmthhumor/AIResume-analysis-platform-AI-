@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.auth_deps import get_optional_current_user
+from app.api.auth_deps import get_current_user, get_optional_current_user
 from app.api.deps import enforce_daily_limit, get_anonymous_id
 from app.core.config import settings
 from app.db.session import get_db
@@ -55,6 +55,16 @@ class StartInterviewIn(BaseModel):
     position_type: str | None = Field(
         default=None, description="intern/fresh/senior，空=通用（P5 智能出题）"
     )
+
+
+def _touch_last_session(db: Session, user: User | None, session_id: int) -> None:
+    """记录「最近活跃会话」到 users.last_active_session_id（v4.1 A4·L2）。
+
+    「继续上次会话」快捷入口的数据源；匿名请求无用户可挂，跳过。
+    同事务内随业务提交，不额外 commit。
+    """
+    if user is not None and user.last_active_session_id != session_id:
+        user.last_active_session_id = session_id
 
 
 def _get_session(
@@ -155,6 +165,8 @@ def start_interview(
     if existing is not None:
         # 如果已有进行中会话但超时→废弃它，走新建流程（P1 abandoned）
         if not _abandon_if_stale(db, existing):
+            _touch_last_session(db, user, existing.id)
+            db.commit()  # 恢复路径也要落 last_active_session_id（原路径无写操作）
             return StartSessionOut(
                 interview_prompt_version=INTERVIEW_PROMPT_VERSION,
                 session=_session_out(db, existing),
@@ -169,6 +181,7 @@ def start_interview(
     )
     db.add(session)
     db.flush()  # 拿到 session.id 给开场白用
+    _touch_last_session(db, user, session.id)
     db.add(
         InterviewMessage(
             session_id=session.id, role="interviewer", content=OPENING_MESSAGE
@@ -243,6 +256,33 @@ def list_interview_scores(
     return {"items": items}
 
 
+@router.get("/interviews/last", response_model=SessionOut)
+def get_last_interview(
+    db: Session = Depends(get_db),  # noqa: B008
+    user: User = Depends(get_current_user),  # noqa: B008
+) -> SessionOut:
+    """「继续上次会话」数据源（v4.1 A4·L2）：最近一场面试的完整消息。
+
+    优先取 users.last_active_session_id（指针指向的场次必须仍归属本人），
+    指针为空/失效回落「最近一场」；一场都没有 → 404（前端据此隐藏入口）。
+    路径声明必须在 /interviews/{session_id} 之前，否则 last 被当成 session_id。
+    """
+    session = None
+    if user.last_active_session_id is not None:
+        candidate = db.get(InterviewSession, user.last_active_session_id)
+        if candidate is not None and candidate.user_id == user.id:
+            session = candidate
+    if session is None:
+        session = db.scalar(
+            select(InterviewSession)
+            .where(InterviewSession.user_id == user.id)
+            .order_by(InterviewSession.created_at.desc(), InterviewSession.id.desc())
+        )
+    if session is None:
+        raise HTTPException(404, "还没有面试记录")
+    return _session_out(db, session)
+
+
 @router.get("/interviews/{session_id}", response_model=SessionOut)
 def get_interview(
     session_id: int,
@@ -288,6 +328,7 @@ def send_message(
     db.add(
         InterviewMessage(session_id=session_id, role="candidate", content=body.content)
     )
+    _touch_last_session(db, user, session_id)  # 每轮活跃都刷新「继续上次会话」指针
     db.commit()
 
     # 对话历史截断（P1）：保留最近 6 条，控制 token 用量

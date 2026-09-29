@@ -6,6 +6,7 @@
 """
 
 import json
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -510,3 +511,47 @@ def test_interview_disconnect_logs_zero_tokens(monkeypatch) -> None:
         gc.collect()
         time.sleep(0.5)
     assert row == (0,)  # 断开路径的 0-token 补账（正常完成是 165）
+
+
+def test_last_session_pointer_and_endpoint() -> None:
+    """v4.1 A4：start 会话即刷新 last_active_session_id；/interviews/last 返回
+    最近一场（含开场白消息）。两份简历先后开局，last 必须跟到新的一场。"""
+    reg = client.post(
+        "/api/auth/register",
+        json={
+            "email": f"test-interview-{uuid.uuid4().hex[:10]}@example.com",
+            "password": "correct-horse-123",
+        },
+    )
+    assert reg.status_code == 201
+
+    first = client.post(f"/api/resumes/{_upload_ok()}/interviews")
+    assert first.status_code == 201
+    second = client.post(f"/api/resumes/{_upload_ok()}/interviews")
+    assert second.status_code == 201
+
+    last = client.get("/api/interviews/last")
+    assert last.status_code == 200
+    body = last.json()
+    assert body["id"] == second.json()["session"]["id"]
+    assert body["resume_id"] == second.json()["session"]["resume_id"]
+    assert [m["role"] for m in body["messages"]] == ["interviewer"]  # 开场白
+
+    with engine.begin() as conn:  # 指针确实写进了 users 表
+        pointer = conn.execute(
+            text("SELECT last_active_session_id FROM users WHERE email LIKE 'test-interview-%'")
+        ).scalar_one()
+    assert pointer == body["id"]
+
+
+def test_last_session_none_returns_404() -> None:
+    """从未面试过的用户：/interviews/last 返回 404（前端据此隐藏「继续上次」入口）。"""
+    reg = client.post(
+        "/api/auth/register",
+        json={
+            "email": f"test-interview-{uuid.uuid4().hex[:10]}@example.com",
+            "password": "correct-horse-123",
+        },
+    )
+    assert reg.status_code == 201
+    assert client.get("/api/interviews/last").status_code == 404

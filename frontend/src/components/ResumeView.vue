@@ -1,0 +1,135 @@
+<script setup>
+/* ResumeView —— 简历评估模块（v4.1 A4 自原 HomeView 拆出）。
+   上传 → 解析 → 列表 → 详情原文 → AI 分析报告。开始面试按钮跳转 InterviewView
+   并带上简历 id（emit navigate 交由 App 切视图与传递待面简历）。 */
+import { onMounted, ref } from 'vue'
+import { get } from '../api.js'
+import UploadCard from './UploadCard.vue'
+import ResumeList from './ResumeList.vue'
+import AnalysisReport from './AnalysisReport.vue'
+
+const emit = defineEmits(['navigate'])
+
+// —— 简历业务：列表 + 当前查看的详情 ——
+const resumes = ref([])
+const currentResume = ref(null)
+
+// 解析状态徽标映射来自 utils.RESUME_STATUS（与 ResumeList 同一份，文案不再漂移）
+import { RESUME_STATUS as STATUS } from '../utils.js'
+
+
+async function refreshList() {
+  try {
+    resumes.value = await get('/api/resumes')
+  } catch {
+    /* 后端没起时列表留空，各组件内嵌错误提示 */
+  }
+}
+
+async function onUploaded(resume) {
+  currentResume.value = resume
+  await refreshList()
+}
+
+async function onDeleted(id) {
+  if (currentResume.value?.id === id) currentResume.value = null
+  await refreshList()
+}
+
+function goInterview() {
+  if (currentResume.value?.parse_status === 'success') {
+    emit('navigate', 'interview', currentResume.value.id)
+  }
+}
+
+async function onSelect(id) {
+  currentResume.value = null
+  try {
+    currentResume.value = await get(`/api/resumes/${id}`)
+  } catch {
+    /* 网络异常时详情区留空，重试即可 */
+  }
+}
+
+onMounted(refreshList)
+
+// 暴露给 App.vue：登录/退出成功后主动刷新列表
+defineExpose({ refreshList })
+</script>
+
+<template>
+  <UploadCard @uploaded="onUploaded" />
+  <ResumeList
+    :resumes="resumes"
+    :current-id="currentResume?.id"
+    @select="onSelect"
+    @deleted="onDeleted"
+  />
+
+  <section v-if="currentResume" class="card detail">
+    <div class="detail-head">
+      <h2 class="detail-name">{{ currentResume.filename }}</h2>
+      <span class="badge" :class="STATUS[currentResume.parse_status]?.cls">
+        {{ STATUS[currentResume.parse_status]?.label ?? currentResume.parse_status }}
+      </span>
+    </div>
+    <p class="meta">
+      {{ currentResume.page_count ?? '-' }} 页 ·
+      {{ currentResume.file_size ? Math.round(currentResume.file_size / 1024) : '-' }} KB ·
+      {{ new Date(currentResume.created_at).toLocaleString() }}
+    </p>
+    <p v-if="currentResume.parse_status !== 'success'" class="msg warn">
+      {{ currentResume.parse_error }}
+    </p>
+    <pre v-else class="raw-text">{{ currentResume.raw_text }}</pre>
+    <div v-if="currentResume.parse_status === 'success'" class="detail-actions">
+      <button class="btn btn-primary" @click="goInterview">🎤 拿这份简历去模拟面试</button>
+    </div>
+  </section>
+
+  <AnalysisReport
+    v-if="currentResume?.parse_status === 'success'"
+    :key="currentResume.id"
+    :resume="currentResume"
+  />
+</template>
+
+<style scoped>
+/* —— 简历详情卡 —— */
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.detail-name {
+  margin: 0;
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meta {
+  margin: 8px 0 12px;
+  color: var(--c-muted);
+  font-size: 12.5px;
+}
+.raw-text {
+  background: var(--c-bg-soft);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: #475569;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 420px;
+  overflow: auto;
+  margin: 0;
+}
+.detail-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+</style>
