@@ -1,8 +1,8 @@
 # 数据库表结构与查看指南
 
-> 本文档说明项目数据库的连接信息、10 张业务表结构、索引/外键设计，以及自己查看数据库的三种方式。
-> 字段与索引来自对运行中数据库的实时查询（2026-09-03）与 `backend/app/models/` 模型定义（v3.4）。
-> 最后更新：2026-09-14（v3.4：补 chat_sessions / chat_messages 两表）
+> 本文档说明项目数据库的连接信息、**16 张业务表**结构、索引/外键设计，以及自己查看数据库的三种方式。
+> 字段与索引来自对运行中数据库的实时查询（2026-09-03 首次，2026-09-30 复核 17 张 public 表 / 迁移 head `2cf176aa8911`）与 `backend/app/models/` 模型定义（**v4.2.1**）。
+> 最后更新：**2026-09-30**（v4.0~v4.2.1：补 `agent_runs`/`agent_spans`/`agent_approvals`/`audit_logs`、`question_banks`、`audio_analyses` 六张表，并说明 `langgraph` schema 的 4 张 checkpoint 表）
 
 ---
 
@@ -21,9 +21,10 @@
 | 用户名 Username | `ai` |
 | 密码 Password | `ai`（本地开发账号，仅本机可见，生产用 `.env.docker`） |
 
-共 **10 张业务表** + 1 张 `alembic_version`（Alembic 迁移版本表，自动管理，不用手动碰）。
+共 **16 张业务表** + 1 张 `alembic_version`（Alembic 迁移版本表，自动管理，不用手动碰）；另有独立的 `langgraph` schema（**4 张 checkpoint 表**，供 LangGraph 的 `PostgresSaver` 使用，由 Alembic 预建，不在请求路径跑 `setup()`）。
 
-> 「10 张」= users / resumes / analyses / interview_sessions / interview_messages / kb_documents / kb_chunks / usage_logs / **chat_sessions** / **chat_messages**（最后两张为 v3.1 在线对话引入，v3.4 起被在线对话与 AI 客服共用以 `session_type` 区分）。
+> 序号 1~10（v3.0~v3.4）：users / resumes / analyses / interview_sessions / interview_messages / kb_documents / kb_chunks / usage_logs / **chat_sessions** / **chat_messages**（后两张 v3.1 引入，v3.4 起被在线对话与 AI 客服共用以 `session_type` 区分）。
+> 序号 11~16（v4.0~v4.2）：**agent_runs** / **agent_spans** / **agent_approvals** / **audit_logs**（v4.0 编排四表）、**question_banks**（v4.2 面试题库）、**audio_analyses**（v4.2 录音分析）。
 
 ## 二、表关系（ER 图）
 
@@ -280,6 +281,93 @@ erDiagram
 | created_at | timestamptz | 否 | 索引，消息按此正序返回 |
 
 > v3.4 迁移 `f3a91c2b407d` 给 chat_sessions 加 `session_type`（NOT NULL + server_default 'chat' + 索引）、给 chat_messages 加 `tool_steps`（JSONB），升级前已存在的会话自动归为 `chat` 类型。
+
+### 11. agent_runs — 编排任务主表（v4.0「一键求职准备」）
+
+| 字段 | 说明 |
+|---|---|
+| `id` | bigint 主键 |
+| `user_id` / `anonymous_id` | 归属者（互斥），均带索引 |
+| `trace_id` / `thread_id` | varchar(64) **unique**：追踪 id 与 LangGraph thread id |
+| `session_id` | 关联 `chat_sessions`（AI 客服页发起时），索引 |
+| `run_type` | 默认 `job_prep_pipeline` |
+| `input_json` / `plan_json` / `output_json` | text：归一化输入 / Planner 计划（步骤条数据源）/ 最终三段摘要 |
+| `status` | `planning` / `running` / `waiting_approval` / `completed` / `failed` |
+| `current_node` | 当前节点（前端步骤条） |
+| `iterations` / `tokens_total` / `duration_ms` | 回环次数 / 总 token / 耗时 |
+| `approved_by` / `approved_at` | 审批人与时间 |
+| `updated_at` / `completed_at` | 时间戳 |
+
+- 部分索引 `ix_agent_runs_status_waiting`（仅 `status='waiting_approval'`）服务审批列表查询。
+
+### 12. agent_spans — 节点 / LLM / 检索 span（v4.0）
+
+| 字段 | 说明 |
+|---|---|
+| `trace_id` / `run_id` / `parent_span_id` | 追踪树（前两者索引） |
+| `span_type` | `agent_node` / `llm` / `retrieval` / `tool` |
+| `name` / `status` / `attempt` | 节点名 / `ok`·`error`·`retried` / 第几次尝试（观测回环） |
+| `input_preview` / `output_preview` | ≤200 字预览，**禁正文与密钥** |
+| `tokens_prompt` / `tokens_completion` / `duration_ms` | 用量与耗时 |
+| `error_type` | 只记异常类型名，不落堆栈 |
+
+### 13. agent_approvals — 人工审批单（v4.0）
+
+| 字段 | 说明 |
+|---|---|
+| `run_id` / `trace_id` | 关联任务（均索引） |
+| `user_id` / `anonymous_id` | 归属者（均索引） |
+| `action_key` | 待批准动作，如 `create_interview_session` |
+| `payload_json` | 动作参数快照（批准后续跑的输入） |
+| `status` | `pending` / `approved` / `rejected` / `expired` |
+| `decided_by` / `decided_at` / `decision_note` | 决策人、时间与备注 |
+| `expires_at` | TTL 30 分钟；到点 run 终止为 `failed` 且可 `retry-node` 续跑（v4.0.1 语义） |
+
+- 部分索引 `ix_agent_approvals_status_pending`；approve / abort 走**条件更新乐观锁**（判 rowcount，冲突 409）。
+
+### 14. audit_logs — 审计日志（v4.0）
+
+| 字段 | 说明 |
+|---|---|
+| `actor_user_id`（索引）/ `actor_anonymous_id` / `ip` | 谁、从哪来 |
+| `action`（索引） | 动作名 |
+| `target_type` / `target_id` | 对什么做 |
+| `before_snapshot` / `after_snapshot` | 变更摘要（**不落正文全文**） |
+| `run_id` / `trace_id` | 关联编排任务（均索引） |
+
+> ⚠️ 两张流水表的 `user_id` / `actor_user_id` 均为 `ondelete=SET NULL` —— 清理测试数据必须**先删流水再删用户**，否则行会原地变孤儿（判定不出来）。
+
+### 15. question_banks — 面试题库（v4.2）
+
+| 字段 | 说明 |
+|---|---|
+| `user_id` / `resume_id` | 归属者与来源简历（均索引） |
+| `title` | 默认「{简历文件名}-面试题库」 |
+| `question_count` | 题目数 |
+| `questions_json` | JSONB 题目数组（分维度：基础 / 项目 / 深挖 + 难度星级） |
+| `model_name` | 出题所用 LLM |
+
+> 题库模式面试按序出题，**零 LLM 出题调用**（纯 state 扩展，不新增图节点）。
+
+### 16. audio_analyses — 录音分析（v4.2）
+
+| 字段 | 说明 |
+|---|---|
+| `user_id` | 归属者（索引） |
+| `filename` / `storage_path` / `file_size` | 原始音频名、存储路径与大小 |
+| `duration_seconds` | 时长 |
+| `status` | `transcribing` → `reviewing` → 完成 / `failed` |
+| `asr_model` | faster-whisper 模型名（Celery worker 内本地转写） |
+| `transcript` | 转写文本（用户可编辑后再送审） |
+| `role_review_json` | 角色审核结果（面试官 / 候选人分段标注，JSONB） |
+| `interview_review_json` | 面试审核四维评分（JSONB，与模拟面试报告同口径） |
+| `model_name` / `error` | 审核 LLM / 面向用户的失败话术 |
+
+### 附：`langgraph` schema（4 张 checkpoint 表，v4.0）
+
+LangGraph `PostgresSaver` 在**独立 schema `langgraph`** 下建 4 张表（`checkpoints` / `checkpoint_blobs` / `checkpoint_writes` / `checkpoint_migrations`），表与版本标记由 Alembic 迁移 `08c3d31e023c` **预建**。
+
+> ⚠️ 不要在请求路径上调用 `setup()`：其 `CREATE INDEX CONCURRENTLY` 会等所有在途事务，而 SSE 流式响应期间请求会话 idle-in-transaction → 冷库上必死锁（CI 首跑曾必挂，热库因 `IF NOT EXISTS` 空转从不复现）。
 
 ## 五、索引设计要点
 

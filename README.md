@@ -182,17 +182,17 @@ npm run build
 
 ## 项目文档
 
-- `docs/database-schema.md`：数据库表结构（10 张表）说明与查看方式
+- `docs/database-schema.md`：数据库表结构（public 16 张表 + `langgraph` 4 张编排表）说明与查看方式
 - `docs/tech-stack-and-features.md`：技术栈与功能点清单
 - `docs/后续开发规划.md`：v3.4 之后的方向、优先级与推进顺序
 
 
-## 技术亮点（真实代码支撑 · v4.0.1）
+## 技术亮点（真实代码支撑 · v4.2.1）
 
 ### 架构与工程
 - **Router → Service → Model 三层**：API 路由不堆业务逻辑，限流/记账/分析落库全下沉到 `services/`（`usage_service.py`、`analysis_service.py`），`RouterRegistry` 自动注册路由，`main.py` 仅保留两行注册调用
 - **统一错误体系**：自定义异常类（`ValidationError` / `AuthenticationError` / `NotFoundError` / `RateLimitError`） + 全局 `exception_handler`，所有 4xx/5xx 输出 `{"code":"...","message":"...","details":null}`，成功响应保持原结构
-- **Alembic 版本化迁移**：11 次迁移全线可用（含 pgvector 向量表与 HNSW 索引、`langgraph` checkpoint schema 预建、v4.0 四张编排表），禁止手改表；`alembic check` 无漂移；`created_at` 全表索引，`user_id` / `session_id` / `anonymous_id` 等关键查询字段均索引
+- **Alembic 版本化迁移**：**17 次**迁移全线可用（含 pgvector 向量表与 HNSW 索引、`langgraph` checkpoint schema 预建、v4.0 四张编排表、v4.1 用户名/`token_version` 回填、v4.2 题库与录音分析表、v4.2.1 注册放开邮箱非空），禁止手改表；`alembic check` 无漂移；`created_at` 全表索引，`user_id` / `session_id` / `anonymous_id` 等关键查询字段均索引
 - **Docker 六容器生产编排**：Nginx + FastAPI + Celery Worker + PostgreSQL（pgvector）+ Redis + Ollama，健康探针 + 依赖编排 + 具名卷持久化，`docker compose -f docker-compose.prod.yml up -d --build` 一键启动
 
 ### AI 与异步
@@ -221,7 +221,7 @@ npm run build
 ### 前端
 - **手写 CSS 设计系统**（`main.css`）：零 UI 框架依赖，全局变量 + 通用类 + 动效，卡件入场动画、呼吸脉冲、打字动画
 - **统一 fetch 封装**（`api.js`）：全组件收敛，自动 credentials + JSON 序列化 + 错误统一解析
-- **双端导航分离**（v3.4）：管理端五项（首页/在线对话/使用日志/数据看板/语料库管理）挂 Agent 悬浮气泡；普通用户三项（首页/AI 客服/个人中心），按 `role` 动态渲染导航集合
+- **双端导航分离**（v4.2.1）：**未登录只见独立登录首屏**（登录成功才进系统）；普通用户侧边栏四项业务模块（简历评估 / 录音分析 / 面试题生成 / 模拟面试），个人信息 / 改密 / 退出收进顶栏头像下拉；管理端四项（在线对话 / 使用日志 / 数据看板 / 语料库管理）并挂 Agent 悬浮气泡，按 `role` 动态渲染导航集合
 - **AI 客服两形态复用**（v3.4）：`AgentChatCore`（核心：SSE 打字机 + 工具过程折叠 + 引用来源）被整页视图 `AgentChatView` 与右下角 400px 浮层 `AgentWidget` 共用，`props.compact` 切换密度
 - **纯手写数据可视化**（v3.2 / v3.3 / v3.5）：零图表库——CSS 渐变柱状图（近 7 日用量）+ 手写日期范围选择器 `DateRangePicker.vue`（6×7 日历网格 + 时间输入 + 点击外部关闭）+ **面试评分雷达图**（四维度、支持叠加历史场次对比）
 - **数据看板**（v3.2）：五卡悬浮（用户/简历/分析/面试/今日 Token）+ 用户列表前端分页 + 双卡片等比布局，窄屏自动堆叠

@@ -1,7 +1,7 @@
 # 技术栈与功能点
 
 > 本文档汇总「AI 简历分析 + AI 模拟面试」项目用到的全部技术栈与功能模块，供学习回顾与作品集展示。
-> 最后更新：2026-09-28 · 对应版本 v4.0.1（LangGraph 一键求职准备 + 13 工具 + 路由评测 + DB 快速失败 + 环境自检）
+> 最后更新：2026-09-30 · 对应版本 **v4.2.1**（v4.1 企业级改造 + v4.2 模块扩展 + v4.2.1 登录收敛；含 LangGraph 一键求职准备、S1 面试图、13 工具、题库 / 录音 / 出题三模块）
 
 ---
 
@@ -115,7 +115,7 @@ flowchart LR
 
 | 工具/机制 | 说明 |
 |---|---|
-| pytest | 330 个用例（v4.0.1），AI/embedding 全部 mock，不烧真实调用额度 |
+| pytest | **363 个用例**（v4.2.1），AI/embedding 全部 mock，不烧真实调用额度 |
 | 测试护栏 | `conftest.py` 校验 `DATABASE_URL` host，非本地直接终止，防误清远程库 |
 | 测试隔离 | 各测试文件用专属标记（`anonymous_id` 前缀 / `resume_id` 常量 / 邮箱前缀）只清自己造的数据，**不再全表 DELETE**；跑全量不会清空业务表与 `kb_*` |
 | ruff | `ruff check` + `ruff format --check`，提交前全绿；CI 两道都跑 |
@@ -158,11 +158,11 @@ flowchart LR
 
 ### 模块 4 · 用户体系与权限
 
-- 注册 / 登录 / 登出；Argon2 密码哈希 + JWT HttpOnly Cookie。
+- 注册 / 登录 / 登出；Argon2 密码哈希 + JWT HttpOnly Cookie（**v4.1 起 `/api/**` 由 ASGI 强制登录闸门统一拦截**，登录标识与改密下线机制见模块 12）。
 - 用户数据完全隔离：简历/分析/面试全部按 `user_id` 过滤，跨用户访问返回 404。
-- 登录失败次数锁定（防爆破，超限返回 429 与解锁时间）。
+- 登录失败次数锁定（防爆破，超限返回 429 与解锁时间）；**v4.1 起迁 Redis 集中计数**（`login:fail:*`），多 worker 部署语义正确。
 - 历史记录页：汇总当前用户的简历 / 分析 / 面试。
-- 首个注册用户自动成为 admin；只读管理面板：统计卡片 + 用户列表 + 近 7 日用量。
+- **管理员来源唯一（v4.1）**：`scripts/seed_admin.py` 建号，`auto_promote_first_user` 默认关（不再「首个注册用户自动 admin」）。只读管理面板：统计卡片 + 用户列表 + 近 7 日用量。
 
 ### 模块 5 · 知识库问答与在线对话（v3.0 → v3.1）
 
@@ -251,6 +251,33 @@ flowchart LR
 - **独立限额**：`daily_agent_v2_run_limit`，记账动作 `agent_run_v2`，与 v1 的 `daily_agent_limit` 分开统计。
 - **前端**：AI 客服页「一键求职准备」页签——步骤条、审批卡（含倒计时）、结果三分区（匹配 / 出题 / 校验）、失败重试、断点恢复（`runSeq` 竞态守卫）；管理端可查 runs / spans / 统计。
 - **端到端评测**：`scripts/eval_agent_e2e.py` 11 个黄金任务（正常链路 / 审批通过副作用 / 审批拒绝 / 审批超时 / 无简历引导…），**离线确定性打桩、不烧 LLM 额度**，当前 11/11。
+
+### 模块 12 · 账号体系与企业级认证（v4.1 → v4.2.1）
+
+- **登录标识**：v4.1 起主标识为 `username`（`users.username` 回填迁移，登录兼容邮箱值）；v4.2 起支持**三态识别**（含 `@` → 邮箱 / 1 开头 11 位 → 手机号 / 其余 → 用户名）；v4.2.1 起**注册不再收集邮箱**（`users.email` 放开 NOT NULL，存量账号保留）。
+- **强制登录闸门**：`/api/**` 由 ASGI 中间件 `app/api/gate.py` 统一拦截，未登录直接 401——替代此前散点式的 `requireAuth` 判断；开关 `auth_gate_enabled` / `issue_anonymous_cookie` 供测试 monkeypatch（conftest 默认关闸门，闸门真身测试在 `test_auth_gate.py`）。
+- **改密即全端下线**：`users.token_version` + JWT 的 `ver` 声明，改密后旧令牌全部失效。
+- **登录失败锁定迁 Redis**（`login:fail:*` 键，INCR + EXPIRE 续窗）——多 worker 部署语义正确；Redis 故障时 fail-open 放行并记告警。
+- **管理员来源唯一**：`scripts/seed_admin.py`，`auto_promote_first_user` 默认关闭（此前「首个注册用户自动提权」是引导期设计，同时是安全洞）。
+- **个人信息**：预设头像（代码生成 SVG）+ 身份证号（18 位严格校验 + 掩码展示）+ 手机号（仅空账号可设一次，`PUT /api/me/profile`）；**身份证号与手机号禁入日志**。
+- **登录首屏（v4.2.1）**：未登录只见独立登录页，登录成功才进系统；用户端导航收敛为四业务模块，个人信息 / 改密 / 退出移入顶栏头像下拉。
+
+### 模块 13 · 模拟面试图编排（S1，v4.1）
+
+- `interview_graph_enabled` 开关（默认开）：有 checkpoint 的图会话走 LangGraph 续跑，旧行为会话自动回退单轮路径。
+- `wait_answer` 节点**纯 interrupt 零副作用**（避免 resume 重放时重复落库）；每轮 deps 的 trace 从 `session.trace_json` 续接。
+- 评测：`scripts/eval_interview_graph.py` 6 场景，LLM 全 stub、离线确定性。
+
+### 模块 14 · 录音分析（v4.2）
+
+- 上传面试录音 → **faster-whisper 本地转写**（Celery 异步；`asr_service` 懒加载单例，模型已预下载）→ 可编辑转写文本 → **角色审核**（LLM 按面试官 / 候选人分段标注）→ **面试审核**（四维评分报告，与模拟面试同口径）。
+- 新表 `audio_analyses`；新记账动作 `audio_transcribe` / `audio_review`。
+
+### 模块 15 · 面试题生成与题库（v4.2）
+
+- 按简历一键生成 10~20 道定制题（基础 / 项目 / 深挖分维度 + 难度星级），可保存为题库（新表 `question_banks`）。
+- **题库模式面试**：按序出题，**零 LLM 出题调用**（纯 state 扩展、零新节点）；新记账动作 `question_bank`。
+- 简历上传放开 **Word（docx）≤10MB**（此前仅 PDF）。
 
 ## 五、明确不做（范围边界）
 
