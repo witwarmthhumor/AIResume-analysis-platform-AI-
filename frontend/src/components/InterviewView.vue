@@ -49,8 +49,8 @@ async function loadLast() {
     lastState.value = 'ready'
   } catch (e) {
     lastSession.value = null
-    // 404 = 一场都没有（正常空态）；其余按错误展示可重试
-    lastState.value = e?.status === 404 ? 'none' : 'error'
+    // api.js 抛 {code,message}：not_found = 一场都没有（正常空态）；其余按错误展示可重试
+    lastState.value = e?.code === 'not_found' ? 'none' : 'error'
   }
 }
 
