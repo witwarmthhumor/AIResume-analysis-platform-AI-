@@ -33,7 +33,9 @@ class RegisterCredentials(BaseModel):
     username: str | None = Field(default=None, max_length=64)
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
-    phone: str | None = Field(default=None, max_length=20)  # v4.2：前端必填，API 过渡期可选
+    phone: str | None = Field(
+        default=None, max_length=20
+    )  # v4.2：前端必填，API 过渡期可选
 
 
 class LoginCredentials(BaseModel):

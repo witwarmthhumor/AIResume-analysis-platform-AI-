@@ -39,7 +39,9 @@ def generate_bank(
         user_id=user.id,
     )
     try:
-        bank, result = question_bank_service.generate_question_bank(db, user, body.resume_id)
+        bank, result = question_bank_service.generate_question_bank(
+            db, user, body.resume_id
+        )
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from None
     db.add(

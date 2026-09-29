@@ -50,15 +50,23 @@ def _stub_audio_llm(monkeypatch):
     from app.api import audio as audio_api
     from app.worker import tasks as worker_tasks
 
-    monkeypatch.setattr(worker_tasks, "transcribe", lambda data, filename: dict(_FAKE_TRANSCRIBE))
+    monkeypatch.setattr(
+        worker_tasks, "transcribe", lambda data, filename: dict(_FAKE_TRANSCRIBE)
+    )
 
     # delay → 同步执行真任务（测试进程内完成转写，不依赖 worker/Redis 消费）
     def _sync_delay(audio_id: int):
-        return type("R", (), {"id": f"sync-{audio_id}"})() if (
-            worker_tasks.transcribe_audio(audio_id) or True
-        ) else None
+        return (
+            type("R", (), {"id": f"sync-{audio_id}"})()
+            if (worker_tasks.transcribe_audio(audio_id) or True)
+            else None
+        )
 
-    monkeypatch.setattr(audio_api, "transcribe_audio", type("T", (), {"delay": staticmethod(_sync_delay)}))
+    monkeypatch.setattr(
+        audio_api,
+        "transcribe_audio",
+        type("T", (), {"delay": staticmethod(_sync_delay)}),
+    )
 
     def _fake_role(transcript):
         assert transcript.strip()  # 文本可编辑：只断言非空，不断言具体内容
@@ -76,8 +84,12 @@ def _result():
     from app.services.ai_client import AnalysisResult
 
     return AnalysisResult(
-        report={}, valid=True, model_name="stub",
-        tokens_prompt=80, tokens_completion=40, duration_ms=5,
+        report={},
+        valid=True,
+        model_name="stub",
+        tokens_prompt=80,
+        tokens_completion=40,
+        duration_ms=5,
     )
 
 
@@ -98,8 +110,10 @@ def _clean_aud_data():
             )
         )
         conn.execute(
-            text("DELETE FROM audio_analyses WHERE user_id IN "
-                 "(SELECT id FROM users WHERE email LIKE 'aud-%')")
+            text(
+                "DELETE FROM audio_analyses WHERE user_id IN "
+                "(SELECT id FROM users WHERE email LIKE 'aud-%')"
+            )
         )
         conn.execute(text("DELETE FROM users WHERE email LIKE 'aud-%'"))
 
@@ -109,8 +123,10 @@ def _register() -> TestClient:
     assert (
         c.post(
             "/api/auth/register",
-            json={"email": f"{_AUD_PREFIX}{uuid.uuid4().hex[:10]}@example.com",
-                  "password": "correct-horse-123"},
+            json={
+                "email": f"{_AUD_PREFIX}{uuid.uuid4().hex[:10]}@example.com",
+                "password": "correct-horse-123",
+            },
         ).status_code
         == 201
     )

@@ -99,7 +99,10 @@ def register(
         # 409 明确话术区分撞了哪个唯一键（注册页不是防枚举重点，明确比含糊有用）
         if db.scalar(select(User).where(User.email == email)) is not None:
             raise HTTPException(409, "该邮箱已注册") from None
-        if phone is not None and db.scalar(select(User).where(User.phone == phone)) is not None:
+        if (
+            phone is not None
+            and db.scalar(select(User).where(User.phone == phone)) is not None
+        ):
             raise HTTPException(409, "该手机号已注册") from None
         raise HTTPException(409, "该用户名已被占用") from None
     db.refresh(user)

@@ -38,7 +38,7 @@ const emit = defineEmits(['navigate'])
       </button>
     </div>
 
-    <p class="hint">💡 提示：两项功能均需登录使用；历史记录会保存在你的账号下，换设备登录也能找回。</p>
+    <p class="hint">💡 提示：业务功能均需登录使用；历史记录会保存在你的账号下，换设备登录也能找回。</p>
   </section>
 </template>
 

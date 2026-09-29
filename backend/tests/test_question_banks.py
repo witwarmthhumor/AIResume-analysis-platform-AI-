@@ -51,12 +51,12 @@ def _clean_qb_data():
             )
         )
         conn.execute(
-            text("DELETE FROM question_banks WHERE user_id IN "
-                 "(SELECT id FROM users WHERE email LIKE 'qb-%')")
+            text(
+                "DELETE FROM question_banks WHERE user_id IN "
+                "(SELECT id FROM users WHERE email LIKE 'qb-%')"
+            )
         )
-        conn.execute(
-            text("DELETE FROM resumes WHERE filename LIKE 'qb-%'")
-        )
+        conn.execute(text("DELETE FROM resumes WHERE filename LIKE 'qb-%'"))
         conn.execute(text("DELETE FROM users WHERE email LIKE 'qb-%'"))
 
 
@@ -72,7 +72,9 @@ def _register_and_upload() -> tuple[TestClient, int]:
     c = TestClient(app)
     email = f"{_QB_PREFIX}{uuid.uuid4().hex[:10]}@example.com"
     assert (
-        c.post("/api/auth/register", json={"email": email, "password": "correct-horse-123"}).status_code
+        c.post(
+            "/api/auth/register", json={"email": email, "password": "correct-horse-123"}
+        ).status_code
         == 201
     )
     up = c.post(
@@ -108,13 +110,18 @@ def test_generate_bank_from_own_resume() -> None:
 def test_bank_owner_isolation() -> None:
     """归属隔离：B 看不到也删不掉 A 的题库（404 统一语义）。"""
     c_a, resume_id = _register_and_upload()
-    bank_id = c_a.post("/api/question-banks", json={"resume_id": resume_id}).json()["id"]
+    bank_id = c_a.post("/api/question-banks", json={"resume_id": resume_id}).json()[
+        "id"
+    ]
 
     c_b = TestClient(app)
     assert (
         c_b.post(
             "/api/auth/register",
-            json={"email": f"qb-{uuid.uuid4().hex[:10]}@example.com", "password": "correct-horse-123"},
+            json={
+                "email": f"qb-{uuid.uuid4().hex[:10]}@example.com",
+                "password": "correct-horse-123",
+            },
         ).status_code
         == 201
     )
@@ -134,9 +141,17 @@ def test_generate_requires_parsed_own_resume() -> None:
     c_b = TestClient(app)
     c_b.post(
         "/api/auth/register",
-        json={"email": f"qb-{uuid.uuid4().hex[:10]}@example.com", "password": "correct-horse-123"},
+        json={
+            "email": f"qb-{uuid.uuid4().hex[:10]}@example.com",
+            "password": "correct-horse-123",
+        },
     )
     # B 拿 A 的简历生成 → 404
-    assert c_b.post("/api/question-banks", json={"resume_id": resume_id}).status_code == 404
+    assert (
+        c_b.post("/api/question-banks", json={"resume_id": resume_id}).status_code
+        == 404
+    )
     # 不存在的简历 → 404
-    assert c_a.post("/api/question-banks", json={"resume_id": 999999}).status_code == 404
+    assert (
+        c_a.post("/api/question-banks", json={"resume_id": 999999}).status_code == 404
+    )

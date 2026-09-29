@@ -24,7 +24,10 @@ def _get_model():
 
         with _MODEL_LOCK:
             if _model is None:
-                logger.info("加载 whisper 模型：%s（首次可能需要下载数百 MB）", settings.asr_whisper_model)
+                logger.info(
+                    "加载 whisper 模型：%s（首次可能需要下载数百 MB）",
+                    settings.asr_whisper_model,
+                )
                 _model = WhisperModel(
                     settings.asr_whisper_model,
                     device="cpu",

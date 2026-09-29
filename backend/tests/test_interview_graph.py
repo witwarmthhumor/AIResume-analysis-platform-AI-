@@ -236,15 +236,17 @@ def test_bank_driven_interview_skips_question_llm() -> None:
     # 直接入库造题库（题库生成本身有专属测试文件覆盖）
     with engine.begin() as conn:
         uid = conn.execute(
-            text("SELECT id FROM users WHERE email LIKE 'ig-%' ORDER BY id DESC LIMIT 1")
+            text(
+                "SELECT id FROM users WHERE email LIKE 'ig-%' ORDER BY id DESC LIMIT 1"
+            )
         ).scalar()
         bank_id = conn.execute(
             text(
                 "INSERT INTO question_banks (user_id, resume_id, title, question_count, "
                 "questions_json) VALUES (:uid, :rid, 'ig-题库', 2, "
-                "'{\"questions\": [{\"question\": \"bank-q-1\", \"category\": \"项目\", "
-                "\"difficulty\": 3}, {\"question\": \"bank-q-2\", \"category\": \"基础\", "
-                "\"difficulty\": 2}]}'::jsonb) RETURNING id"
+                '\'{"questions": [{"question": "bank-q-1", "category": "项目", '
+                '"difficulty": 3}, {"question": "bank-q-2", "category": "基础", '
+                '"difficulty": 2}]}\'::jsonb) RETURNING id'
             ),
             {"uid": uid, "rid": resume_id},
         ).scalar_one()
@@ -252,7 +254,9 @@ def test_bank_driven_interview_skips_question_llm() -> None:
     start = c.post(f"/api/resumes/{resume_id}/interviews", json={"bank_id": bank_id})
     assert start.status_code == 201, start.text
     session = start.json()["session"]
-    questions = [m["content"] for m in session["messages"] if m["role"] == "interviewer"]
+    questions = [
+        m["content"] for m in session["messages"] if m["role"] == "interviewer"
+    ]
     assert questions[-1] == "bank-q-1"  # 第一题来自题库（开场白之后）
 
     # 作答：评分仍走 LLM（stub 记 score），第二题来自题库

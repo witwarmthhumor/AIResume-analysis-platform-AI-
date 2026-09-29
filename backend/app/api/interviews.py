@@ -204,7 +204,9 @@ def start_interview(
         if not bank_questions:
             raise HTTPException(400, "该题库没有可用题目")
         if not settings.interview_graph_enabled:
-            raise HTTPException(400, "题库加载需要面试图编排开启（interview_graph_enabled）")
+            raise HTTPException(
+                400, "题库加载需要面试图编排开启（interview_graph_enabled）"
+            )
     if settings.interview_graph_enabled:
         # S1 图路径：开场白与第一问由图节点落库（第一问经 LLM 生成，起点即"已提问"），
         # checkpoint 挂在 wait_answer 等候选人作答；崩溃后从 checkpoint 续跑

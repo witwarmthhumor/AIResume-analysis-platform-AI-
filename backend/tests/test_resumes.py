@@ -116,6 +116,7 @@ def test_oversize_rejected_413(monkeypatch) -> None:
     assert resp.status_code == 413
     assert "MB" in resp.json()["message"]
 
+
 def test_too_many_pages_rejected_400() -> None:
     resp = upload(make_text_pdf(["page content with enough text here"] * 6))
     assert resp.status_code == 400

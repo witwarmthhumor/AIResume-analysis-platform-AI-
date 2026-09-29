@@ -5,18 +5,19 @@ Revises: 8e37f8d524ee
 Create Date: 2026-09-29 15:51:20.535267
 
 """
-from typing import Sequence, Union
 
-from alembic import op
+from collections.abc import Sequence
+
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = '855d9731b3ad'
-down_revision: Union[str, None] = '8e37f8d524ee'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+revision: str = "855d9731b3ad"
+down_revision: str | None = "8e37f8d524ee"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -27,9 +28,16 @@ def upgrade() -> None:
         sa.Column("resume_id", sa.BigInteger(), nullable=True),
         sa.Column("title", sa.String(length=200), nullable=False),
         sa.Column("question_count", sa.Integer(), nullable=False),
-        sa.Column("questions_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column(
+            "questions_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
         sa.Column("model_name", sa.String(length=100), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_question_banks_user_id", "question_banks", ["user_id"])

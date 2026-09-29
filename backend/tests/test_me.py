@@ -164,7 +164,11 @@ def test_update_profile_fields() -> None:
     # 设置头像 + 身份证 + 手机号（一次性）
     ok = c.put(
         "/api/me/profile",
-        json={"avatar_key": "a3", "id_card": "412327199905018341", "phone": f"139{uuid.uuid4().int % 10**8:08d}"},
+        json={
+            "avatar_key": "a3",
+            "id_card": "412327199905018341",
+            "phone": f"139{uuid.uuid4().int % 10**8:08d}",
+        },
     )
     assert ok.status_code == 200, ok.text
     body = ok.json()
@@ -174,7 +178,9 @@ def test_update_profile_fields() -> None:
 
     phone_bound = body["phone"]
     # 手机号非空后不可再改
-    again = c.put("/api/me/profile", json={"phone": f"137{uuid.uuid4().int % 10**8:08d}"})
+    again = c.put(
+        "/api/me/profile", json={"phone": f"137{uuid.uuid4().int % 10**8:08d}"}
+    )
     assert again.status_code == 400
     # 头像可继续改；非法头像/身份证 422
     assert c.put("/api/me/profile", json={"avatar_key": "a7"}).status_code == 200

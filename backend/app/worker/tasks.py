@@ -145,9 +145,15 @@ def transcribe_audio(audio_id: int) -> dict[str, int | str]:
         except Exception as exc:
             logger.exception("录音转写失败 audio_id=%s", audio_id)
             audio.status = "failed"
-            audio.error = "录音转写失败，请确认音频文件未损坏后重试（支持 wav/mp3/m4a/webm）"
+            audio.error = (
+                "录音转写失败，请确认音频文件未损坏后重试（支持 wav/mp3/m4a/webm）"
+            )
             db.commit()
-            return {"audio_id": audio_id, "status": "failed", "error": str(type(exc).__name__)}
+            return {
+                "audio_id": audio_id,
+                "status": "failed",
+                "error": str(type(exc).__name__),
+            }
         audio.transcript = result["text"]
         audio.duration_seconds = result["duration_seconds"]
         audio.asr_model = settings.asr_whisper_model

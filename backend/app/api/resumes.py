@@ -105,7 +105,9 @@ async def upload_resume(
     except ParseError as exc:
         if exc.kind == "too_many_pages":
             raise HTTPException(400, exc.message) from exc
-        parse_status = exc.kind  # unsupported（扫描件/旧版 doc/空文档）/ failed（损坏）：落库留痕
+        parse_status = (
+            exc.kind
+        )  # unsupported（扫描件/旧版 doc/空文档）/ failed（损坏）：落库留痕
         parse_error = exc.message
     else:
         raw_text = result.text

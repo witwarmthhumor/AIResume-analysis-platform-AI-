@@ -50,7 +50,9 @@ async def upload_audio(
     if not filename.lower().endswith(_AUDIO_EXTENSIONS):
         raise HTTPException(415, "仅支持 wav / mp3 / m4a / webm / flac / ogg 音频")
     if file.size is not None and file.size > settings.audio_upload_max_size:
-        raise HTTPException(413, f"音频超过 {settings.audio_upload_max_size // (1024 * 1024)}MB 限制")
+        raise HTTPException(
+            413, f"音频超过 {settings.audio_upload_max_size // (1024 * 1024)}MB 限制"
+        )
 
     enforce_daily_limit(
         db,
@@ -177,7 +179,11 @@ def run_role_review(
     if not (audio.transcript or "").strip():
         raise HTTPException(400, "还没有可审核的转写文本")
     enforce_daily_limit(
-        db, anonymous_id, settings.daily_audio_review_limit, "audio_review", user_id=user.id
+        db,
+        anonymous_id,
+        settings.daily_audio_review_limit,
+        "audio_review",
+        user_id=user.id,
     )
     try:
         report, result = audio_review_service.role_review(audio.transcript)
@@ -212,10 +218,16 @@ def run_interview_review(
     if not (audio.transcript or "").strip():
         raise HTTPException(400, "还没有可审核的转写文本")
     enforce_daily_limit(
-        db, anonymous_id, settings.daily_audio_review_limit, "audio_review", user_id=user.id
+        db,
+        anonymous_id,
+        settings.daily_audio_review_limit,
+        "audio_review",
+        user_id=user.id,
     )
     role_marked = (
-        audio_review_service.render_role_marked(audio.role_review_json.get("segments", []))
+        audio_review_service.render_role_marked(
+            audio.role_review_json.get("segments", [])
+        )
         if isinstance(audio.role_review_json, dict)
         else audio.transcript
     )

@@ -220,7 +220,11 @@ def _make_nodes(deps: _Deps) -> dict:
             source=source,
         )
         db.commit()
-        patch: dict = {"turn_count": turn, "stage": ask_stage, "last_question": question}
+        patch: dict = {
+            "turn_count": turn,
+            "stage": ask_stage,
+            "last_question": question,
+        }
         if source == "bank":
             patch["bank_index"] = idx + 1  # 题库游标随 checkpoint 前进
         return patch
