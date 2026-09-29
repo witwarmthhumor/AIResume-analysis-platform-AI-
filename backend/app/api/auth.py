@@ -23,6 +23,7 @@ from app.schemas.auth import (
     LoginCredentials,
     RegisterCredentials,
     UserOut,
+    is_valid_phone,
 )
 from app.services.login_throttle import failure_count, record_failure, reset_failures
 from app.services.username_service import derive_username, is_valid_username
@@ -71,6 +72,13 @@ def register(
             )
     else:
         username = derive_username(email, set(db.scalars(select(User.username)).all()))
+    # v4.2：手机号（前端必填，API 过渡期可选）——校验格式；唯一冲突走 IntegrityError 409
+    phone = (credentials.phone or "").strip() or None
+    if phone is not None:
+        if not is_valid_phone(phone):
+            raise HTTPException(422, "手机号格式不正确（11 位，1 开头）")
+        if db.scalar(select(User).where(User.phone == phone)) is not None:
+            raise HTTPException(409, "该手机号已注册")
     # 首个注册用户自动提权受开关控制且默认关（A1）；管理员唯一来源是 seed_admin.py。
     # 事务级咨询锁串行化"查计数 → 插入"窗口，防并发首注产生双 admin
     db.execute(text("SELECT pg_advisory_xact_lock(hashtext('first-user')::bigint)"))
@@ -80,6 +88,7 @@ def register(
         email=email,
         username=username,
         password_hash=hash_password(credentials.password),
+        phone=phone,
         role="admin" if promote else "user",
     )
     db.add(user)
@@ -90,6 +99,8 @@ def register(
         # 409 明确话术区分撞了哪个唯一键（注册页不是防枚举重点，明确比含糊有用）
         if db.scalar(select(User).where(User.email == email)) is not None:
             raise HTTPException(409, "该邮箱已注册") from None
+        if phone is not None and db.scalar(select(User).where(User.phone == phone)) is not None:
+            raise HTTPException(409, "该手机号已注册") from None
         raise HTTPException(409, "该用户名已被占用") from None
     db.refresh(user)
     _issue_session(response, user)
@@ -103,11 +114,11 @@ def login(
     request: Request,
     db: Session = Depends(get_db),  # noqa: B008
 ) -> AuthResponse:
-    # identifier：新 username 字段优先；旧 email 字段兼容（测试/老前端零改动）。
-    # 含 @ 按邮箱查，否则按用户名查
+    # identifier 三态（v4.2）：含 @ 按邮箱查；1 开头 11 位数字按手机号查；否则按用户名。
+    # 旧 email 字段兼容（测试/老前端零改动）
     identifier = (credentials.username or credentials.email or "").strip().lower()
     if not identifier:
-        raise HTTPException(422, "请输入用户名或邮箱")
+        raise HTTPException(422, "请输入用户名、邮箱或手机号")
     client_ip = request.client.host if request.client else "unknown"
     throttle_key = f"{client_ip}:{identifier}"
     if failure_count(throttle_key) >= settings.login_max_failures:
@@ -115,11 +126,12 @@ def login(
             429,
             f"登录失败次数过多，请 {settings.login_lockout_minutes} 分钟后再试",
         )
-    lookup = (
-        select(User).where(User.email == identifier)
-        if "@" in identifier
-        else select(User).where(User.username == identifier)
-    )
+    if "@" in identifier:
+        lookup = select(User).where(User.email == identifier)
+    elif is_valid_phone(identifier):
+        lookup = select(User).where(User.phone == identifier)
+    else:
+        lookup = select(User).where(User.username == identifier)
     user = db.scalar(lookup)
     # 时序均等化：无论账号是否存在都跑一次真哈希校验
     password_ok = verify_password(

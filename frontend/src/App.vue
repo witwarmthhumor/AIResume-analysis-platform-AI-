@@ -13,6 +13,8 @@ import AgentWidget from './components/agent/AgentWidget.vue'
 import ProfileView from './components/ProfileView.vue'
 import ResumeView from './components/ResumeView.vue'
 import InterviewView from './components/InterviewView.vue'
+import ProfileDialog from './components/ProfileDialog.vue'
+import { avatarPreset } from './utils.js'
 
 // —— 布局与视图 ——
 const activeView = ref('home') // home / resume / interview / chat / history / admin / kb-admin / agent / profile
@@ -26,12 +28,16 @@ const pendingResumeId = ref(null) // ResumeView → InterviewView 的「拿这�
 const currentUser = ref(null)
 const showLogin = ref(false)
 const showUserMenu = ref(false)
+const showProfile = ref(false) // v4.2 个人信息弹窗
 
-// 头像首字母（邮箱首字符大写）
+// 头像：预设表情优先（v4.2），未设置回落邮箱首字母
+const avatarPresetInfo = computed(() => avatarPreset(currentUser.value))
 const avatarLetter = computed(() => {
+  if (avatarPresetInfo.value) return avatarPresetInfo.value.emoji
   const ch = currentUser.value?.email?.trim()?.[0]
   return ch ? ch.toUpperCase() : '?'
 })
+const avatarColor = computed(() => avatarPresetInfo.value?.color || null)
 
 // —— 视图组件映射（v4.1 A4：首页落地化，简历评估/模拟面试独立成视图）——
 // chat/history/agent 仍保留在映射里：管理端在线对话/使用日志、admin 悬浮客服继续使用，
@@ -151,15 +157,19 @@ onMounted(loadUser)
         <div class="topbar-right">
           <template v-if="currentUser">
             <div class="user-menu-wrap">
-              <button class="avatar-btn" @click="showUserMenu = !showUserMenu" :title="currentUser.email">
-                <span class="avatar">{{ avatarLetter }}</span>
+              <button class="avatar-btn" @click="showUserMenu = !showUserMenu" :title="currentUser.username">
+                <span class="avatar" :style="avatarColor ? { background: avatarColor } : {}">{{ avatarLetter }}</span>
               </button>
-              <!-- 下拉菜单 -->
+              <!-- 下拉菜单（v4.2：个人信息概览 + 三入口，对齐参考页面形态） -->
               <div v-if="showUserMenu" class="user-dropdown">
-                <div class="dropdown-email">{{ currentUser.email }}</div>
-                <div v-if="currentUser.role === 'admin'" class="dropdown-role">
-                  <span class="badge ok">管理员</span>
+                <div class="dropdown-profile">
+                  <div class="dp-row"><span class="dp-label">用户名</span><span class="dp-value">{{ currentUser.username }}</span></div>
+                  <div class="dp-row"><span class="dp-label">手机号</span><span class="dp-value">{{ currentUser.phone || '-' }}</span></div>
+                  <div class="dp-row"><span class="dp-label">邮箱</span><span class="dp-value dp-ellipsis">{{ currentUser.email }}</span></div>
+                  <div class="dp-row"><span class="dp-label">注册时间</span><span class="dp-value">{{ new Date(currentUser.created_at).toLocaleString() }}</span></div>
                 </div>
+                <button class="dropdown-item" @click="showProfile = true; showUserMenu = false">🪪 查看个人信息</button>
+                <button class="dropdown-item" @click="showProfile = true; showUserMenu = false">🔑 修改密码</button>
                 <button class="dropdown-item" @click="logout">退出登录</button>
               </div>
               <!-- 点击外部关闭 -->
@@ -227,6 +237,15 @@ onMounted(loadUser)
         <LoginPanel @logged-in="onLoggedIn" />
       </div>
     </div>
+
+    <!-- —— 个人信息弹窗（v4.2）—— -->
+    <ProfileDialog
+      v-if="showProfile && currentUser"
+      :user="currentUser"
+      @saved="currentUser = $event"
+      @logout="logout"
+      @close="showProfile = false"
+    />
   </div>
 </template>
 
@@ -330,17 +349,32 @@ onMounted(loadUser)
   z-index: 30;
   animation: fade-in-up 0.18s ease both;
 }
-.dropdown-email {
-  font-size: 12.5px;
+.dropdown-profile {
+  padding: 4px 8px 10px;
+  border-bottom: 1px dashed var(--c-border);
+  margin-bottom: 6px;
+}
+.dp-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  padding: 3px 0;
+}
+.dp-label {
+  color: var(--c-faint);
+  flex-shrink: 0;
+}
+.dp-value {
   color: var(--c-text);
   font-weight: 600;
-  padding: 6px 8px;
+  text-align: right;
+}
+.dp-ellipsis {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.dropdown-role {
-  padding: 2px 8px 8px;
+  max-width: 150px;
 }
 .dropdown-item {
   display: block;

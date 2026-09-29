@@ -227,3 +227,41 @@ def test_login_lock_fail_open_when_redis_down(monkeypatch) -> None:
             "/api/auth/login", json={"email": address, "password": "wrong-pass-123"}
         )
     assert client.post("/api/auth/login", json=credentials).status_code == 200
+
+
+def test_register_login_with_phone() -> None:
+    """v4.2：注册带手机号 → 手机号可登录；重复 409、非法 422；旧标识仍可用。"""
+    address = email()
+    phone = f"138{uuid.uuid4().int % 10**8:08d}"
+    resp = client.post(
+        "/api/auth/register",
+        json={"email": address, "password": "correct-horse-123", "phone": phone},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["user"]["phone"] == phone
+
+    fresh = TestClient(app)  # 手机号登录
+    login = fresh.post(
+        "/api/auth/login", json={"username": phone, "password": "correct-horse-123"}
+    )
+    assert login.status_code == 200
+    # 用户名/邮箱登录不受影响
+    assert (
+        client.post(
+            "/api/auth/login", json={"email": address, "password": "correct-horse-123"}
+        ).status_code
+        == 200
+    )
+
+    dup = client.post(
+        "/api/auth/register",
+        json={"email": email(), "password": "correct-horse-123", "phone": phone},
+    )
+    assert dup.status_code == 409
+    assert "手机号" in dup.json()["message"]
+
+    bad = client.post(
+        "/api/auth/register",
+        json={"email": email(), "password": "correct-horse-123", "phone": "12345"},
+    )
+    assert bad.status_code == 422

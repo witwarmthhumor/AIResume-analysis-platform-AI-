@@ -9,8 +9,9 @@
 
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.auth_deps import get_current_user
@@ -20,6 +21,13 @@ from app.models.interview import InterviewSession
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
 from app.models.user import User
+from app.schemas.auth import (
+    AVATAR_KEYS,
+    ProfileUpdate,
+    UserOut,
+    is_valid_id_card,
+    is_valid_phone,
+)
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -111,3 +119,41 @@ def my_usage(
             }
         )
     return rows
+
+
+@router.put("/profile", response_model=UserOut)
+def update_profile(
+    payload: ProfileUpdate,
+    db: Session = Depends(get_db),  # noqa: B008
+    user: User = Depends(get_current_user),  # noqa: B008
+) -> User:
+    """个人信息更新（v4.2）：None 字段不改；手机号仅在账号尚无手机号时可设置一次
+    （对齐参考页面"手机号不可修改"语义，存量账号留一次补录机会）。
+
+    敏感保护：手机号/身份证只经本人接口返回，禁止写入任何日志。
+    """
+    if payload.avatar_key is not None:
+        if payload.avatar_key not in AVATAR_KEYS:
+            raise HTTPException(422, "头像选项无效")
+        user.avatar_key = payload.avatar_key
+    if payload.id_card is not None:
+        id_card = payload.id_card.strip().upper()
+        if id_card and not is_valid_id_card(id_card):
+            raise HTTPException(422, "身份证号格式不正确（15 或 18 位）")
+        # 空串 = 清空（用户填错想重填）
+        user.id_card = id_card or None
+    if payload.phone is not None:
+        phone = payload.phone.strip() or None
+        if phone is not None:
+            if user.phone:
+                raise HTTPException(400, "手机号已绑定，不可修改")
+            if not is_valid_phone(phone):
+                raise HTTPException(422, "手机号格式不正确（11 位，1 开头）")
+            user.phone = phone
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "该手机号已被其他账号使用") from None
+    db.refresh(user)
+    return user

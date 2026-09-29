@@ -4,7 +4,7 @@
    数据全部是"本人"口径：/api/me/*；日志复用 /api/usage/logs（后端本就按当前用户过滤）。 */
 import { computed, onMounted, ref } from 'vue'
 import { get, post } from '../api.js'
-import { fmtDateTime, fmtNum, shortDate } from '../utils.js'
+import { fmtDateTime, fmtNum, shortDate, avatarPreset } from '../utils.js'
 
 const emit = defineEmits(['logout'])
 
@@ -74,7 +74,11 @@ function barHeight(t) {
   return t ? Math.max(4, Math.round((t / maxTokens.value) * 100)) : 0
 }
 // shortDate / fmtNum / fmtDateTime 来自 utils.js（与 AdminPanel/HistoryView 共享）
-const avatarLetter = computed(() => me.value?.email?.trim()?.[0]?.toUpperCase() || '?')
+// 头像：预设表情优先（v4.2），未设置回落邮箱首字母
+const avatarPresetInfo = computed(() => avatarPreset(me.value))
+const avatarLetter = computed(
+  () => avatarPresetInfo.value?.emoji || me.value?.email?.trim()?.[0]?.toUpperCase() || '?'
+)
 
 async function loadAll() {
   error.value = ''

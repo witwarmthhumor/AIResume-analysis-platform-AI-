@@ -152,3 +152,35 @@ def test_my_usage_last_seven_days() -> None:
     assert today["tokens"] == 200
     # 其余天为 0
     assert all(r["calls"] == 0 for r in rows[:-1])
+
+
+def test_update_profile_fields() -> None:
+    """v4.2 个人信息：头像/身份证可改；手机号仅空账号可设一次，再改 400；非法值 422。"""
+    c, _uid = _register_client()
+    # 初始：三字段全空
+    me = c.get("/api/auth/me").json()
+    assert me["phone"] is None and me["id_card"] is None and me["avatar_key"] is None
+
+    # 设置头像 + 身份证 + 手机号（一次性）
+    ok = c.put(
+        "/api/me/profile",
+        json={"avatar_key": "a3", "id_card": "412327199905018341", "phone": f"139{uuid.uuid4().int % 10**8:08d}"},
+    )
+    assert ok.status_code == 200, ok.text
+    body = ok.json()
+    assert body["avatar_key"] == "a3"
+    assert body["id_card"] == "412327199905018341"
+    assert body["phone"]
+
+    phone_bound = body["phone"]
+    # 手机号非空后不可再改
+    again = c.put("/api/me/profile", json={"phone": f"137{uuid.uuid4().int % 10**8:08d}"})
+    assert again.status_code == 400
+    # 头像可继续改；非法头像/身份证 422
+    assert c.put("/api/me/profile", json={"avatar_key": "a7"}).status_code == 200
+    assert c.put("/api/me/profile", json={"avatar_key": "hacker"}).status_code == 422
+    assert c.put("/api/me/profile", json={"id_card": "123"}).status_code == 422
+    # 空串身份证 = 清空
+    cleared = c.put("/api/me/profile", json={"id_card": ""})
+    assert cleared.status_code == 200 and cleared.json()["id_card"] is None
+    assert phone_bound  # 手机号未被后续请求动过

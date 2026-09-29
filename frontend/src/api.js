@@ -33,6 +33,8 @@ export function get(url) { return request('GET', url) }
 
 export function post(url, body = null) { return request('POST', url, body) }
 
+export function put(url, body = null) { return request('PUT', url, body) }
+
 export function del(url) { return request('DELETE', url) }
 
 /* SSE 流式请求（POST 带 body / GET 无 body 共用一套实现）：

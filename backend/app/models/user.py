@@ -21,6 +21,11 @@ class User(Base, TimestampMixin):
         BigInteger, nullable=True
     )
     password_hash: Mapped[str] = mapped_column(String(255))
+    # v4.2 个人信息扩展：手机号（可登录标识，唯一可空——Postgres 多 NULL 共存）、
+    # 身份证号（仅本人接口返回，禁入日志）、预设头像 key（前端内置 a1~a8）
+    phone: Mapped[str | None] = mapped_column(String(20), unique=True, index=True)
+    id_card: Mapped[str | None] = mapped_column(String(32))
+    avatar_key: Mapped[str | None] = mapped_column(String(30))
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"
     )

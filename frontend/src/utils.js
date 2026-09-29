@@ -46,3 +46,20 @@ export function pageNumbers(current, total) {
   pages.push(total)
   return pages
 }
+
+// —— v4.2 预设头像（a1~a8）：后端只存 key，样式与表情由前端这份映射决定 ——
+export const AVATAR_PRESETS = [
+  { key: 'a1', emoji: '🦉', color: '#10b981' },
+  { key: 'a2', emoji: '🦁', color: '#f59e0b' },
+  { key: 'a3', emoji: '🐼', color: '#3b82f6' },
+  { key: 'a4', emoji: '🦊', color: '#ef4444' },
+  { key: 'a5', emoji: '🐸', color: '#22c55e' },
+  { key: 'a6', emoji: '🐙', color: '#8b5cf6' },
+  { key: 'a7', emoji: '🐯', color: '#f97316' },
+  { key: 'a8', emoji: '🐨', color: '#06b6d4' },
+]
+
+// 取用户当前头像预设；未设置时回落 null（调用方用首字母兜底）
+export function avatarPreset(user) {
+  return AVATAR_PRESETS.find((p) => p.key === user?.avatar_key) || null
+}
