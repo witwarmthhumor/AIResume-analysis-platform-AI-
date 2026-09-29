@@ -136,6 +136,12 @@ class Settings(BaseSettings):
     # v4.2 面试题库：每归属者每日生成套数上限（一次生成 = 一次大调用，单独限额好归因）
     daily_question_bank_limit: int = 10
 
+    # v4.2 录音分析：whisper 模型名（small 中文效果好；B0 已预下载到 HF 缓存）
+    asr_whisper_model: str = "small"
+    audio_upload_max_size: int = 50 * 1024 * 1024  # 50MB 音频上限
+    daily_audio_transcribe_limit: int = 20  # 每日转写次数上限
+    daily_audio_review_limit: int = 30  # 每日审核（角色/面试）次数上限
+
     # 阶段4：JWT 与 Celery/Redis
     jwt_secret_key: str = "change-me-in-backend-env"
     jwt_expire_minutes: int = 60 * 24

@@ -6,10 +6,12 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import SessionLocal
 from app.models.analysis import Analysis
+from app.models.audio_analysis import AudioAnalysis
 from app.models.kb import KBDocument
 from app.models.resume import Resume
 from app.models.usage_log import UsageLog
 from app.services.ai_client import analyze_resume as call_ai
+from app.services.asr_service import transcribe
 from app.services.kb_service import ingest_kb_document
 from app.services.pdf_parser import ParseError, parse_pdf
 from app.services.prompts import PROMPT_VERSION
@@ -123,4 +125,36 @@ def ingest_kb(document_id: int) -> dict[str, int | str]:
             "document_id": document_id,
             "status": "ready" if ok else "failed",
             "error": None if ok else message,
+        }
+
+
+@celery_app.task(name="app.worker.tasks.transcribe_audio")
+def transcribe_audio(audio_id: int) -> dict[str, int | str]:
+    """录音转写（v4.2 B5）：whisper 本地模型，CPU 分钟级——只在 worker 进程跑。
+
+    成功：transcript/duration 落库，status=transcribed（前端轮询 /api/audio/analyses/{id}）；
+    失败：status=failed + 面向用户话术进 error 字段。
+    """
+    with SessionLocal() as db:
+        audio = db.get(AudioAnalysis, audio_id)
+        if audio is None:
+            raise ValueError("录音记录不存在")
+        data = Path(audio.storage_path).read_bytes()
+        try:
+            result = transcribe(data, audio.filename)
+        except Exception as exc:
+            logger.exception("录音转写失败 audio_id=%s", audio_id)
+            audio.status = "failed"
+            audio.error = "录音转写失败，请确认音频文件未损坏后重试（支持 wav/mp3/m4a/webm）"
+            db.commit()
+            return {"audio_id": audio_id, "status": "failed", "error": str(type(exc).__name__)}
+        audio.transcript = result["text"]
+        audio.duration_seconds = result["duration_seconds"]
+        audio.asr_model = settings.asr_whisper_model
+        audio.status = "transcribed"
+        db.commit()
+        return {
+            "audio_id": audio_id,
+            "status": "transcribed",
+            "duration": result["duration_seconds"],
         }

@@ -15,13 +15,25 @@ const emit = defineEmits(['navigate'])
       <button class="entry-card resume" @click="emit('navigate', 'resume')">
         <span class="entry-icon">📄</span>
         <span class="entry-title">简历评估</span>
-        <span class="entry-desc">上传简历 PDF，AI 逐维度生成评估报告：岗位匹配度、优势短板、量化建议</span>
+        <span class="entry-desc">上传简历 PDF / Word，AI 逐维度生成评估报告：岗位匹配度、优势短板、量化建议</span>
+        <span class="entry-go">进入 →</span>
+      </button>
+      <button class="entry-card audio" @click="emit('navigate', 'audio')">
+        <span class="entry-icon">🎧</span>
+        <span class="entry-title">录音分析</span>
+        <span class="entry-desc">上传面试录音：本地转写文本 → 角色审核标注 → 四维评分的面试审核复盘</span>
+        <span class="entry-go">进入 →</span>
+      </button>
+      <button class="entry-card qgen" @click="emit('navigate', 'question-gen')">
+        <span class="entry-icon">📝</span>
+        <span class="entry-title">面试题生成</span>
+        <span class="entry-desc">基于简历内容生成 10~20 道定制化面试题，保存为题库供模拟面试加载</span>
         <span class="entry-go">进入 →</span>
       </button>
       <button class="entry-card interview" @click="emit('navigate', 'interview')">
         <span class="entry-icon">🎤</span>
         <span class="entry-title">模拟面试</span>
-        <span class="entry-desc">基于你的简历多轮实战问答：自我介绍 → 技术问答 → 深入追问，结束生成四维评分复盘</span>
+        <span class="entry-desc">选简历（可选加载题库）多轮实战问答，结束生成四维评分复盘，checkpoint 断点续跑</span>
         <span class="entry-go">进入 →</span>
       </button>
     </div>
@@ -73,6 +85,8 @@ const emit = defineEmits(['navigate'])
   border-color: #6ee7b7;
 }
 .entry-card.resume { --entry: #10b981; }
+.entry-card.audio { --entry: #06b6d4; }
+.entry-card.qgen { --entry: #8b5cf6; }
 .entry-card.interview { --entry: #f59e0b; }
 .entry-icon {
   font-size: 30px;

@@ -14,6 +14,7 @@ import ProfileView from './components/ProfileView.vue'
 import ResumeView from './components/ResumeView.vue'
 import InterviewView from './components/InterviewView.vue'
 import QuestionGenView from './components/QuestionGenView.vue'
+import AudioView from './components/AudioView.vue'
 import ProfileDialog from './components/ProfileDialog.vue'
 import { avatarPreset } from './utils.js'
 
@@ -49,6 +50,7 @@ const viewComponents = {
   resume: ResumeView,
   interview: InterviewView,
   'question-gen': QuestionGenView,
+  audio: AudioView,
   chat: ChatView,
   history: HistoryView,
   admin: AdminPanel,
@@ -76,6 +78,7 @@ const navItems = computed(() => {
   return [
     { key: 'home', label: '首页', icon: '🏠', requireAuth: false },
     { key: 'resume', label: '简历评估', icon: '📄', requireAuth: true },
+    { key: 'audio', label: '录音分析', icon: '🎧', requireAuth: true },
     { key: 'question-gen', label: '面试题生成', icon: '📝', requireAuth: true },
     { key: 'interview', label: '模拟面试', icon: '🎤', requireAuth: true },
     { key: 'profile', label: '个人中心', icon: '👤', requireAuth: true },
@@ -233,6 +236,7 @@ onMounted(loadUser)
             :key="viewEpoch"
             @navigate="gotoView"
           />
+          <AudioView v-else-if="activeView === 'audio'" :key="viewEpoch" />
           <component :is="currentViewComponent" v-else :key="viewEpoch" ref="viewRef" @logout="logout" />
         </div>
       </main>

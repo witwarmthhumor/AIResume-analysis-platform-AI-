@@ -6,6 +6,7 @@ Alembic 的 env.py 只 import 这里一次即可；
 
 from app.models.agent_v2 import AgentApproval, AgentRun, AgentSpan, AuditLog
 from app.models.analysis import Analysis
+from app.models.audio_analysis import AudioAnalysis
 from app.models.base import Base
 from app.models.chat import ChatMessage, ChatSession
 from app.models.interview import InterviewMessage, InterviewSession
@@ -20,6 +21,7 @@ __all__ = [
     "AgentRun",
     "AgentSpan",
     "Analysis",
+    "AudioAnalysis",
     "AuditLog",
     "Base",
     "ChatMessage",
