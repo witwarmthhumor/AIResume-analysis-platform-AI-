@@ -143,7 +143,8 @@ def test_login_by_username_and_legacy_email_field() -> None:
     # 用户名大小写归一：大写输入也能命中
     assert (
         client.post(
-            "/api/auth/login", json={"username": "AUTH_LBY", "password": "correct-horse-123"}
+            "/api/auth/login",
+            json={"username": "AUTH_LBY", "password": "correct-horse-123"},
         ).status_code
         == 200
     )
@@ -166,7 +167,10 @@ def test_change_password_invalidates_old_tokens() -> None:
 
     changed = client.post(
         "/api/auth/change-password",
-        json={"old_password": "correct-horse-123", "new_password": "brand-new-pass-456"},
+        json={
+            "old_password": "correct-horse-123",
+            "new_password": "brand-new-pass-456",
+        },
     )
     assert changed.status_code == 200
     # 改密响应清了 cookie；即便手动带着旧 cookie 来，ver 失配也必须 401
@@ -219,7 +223,7 @@ def test_login_lock_fail_open_when_redis_down(monkeypatch) -> None:
     assert client.post("/api/auth/register", json=credentials).status_code == 201
     # 先失败多次——若计数可用必触发 429；fail-open 下不应锁定
     for _ in range(15):
-        client.post("/api/auth/login", json={"email": address, "password": "wrong-pass-123"})
-    assert (
-        client.post("/api/auth/login", json=credentials).status_code == 200
-    )
+        client.post(
+            "/api/auth/login", json={"email": address, "password": "wrong-pass-123"}
+        )
+    assert client.post("/api/auth/login", json=credentials).status_code == 200

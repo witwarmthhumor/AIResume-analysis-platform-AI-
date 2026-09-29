@@ -539,7 +539,9 @@ def test_last_session_pointer_and_endpoint() -> None:
 
     with engine.begin() as conn:  # 指针确实写进了 users 表
         pointer = conn.execute(
-            text("SELECT last_active_session_id FROM users WHERE email LIKE 'test-interview-%'")
+            text(
+                "SELECT last_active_session_id FROM users WHERE email LIKE 'test-interview-%'"
+            )
         ).scalar_one()
     assert pointer == body["id"]
 

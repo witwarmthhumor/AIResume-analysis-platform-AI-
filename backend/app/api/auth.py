@@ -46,7 +46,9 @@ _DUMMY_PASSWORD_HASH = hash_password("timing-equalization-dummy")
 def _issue_session(response: Response, user: User) -> None:
     """注册/登录成功后统一签发会话 cookie；JWT 带 ver 声明（token_version）。"""
     response.set_cookie(
-        ACCESS_COOKIE, create_access_token(user.id, user.token_version), **_COOKIE_KWARGS
+        ACCESS_COOKIE,
+        create_access_token(user.id, user.token_version),
+        **_COOKIE_KWARGS,
     )
 
 

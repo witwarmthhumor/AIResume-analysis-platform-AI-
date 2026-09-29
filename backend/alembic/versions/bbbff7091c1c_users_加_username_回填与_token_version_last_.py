@@ -15,17 +15,17 @@ Create Date: 2026-09-29 13:06:29.925828
 
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "bbbff7091c1c"
-down_revision: Union[str, None] = "46d5e23892d1"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "46d5e23892d1"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 _RESERVED = {"admin", "administrator", "root", "system"}
 
