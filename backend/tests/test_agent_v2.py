@@ -41,16 +41,9 @@ def _register(prefix: str, role: str | None = None) -> tuple[TestClient, int, st
 
 
 @pytest.fixture(autouse=True)
-def _seed_placeholder_and_clean():
-    """空库首用户提权占位 + av2 标记数据清理。"""
-    c = TestClient(app)
-    c.post(
-        "/api/auth/register",
-        json={
-            "email": f"av2-ph{uuid.uuid4().hex[:8]}@example.com",
-            "password": "correct-horse-123",
-        },
-    )
+def _clean_av2_data():
+    """av2 标记数据清理。v4.1 起「首用户自动提权」默认关（conftest 统一兜底），
+    原"空库占位用户注册"已删除。"""
     yield
     with engine.begin() as conn:
         # 记账行先于用户删除（图 analyzer/工具会写 usage_logs，漏删会污染他文件断言）

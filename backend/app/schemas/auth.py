@@ -15,6 +15,7 @@ class UserOut(BaseModel):
 
     id: int
     email: EmailStr
+    username: str  # v4.1：登录标识（响应新增，前端展示用）
     role: str  # user / admin
     created_at: datetime
 

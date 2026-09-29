@@ -50,6 +50,9 @@ from app.services.prompts import PROMPT_VERSION
 # 演示账号：独立邮箱域 @airesume-demo.com，不与真实账号或测试残留(@example.com) 重叠
 ADMIN_EMAIL = "admin@airesume-demo.com"
 USER_EMAIL = "user@airesume-demo.com"
+# v4.1：演示账号固定用户名（users.username 非空唯一）；不用 email 前缀是防 admin 撞保留字
+DEMO_ADMIN_USERNAME = "demo_admin"
+DEMO_USER_USERNAME = "demo_user"
 DEMO_PASSWORD = "demo-resume-2026"  # 满足后端 8 位下限；文档里会写明
 DEMO_EMAILS = (ADMIN_EMAIL, USER_EMAIL)
 
@@ -204,8 +207,22 @@ def _seed(db: Session) -> dict[str, object]:
     now = datetime.now(timezone.utc)
     pwd = hash_password(DEMO_PASSWORD)
 
-    admin = User(email=ADMIN_EMAIL, password_hash=pwd, is_active=True, role="admin")
-    demo = User(email=USER_EMAIL, password_hash=pwd, is_active=True, role="user")
+    # v4.1 起 users.username 非空：演示账号给可读的固定用户名（与 email 前缀无关联，
+    # 避免 admin@ 前缀撞保留字被回填规则改写）；幂等由 _ensure_user 兜底
+    admin = User(
+        email=ADMIN_EMAIL,
+        username=DEMO_ADMIN_USERNAME,
+        password_hash=pwd,
+        is_active=True,
+        role="admin",
+    )
+    demo = User(
+        email=USER_EMAIL,
+        username=DEMO_USER_USERNAME,
+        password_hash=pwd,
+        is_active=True,
+        role="user",
+    )
     db.add_all([admin, demo])
     db.flush()  # 拿到自增 id
 

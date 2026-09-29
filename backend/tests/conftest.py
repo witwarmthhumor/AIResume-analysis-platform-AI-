@@ -21,3 +21,14 @@ def pytest_configure(config) -> None:
             "如确属本机，请把 DATABASE_URL 的 host 写成 localhost/127.0.0.1。",
             returncode=1,
         )
+
+
+@pytest.fixture(autouse=True)
+def _auth_defaults(monkeypatch):
+    """v4.1 认证改造：测试统一关闭「首用户自动提权 admin」。
+
+    该行为受 settings.auto_promote_first_user 控制且默认关；这里显式再关一次，
+    防本地 .env 把开关打开导致 CI 空库上"第一个注册的用户"意外变成 admin、
+    打挂一批 403 断言（原「占位用户占首位」的 fixture 套路因此作废删除）。
+    """
+    monkeypatch.setattr(settings, "auto_promote_first_user", False)

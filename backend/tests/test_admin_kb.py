@@ -87,11 +87,8 @@ def test_anonymous_cannot_access_admin_kb() -> None:
 
 
 def test_regular_user_cannot_access_admin_kb() -> None:
-    # 全新库上「首个注册用户」会自动提权 admin（引导管理员的设计，见 app/api/auth.py）——
-    # 先造一个占位用户占掉首位，保证被测的是普通用户；CI 空库上否则必挂
-    TestClient(app).post(
-        "/api/auth/register", json={"email": _email(), "password": "correct-horse-123"}
-    )
+    # v4.1 起「首用户自动提权」默认关（conftest 兜底），注册出来即普通用户，
+    # 原占位用户注册已删除；403 语义直接覆盖
     client = TestClient(app)
     client.post(
         "/api/auth/register", json={"email": _email(), "password": "correct-horse-123"}

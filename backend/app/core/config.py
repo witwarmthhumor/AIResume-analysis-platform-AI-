@@ -118,6 +118,10 @@ class Settings(BaseSettings):
     login_max_failures: int = 10
     login_lockout_minutes: int = 15
 
+    # v4.1 企业级改造：首个注册用户自动提权 admin 的开关（默认关）。
+    # 关闭后管理员唯一来源是 scripts/seed_admin.py——新库上"谁先注册谁是管理员"是安全洞
+    auto_promote_first_user: bool = False
+
     # 阶段4：JWT 与 Celery/Redis
     jwt_secret_key: str = "change-me-in-backend-env"
     jwt_expire_minutes: int = 60 * 24

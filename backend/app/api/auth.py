@@ -13,6 +13,7 @@ from app.core.security import create_access_token, hash_password, verify_passwor
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.auth import AuthCredentials, AuthResponse, UserOut
+from app.services.username_service import derive_username
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -53,14 +54,20 @@ def register(
     db: Session = Depends(get_db),  # noqa: B008
 ) -> AuthResponse:
     email = str(credentials.email).lower()
-    # 首个注册用户自动成为 admin（P6 管理面板引导入口）。并发首注可产生双 admin，
-    # 用事务级咨询锁串行化"查计数 → 插入"窗口
+    # 首个注册用户自动成为 admin（P6 管理面板引导入口）——v4.1 起受开关控制且默认关：
+    # 关闭后管理员唯一来源是 scripts/seed_admin.py，新库上"谁先注册谁是管理员"是安全洞。
+    # 并发首注可产生双 admin，仍用事务级咨询锁串行化"查计数 → 插入"窗口
     db.execute(text("SELECT pg_advisory_xact_lock(hashtext('first-user')::bigint)"))
     is_first_user = db.scalar(select(func.count()).select_from(User)) == 0
+    promote = settings.auto_promote_first_user and is_first_user
+    # A1 过渡期：注册入参还没有 username，先按 email 前缀服务端自动分配
+    # （A2 切换入参后改为用户自选 + is_valid_username 校验）
+    username = derive_username(email, set(db.scalars(select(User.username)).all()))
     user = User(
         email=email,
+        username=username,
         password_hash=hash_password(credentials.password),
-        role="admin" if is_first_user else "user",
+        role="admin" if promote else "user",
     )
     db.add(user)
     try:
