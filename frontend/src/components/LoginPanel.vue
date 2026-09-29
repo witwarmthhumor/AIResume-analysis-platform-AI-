@@ -9,7 +9,6 @@ const emit = defineEmits(['logged-in'])
 const mode = ref('login')
 const identifier = ref('') // 登录标识：用户名 / 邮箱 / 手机号
 const regUsername = ref('') // 注册用户名
-const email = ref('') // 注册邮箱
 const regPhone = ref('') // 注册手机号（v4.2）
 const regConfirm = ref('') // 确认密码（v4.2.1，对齐参考注册页）
 const password = ref('')
@@ -32,7 +31,6 @@ async function submit() {
     } else {
       const body = await post('/api/auth/register', {
         username: regUsername.value.trim().toLowerCase(),
-        email: email.value.trim(),
         phone: regPhone.value.trim(),
         password: password.value,
       })
@@ -46,7 +44,6 @@ const loginReady = () => identifier.value.trim() && password.value
 // 注册：用户名过前端正则 + 邮箱含 @ + 手机号合法 + 密码 ≥8 且两次一致（与后端校验同口径）
 const registerReady = () =>
   USERNAME_RE.test(regUsername.value.trim().toLowerCase()) &&
-  email.value.includes('@') &&
   PHONE_RE.test(regPhone.value.trim()) &&
   password.value.length >= 8 &&
   password.value === regConfirm.value
@@ -58,16 +55,14 @@ const registerReady = () =>
     <!-- 包一层 form：密码框回车即可提交 -->
     <form @submit.prevent="submit">
       <template v-if="mode === 'login'">
-        <label class="label" for="login-id">用户名 / 邮箱 / 手机号</label>
-        <input id="login-id" v-model="identifier" autocomplete="username" placeholder="admin、your@email.com 或 138…" />
+        <label class="label" for="login-id">用户名 / 手机号</label>
+        <input id="login-id" v-model="identifier" autocomplete="username" placeholder="admin 或 138…" />
       </template>
       <template v-else>
         <label class="label" for="reg-username">用户名</label>
         <input id="reg-username" v-model="regUsername" autocomplete="username" placeholder="3~64 位小写字母、数字或下划线" />
         <label class="label" for="reg-phone">手机号</label>
         <input id="reg-phone" v-model="regPhone" type="tel" autocomplete="tel" placeholder="11 位手机号，可用于登录" />
-        <label class="label" for="reg-email">邮箱</label>
-        <input id="reg-email" v-model="email" type="email" autocomplete="email" placeholder="your@email.com" />
       </template>
       <label class="label" for="login-pass">密码{{ mode === 'register' ? '（至少 8 位）' : '' }}</label>
       <input

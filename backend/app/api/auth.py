@@ -61,17 +61,19 @@ def register(
     response: Response,
     db: Session = Depends(get_db),  # noqa: B008
 ) -> AuthResponse:
-    email = str(credentials.email).lower()
-    # username：自选值先过校验（小写归一 + 3~64 位 + 保留字）；过渡期不传则按
-    # email 前缀派生（老调用零感知；A4 前端起注册表单强制填写）
+    # v4.2.1：email 可选（新账号不再收集邮箱）；username 缺省时若有 email 则按前缀派生，
+    # 两者都没有 → 422（username 是登录标识，必须有）
+    email = str(credentials.email).lower() if credentials.email else None
     if credentials.username is not None:
         username = credentials.username.strip().lower()
         if not is_valid_username(username):
             raise HTTPException(
                 422, "用户名需为 3~64 位小写字母、数字或下划线，且不能用保留字"
             )
-    else:
+    elif email:
         username = derive_username(email, set(db.scalars(select(User.username)).all()))
+    else:
+        raise HTTPException(422, "请填写用户名")
     # v4.2：手机号（前端必填，API 过渡期可选）——校验格式；唯一冲突走 IntegrityError 409
     phone = (credentials.phone or "").strip() or None
     if phone is not None:

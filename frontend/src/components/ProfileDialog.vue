@@ -111,8 +111,8 @@ async function changePassword() {
         :class="{ readonly: !canSetPhone }"
         placeholder="11 位手机号"
       />
-      <div class="field-label">邮箱（不可修改）</div>
-      <input :value="props.user.email" readonly class="readonly" />
+      <div class="field-label" v-if="props.user.email">邮箱（不可修改）</div>
+      <input v-if="props.user.email" :value="props.user.email" readonly class="readonly" />
       <div class="field-label">注册时间</div>
       <input :value="fmtDateTime(props.user.created_at)" readonly class="readonly" />
 

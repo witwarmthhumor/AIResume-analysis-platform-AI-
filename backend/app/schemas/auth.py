@@ -28,10 +28,11 @@ def is_valid_id_card(id_card: str) -> bool:
 
 
 class RegisterCredentials(BaseModel):
-    """注册：username 过渡期可缺省（服务端按 email 前缀派生），前端强制填写。"""
+    """注册：username 前端强制填写（缺省时若有 email 则按前缀派生）；
+    v4.2.1 起 email 可选（账号体系以 用户名+手机号 为主，email 仅存量账号有）。"""
 
     username: str | None = Field(default=None, max_length=64)
-    email: EmailStr
+    email: EmailStr | None = None
     password: str = Field(min_length=8, max_length=128)
     phone: str | None = Field(
         default=None, max_length=20
@@ -63,7 +64,7 @@ class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    email: EmailStr
+    email: EmailStr | None = None  # v4.2.1：可空（新账号不再收集邮箱，存量账号保留）
     username: str  # v4.1：登录标识（响应新增，前端展示用）
     role: str  # user / admin
     created_at: datetime

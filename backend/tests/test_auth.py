@@ -265,3 +265,33 @@ def test_register_login_with_phone() -> None:
         json={"email": email(), "password": "correct-horse-123", "phone": "12345"},
     )
     assert bad.status_code == 422
+
+
+def test_register_without_email() -> None:
+    """v4.2.1：注册不再收集邮箱——只传 用户名+手机号+密码 → 成功且 email 为空；
+    用户名/手机号均可登录。"""
+    username = f"noemail{uuid.uuid4().hex[:8]}"
+    phone = f"136{uuid.uuid4().int % 10**8:08d}"
+    resp = client.post(
+        "/api/auth/register",
+        json={"username": username, "phone": phone, "password": "correct-horse-123"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()["user"]
+    assert body["email"] is None
+    assert body["username"] == username
+
+    fresh = TestClient(app)
+    assert (
+        fresh.post(
+            "/api/auth/login", json={"username": phone, "password": "correct-horse-123"}
+        ).status_code
+        == 200
+    )
+    # 两者都缺 → 422（username 是登录标识必须有）
+    assert (
+        client.post(
+            "/api/auth/register", json={"password": "correct-horse-123"}
+        ).status_code
+        == 422
+    )

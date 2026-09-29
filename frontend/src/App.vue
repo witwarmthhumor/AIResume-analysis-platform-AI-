@@ -160,7 +160,7 @@ onMounted(loadUser)
                 <div class="dropdown-profile">
                   <div class="dp-row"><span class="dp-label">用户名</span><span class="dp-value">{{ currentUser.username }}</span></div>
                   <div class="dp-row"><span class="dp-label">手机号</span><span class="dp-value">{{ currentUser.phone || '-' }}</span></div>
-                  <div class="dp-row"><span class="dp-label">邮箱</span><span class="dp-value dp-ellipsis">{{ currentUser.email }}</span></div>
+                  <div v-if="currentUser.email" class="dp-row"><span class="dp-label">邮箱</span><span class="dp-value dp-ellipsis">{{ currentUser.email }}</span></div>
                   <div class="dp-row"><span class="dp-label">注册时间</span><span class="dp-value">{{ new Date(currentUser.created_at).toLocaleString() }}</span></div>
                 </div>
                 <button class="dropdown-item" @click="showProfile = true; showUserMenu = false">🪪 查看个人信息</button>

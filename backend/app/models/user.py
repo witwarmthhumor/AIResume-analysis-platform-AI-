@@ -10,7 +10,8 @@ class User(Base, TimestampMixin):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    # v4.2.1：邮箱改为可空——账号体系以 用户名+手机号 为主，新注册不再收集邮箱
+    email: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
     # v4.1 企业级改造：登录标识 email → username（历史账号由迁移按 email 前缀回填，
     # 规则见 app/services/username_service.py；迁移侧自含同规则快照，不 import 应用代码）
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
