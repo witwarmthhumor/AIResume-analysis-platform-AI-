@@ -56,7 +56,7 @@ const registerReady = () =>
     <form @submit.prevent="submit">
       <template v-if="mode === 'login'">
         <label class="label" for="login-id">用户名 / 手机号</label>
-        <input id="login-id" v-model="identifier" autocomplete="username" placeholder="admin 或 138…" />
+        <input id="login-id" v-model="identifier" autocomplete="username" />
       </template>
       <template v-else>
         <label class="label" for="reg-username">用户名</label>
