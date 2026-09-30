@@ -1,4 +1,5 @@
 <script setup>
+import Icon from './Icon.vue'
 import { ref } from 'vue'
 import { request } from '../api.js'
 
@@ -66,7 +67,7 @@ async function doUpload(file) {
       @dragleave.prevent="dragging = false"
       @drop.prevent="onDrop"
     >
-      <div class="icon">📄</div>
+      <div class="icon"><Icon name="upload" :size="30" /></div>
       <p class="t1">
         点击选择 或 <em>拖拽 PDF 简历</em> 到此处
         <span v-if="uploading"> · 上传解析中…</span>

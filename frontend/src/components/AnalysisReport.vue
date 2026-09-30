@@ -3,6 +3,7 @@
 // 状态机 idle(未分析) → loading(10~30s 同步等待) → done(有报告) | error(友好提示)。
 // v3.5：同一简历的历次分析（不同 prompt_version）可并排对比差异。
 // v3.8：done 状态提供「导出 PDF」——走浏览器打印对话框，打印样式在 assets/main.css 的 @media print。
+import Icon from './Icon.vue'
 import { computed, onMounted, ref } from 'vue'
 
 import { get, post } from '../api.js'
@@ -249,7 +250,7 @@ onMounted(async () => {
       </template>
 
       <div class="pills">
-        <span class="pill">🤖 {{ analysis.model_name }}</span>
+        <span class="pill">{{ analysis.model_name }}</span>
         <span class="pill">提示词 v{{ analysis.prompt_version }}</span>
         <span class="pill">输入 {{ analysis.tokens_prompt ?? '-' }} tok</span>
         <span class="pill">输出 {{ analysis.tokens_completion ?? '-' }} tok</span>

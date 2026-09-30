@@ -24,19 +24,34 @@
   --radius-lg: 14px;
   --radius-md: 11px;
   --radius-sm: 8px;
+  /* 形状与阴影（中性色，去掉绿色糖霜——v4.2.1 去 AI 味） */
   --shadow:
-    0 1px 3px rgba(16, 24, 40, 0.06),
-    0 8px 24px rgba(16, 185, 129, 0.06);
+    0 1px 2px rgba(15, 23, 32, 0.05),
+    0 6px 20px rgba(15, 23, 32, 0.06);
   --shadow-hover:
-    0 4px 12px rgba(16, 24, 40, 0.08),
-    0 12px 32px rgba(16, 185, 129, 0.12);
+    0 4px 12px rgba(15, 23, 32, 0.09),
+    0 14px 34px rgba(15, 23, 32, 0.08);
 
-  --font: system-ui, -apple-system, 'Microsoft YaHei', sans-serif;
+  /* 暗色侧边栏（深墨绿灰，替代模板脸清新风） */
+  --c-ink: #14201d;
+  --c-ink-2: #1c2b27;
+  --c-ink-border: #24352f;
+  --c-ink-text: #e7efec;
+  --c-ink-muted: #93a59e;
+
+  --font:
+    'Segoe UI', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei',
+    system-ui, -apple-system, sans-serif;
 }
 
 * {
   box-sizing: border-box;
 }
+
+.num,
+.stat-num,
+.tbl td {
+  font-variant-numeric: tabular-nums;
 
 ::selection {
   background: #a7f3d0;
@@ -59,16 +74,15 @@
 /* ---------- 卡片 ---------- */
 .card {
   background: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--c-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   padding: 22px 24px;
   width: 100%;
-  transition: box-shadow 0.2s ease;
-  animation: fade-in-up 0.35s ease both;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 .card:hover {
-  box-shadow: var(--shadow-hover);
+  border-color: #d6ded9;
 }
 
 .card h2 {
@@ -100,13 +114,13 @@
   cursor: wait;
 }
 .btn-primary {
-  background: linear-gradient(135deg, var(--c-primary), var(--c-primary-dark));
+  background: var(--c-primary-dark);
   color: #fff;
-  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 1px 4px rgba(15, 23, 32, 0.14);
 }
 .btn-primary:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.4);
+  background: #047857;
+  box-shadow: 0 3px 10px rgba(15, 23, 32, 0.16);
 }
 .btn-ghost {
   background: transparent;

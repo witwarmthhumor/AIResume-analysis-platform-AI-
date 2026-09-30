@@ -3,6 +3,7 @@
    头像选择（8 预设）+ 用户名（只读）+ 身份证（可编辑）+ 手机号（空可设一次，非空只读）
    + 邮箱/注册时间（只读）+ 内嵌修改密码（成功即全端下线 → 回登录页）。
    保存调 PUT /api/me/profile；成功后 emit('saved', user) 让 App 更新全局用户态。 */
+import Icon from './Icon.vue'
 import { computed, ref } from 'vue'
 import { post, put } from '../api.js'
 import { fmtDateTime, AVATAR_PRESETS, avatarPreset } from '../utils.js'
@@ -77,7 +78,7 @@ async function changePassword() {
   <div class="modal-overlay" @click.self="emit('close')">
     <div class="profile-box">
       <button class="modal-close" @click="emit('close')" aria-label="关闭">✕</button>
-      <h2 class="box-title">🪪 个人信息</h2>
+      <h2 class="box-title">个人信息</h2>
 
       <!-- 头像 -->
       <div class="field-label">当前头像</div>
@@ -123,7 +124,7 @@ async function changePassword() {
 
       <!-- 修改密码 -->
       <div class="pwd-divider"></div>
-      <h3 class="pwd-title">🔑 修改密码</h3>
+      <h3 class="pwd-title">修改密码</h3>
       <form class="pwd-form" @submit.prevent="changePassword">
         <input v-model="pwd.old" type="password" placeholder="原密码" autocomplete="current-password" />
         <input v-model="pwd.neu" type="password" placeholder="新密码（至少 8 位，含字母数字）" autocomplete="new-password" />

@@ -1,6 +1,7 @@
 <script setup>
 // 面试结束评价卡（v3.5 起）：四维评分 + 手写 SVG 雷达图，可叠加历史场次对比。
 // v3.8：提供「导出 PDF」——走浏览器打印对话框，打印样式在 assets/main.css 的 @media print。
+import Icon from './Icon.vue'
 import { computed, onMounted, ref } from 'vue'
 
 import { get } from '../api.js'
@@ -209,7 +210,7 @@ onMounted(async () => {
       </div>
     </div>
 
-    <h3 class="sec-title">📝 整体评价</h3>
+    <h3 class="sec-title">整体评价</h3>
     <p class="summary">{{ report.summary }}</p>
 
     <h3 class="sec-title">✅ 表现亮点</h3>

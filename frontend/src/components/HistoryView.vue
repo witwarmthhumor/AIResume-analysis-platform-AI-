@@ -1,4 +1,5 @@
 <script setup>
+import Icon from './Icon.vue'
 import { computed, onMounted, ref } from 'vue'
 import { get } from '../api.js'
 import { fmtDateTime, pageNumbers as pageNumbersUtil } from '../utils.js'
@@ -163,7 +164,7 @@ onMounted(loadLogs)
 
     <!-- —— 使用日志卡片 —— -->
     <div class="log-card">
-      <h3>📋 使用日志</h3>
+      <h3>使用日志</h3>
       <!-- 错误横幅不顶掉表格：失败时保留旧数据，重试后恢复 -->
       <p v-if="error" class="msg error">{{ error }}</p>
       <div v-if="loading && !logs.length" class="state-loading">加载中…</div>

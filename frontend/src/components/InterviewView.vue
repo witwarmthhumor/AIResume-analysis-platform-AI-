@@ -123,7 +123,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <h2 class="page-title">🎤 模拟面试</h2>
+  <h2 class="page-title">模拟面试</h2>
 
   <!-- 复盘报告（全视图展示） -->
   <template v-if="reportView">
@@ -167,7 +167,7 @@ onMounted(async () => {
     <section class="card">
       <div class="section-head"><h3>开一场新面试</h3><span class="muted">选择简历，可选加载题库</span></div>
       <div v-if="banksState === 'ready'" class="bank-select-row">
-        <span class="muted">📋 面试题库</span>
+        <span class="muted">面试题库</span>
         <select v-model="selectedBankId" class="bank-select">
           <option :value="null">不使用题库（AI 自由出题）</option>
           <option v-for="b in banks" :key="b.id" :value="b.id">{{ b.title }}（{{ b.question_count }} 题）</option>
@@ -179,7 +179,7 @@ onMounted(async () => {
       <p v-else-if="resumesState === 'loading'" class="msg muted">加载中…</p>
       <div v-else-if="!resumes.length" class="empty-box">
         <p class="msg muted">还没有解析成功的简历。</p>
-        <button class="btn btn-primary" @click="emit('navigate', 'resume')">📄 去简历评估上传</button>
+        <button class="btn btn-primary" @click="emit('navigate', 'resume')">去简历评估上传</button>
       </div>
       <ul v-else class="resume-pick">
         <li v-for="r in resumes" :key="r.id">

@@ -4,6 +4,7 @@
    → 面试审核（四维评分报告）。右上角「历史记录」抽屉切换历史录音。 */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { get, post, put } from '../api.js'
+import Icon from './Icon.vue'
 
 const activeTab = ref('transcribe') // transcribe / role / interview
 const uploading = ref(false)
@@ -169,8 +170,8 @@ onBeforeUnmount(stopPolling)
 <template>
   <section class="audio-view">
     <div class="head-row">
-      <h2 class="page-title">🎧 录音分析</h2>
-      <button class="btn btn-ghost btn-sm" @click="showHistory = !showHistory">🗂️ 历史记录</button>
+      <h2 class="page-title">录音分析</h2>
+      <button class="btn btn-ghost btn-sm" @click="showHistory = !showHistory">历史记录</button>
     </div>
 
     <!-- 历史记录抽屉 -->
@@ -195,9 +196,9 @@ onBeforeUnmount(stopPolling)
 
     <!-- 三步 Tab -->
     <div class="tabs">
-      <button class="tab" :class="{ active: activeTab === 'transcribe' }" @click="pickTab('transcribe')">🎙️ 录音转文本</button>
-      <button class="tab" :class="{ active: activeTab === 'role' }" @click="pickTab('role')">👁️ 角色审核</button>
-      <button class="tab" :class="{ active: activeTab === 'interview' }" @click="pickTab('interview')">📝 面试审核</button>
+      <button class="tab" :class="{ active: activeTab === 'transcribe' }" @click="pickTab('transcribe')">录音转文本</button>
+      <button class="tab" :class="{ active: activeTab === 'role' }" @click="pickTab('role')">角色审核</button>
+      <button class="tab" :class="{ active: activeTab === 'interview' }" @click="pickTab('interview')">面试审核</button>
     </div>
 
     <p v-if="uploadError" class="msg error">{{ uploadError }}</p>
@@ -207,7 +208,7 @@ onBeforeUnmount(stopPolling)
     <section v-if="activeTab === 'transcribe'" class="card">
       <label class="dropzone" :class="{ busy: uploading }">
         <input type="file" accept=".wav,.mp3,.m4a,.webm,.flac,.ogg" :disabled="uploading" @change="onFilePicked" />
-        <span class="dz-icon">🎙️</span>
+        <span class="dz-icon"><Icon name="mic" :size="30" /></span>
         <p class="dz-title">{{ uploading ? '上传中…' : '点击上传录音文件' }}</p>
         <p class="dz-sub">支持 wav / mp3 / m4a / webm · 50MB 内 · 本地 whisper 转写（约 1~3 分钟）</p>
       </label>

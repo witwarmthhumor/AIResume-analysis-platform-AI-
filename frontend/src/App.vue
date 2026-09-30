@@ -3,6 +3,7 @@ import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { get, post } from './api.js'
 import ChatView from './components/ChatView.vue'
 import LoginView from './components/LoginView.vue'
+import Icon from './components/Icon.vue'
 import HistoryView from './components/HistoryView.vue'
 // 管理端三视图仅 admin 可达：异步分包，普通用户首屏不下载这部分代码
 const AdminPanel = defineAsyncComponent(() => import('./components/AdminPanel.vue'))
@@ -60,12 +61,12 @@ const isAdmin = computed(() => currentUser.value?.role === 'admin')
 // 在线对话 / 语料库管理 / AI 客服 / 首页落地页 / 个人中心导航按指示先去掉（代码保留）
 const navItems = computed(() => {
   return [
-    { key: 'resume', label: '简历评估', icon: '📄' },
-    { key: 'audio', label: '录音分析', icon: '🎧' },
-    { key: 'question-gen', label: '面试题生成', icon: '📝' },
-    { key: 'interview', label: '模拟面试', icon: '🎤' },
-    { key: 'history', label: '使用日志', icon: '📋' },
-    { key: 'admin', label: '数据看板', icon: '📊' },
+    { key: 'resume', label: '简历评估', icon: 'file' },
+    { key: 'audio', label: '录音分析', icon: 'mic' },
+    { key: 'question-gen', label: '面试题生成', icon: 'pen' },
+    { key: 'interview', label: '模拟面试', icon: 'chat' },
+    { key: 'history', label: '使用日志', icon: 'list' },
+    { key: 'admin', label: '数据看板', icon: 'chart' },
   ]
 })
 
@@ -150,9 +151,9 @@ onMounted(loadUser)
                   <div v-if="currentUser.email" class="dp-row"><span class="dp-label">邮箱</span><span class="dp-value dp-ellipsis">{{ currentUser.email }}</span></div>
                   <div class="dp-row"><span class="dp-label">注册时间</span><span class="dp-value">{{ new Date(currentUser.created_at).toLocaleString() }}</span></div>
                 </div>
-                <button class="dropdown-item" @click="showProfile = true; showUserMenu = false">🪪 查看个人信息</button>
-                <button class="dropdown-item" @click="showProfile = true; showUserMenu = false">🔑 修改密码</button>
-                <button class="dropdown-item" @click="logout">退出登录</button>
+                <button class="dropdown-item" @click="showProfile = true; showUserMenu = false"><Icon name="id" :size="14" /> 查看个人信息</button>
+                <button class="dropdown-item" @click="showProfile = true; showUserMenu = false"><Icon name="key" :size="14" /> 修改密码</button>
+                <button class="dropdown-item" @click="logout"><Icon name="logout" :size="14" /> 退出登录</button>
               </div>
               <!-- 点击外部关闭 -->
               <div v-if="showUserMenu" class="dropdown-backdrop" @click="showUserMenu = false"></div>
@@ -174,7 +175,7 @@ onMounted(loadUser)
             @click="selectView(item)"
             :title="collapsed ? item.label : ''"
           >
-            <span class="nav-icon">{{ item.icon }}</span>
+            <Icon class="nav-icon" :name="item.icon" :size="17" />
             <span class="nav-label">{{ item.label }}</span>
           </button>
         </nav>
@@ -399,8 +400,8 @@ onMounted(loadUser)
 .sidebar {
   width: 224px;
   flex-shrink: 0;
-  background: rgb(255 255 255 / 60%);
-  border-right: 1px solid rgb(229 231 235 / 70%);
+  background: var(--c-ink);
+  border-right: 1px solid var(--c-ink-border);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -427,7 +428,7 @@ onMounted(loadUser)
   border-radius: 10px;
   font-size: 13.5px;
   font-family: inherit;
-  color: var(--c-text-2);
+  color: var(--c-ink-muted);
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
   white-space: nowrap;
@@ -439,8 +440,8 @@ onMounted(loadUser)
   color: var(--c-primary-dark);
 }
 .nav-item.active {
-  background: linear-gradient(135deg, rgb(16 185 129 / 14%), rgb(16 185 129 / 6%));
-  color: var(--c-primary-dark);
+  background: var(--c-ink-2);
+  color: #fff;
   font-weight: 600;
   box-shadow: inset 2px 0 0 var(--c-primary);
 }
@@ -473,15 +474,15 @@ onMounted(loadUser)
   border-radius: 10px;
   font-size: 12.5px;
   font-family: inherit;
-  color: var(--c-faint);
+  color: var(--c-ink-muted);
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
   white-space: nowrap;
   margin-top: 8px;
 }
 .collapse-btn:hover {
-  background: rgb(0 0 0 / 4%);
-  color: var(--c-muted);
+  background: rgb(255 255 255 / 8%);
+  color: var(--c-ink-text);
 }
 .collapse-icon {
   font-size: 16px;

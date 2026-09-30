@@ -4,6 +4,7 @@
    我的题库列表可进入模拟面试加载该题库，或删除。 */
 import { computed, onMounted, ref } from 'vue'
 import { del, get, post } from '../api.js'
+import Icon from './Icon.vue'
 
 const emit = defineEmits(['navigate'])
 
@@ -97,7 +98,7 @@ onMounted(() => {
   <section class="qg">
     <div class="upload-card card">
       <div class="upload-hint">
-        <span class="upload-icon">📝</span>
+        <span class="upload-icon"><Icon name="pen" :size="30" /></span>
         <p class="upload-title">基于简历内容生成定制化面试题</p>
         <p class="upload-sub">选择一份解析成功的简历，AI 生成 10~20 道题并保存为题库</p>
       </div>
@@ -116,7 +117,7 @@ onMounted(() => {
           <option v-for="r in resumes" :key="r.id" :value="r.id">{{ r.filename }}</option>
         </select>
         <button class="btn btn-primary" :disabled="generating || !selectedResumeId" @click="generate">
-          {{ generating ? '生成中…（约 10~30 秒）' : '⚡ 生成面试题' }}
+          {{ generating ? '生成中…（约 10~30 秒）' : '生成面试题' }}
         </button>
       </div>
       <p v-if="error" class="msg error">{{ error }}</p>
@@ -125,12 +126,12 @@ onMounted(() => {
     <!-- 当前题库（按类别分组） -->
     <section v-if="currentBank" class="card bank-detail">
       <div class="bank-head">
-        <h3>📋 {{ currentBank.title }}（{{ currentBank.question_count }} 题）</h3>
+        <h3>{{ currentBank.title }}（{{ currentBank.question_count }} 题）</h3>
         <button
           v-if="currentBank.resume_id"
           class="btn btn-ghost btn-sm"
           @click="emit('navigate', 'interview', currentBank.resume_id, currentBank.id)"
-        >🎤 拿这套题去模拟面试</button>
+        >拿这套题去模拟面试</button>
       </div>
       <div v-for="(items, cat) in groupedQuestions" :key="cat" class="cat-block">
         <div class="cat-title">{{ cat }}</div>
@@ -145,7 +146,7 @@ onMounted(() => {
 
     <!-- 我的题库 -->
     <section class="card">
-      <div class="bank-head"><h3>🗂️ 我的题库</h3></div>
+      <div class="bank-head"><h3>我的题库</h3></div>
       <p v-if="banksState === 'loading'" class="msg muted">加载中…</p>
       <p v-else-if="banksState === 'error'" class="msg error">
         题库列表加载失败 <button class="link-btn" @click="loadBanks">重试</button>

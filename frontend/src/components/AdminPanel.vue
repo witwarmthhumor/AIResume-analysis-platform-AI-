@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { get } from '../api.js'
 import { fmtNum, pageNumbers } from '../utils.js'
+import Icon from './Icon.vue'
 
 // v4.2.1：数据看板双口径——管理员看全站，普通用户看本人（同一入口按角色分叉）
 const props = defineProps({ user: { type: Object, required: true } })
@@ -42,19 +43,19 @@ const cards = computed(() => {
   if (!isAdmin.value) {
     // 普通用户：本人五卡
     return [
-      { label: '我的简历', value: s.resumes, color: '#10b981', icon: '📄' },
-      { label: '我的分析', value: s.analyses, color: '#3b82f6', icon: '📊' },
-      { label: '我的面试', value: s.interviews, color: '#f59e0b', icon: '🎤' },
-      { label: '今日 Token', value: s.tokens_today, color: '#06b6d4', icon: '⚡' },
-      { label: '累计 Token', value: s.tokens_total, color: '#8b5cf6', icon: '🏆' },
+      { label: '我的简历', value: s.resumes, color: '#10b981', icon: 'file' },
+      { label: '我的分析', value: s.analyses, color: '#3b82f6', icon: 'chart' },
+      { label: '我的面试', value: s.interviews, color: '#f59e0b', icon: 'mic' },
+      { label: '今日 Token', value: s.tokens_today, color: '#06b6d4', icon: 'zap' },
+      { label: '累计 Token', value: s.tokens_total, color: '#8b5cf6', icon: 'trophy' },
     ]
   }
   return [
-    { label: '用户', value: s.users, color: '#10b981', icon: '👥' },
-    { label: '简历', value: s.resumes, color: '#3b82f6', icon: '📄' },
-    { label: '分析', value: s.analyses, color: '#06b6d4', icon: '📊' },
-    { label: '面试', value: s.interviews, color: '#f59e0b', icon: '🎤' },
-    { label: '今日Token', value: s.tokens_today, color: '#8b5cf6', icon: '⚡' },
+    { label: '用户', value: s.users, color: '#10b981', icon: 'users' },
+    { label: '简历', value: s.resumes, color: '#3b82f6', icon: 'file' },
+    { label: '分析', value: s.analyses, color: '#06b6d4', icon: 'chart' },
+    { label: '面试', value: s.interviews, color: '#f59e0b', icon: 'mic' },
+    { label: '今日Token', value: s.tokens_today, color: '#8b5cf6', icon: 'zap' },
   ]
 })
 
@@ -164,7 +165,7 @@ async function toggleV2Spans(run) {
 
 <template>
   <section class="dashboard">
-    <h2 class="page-title">📊 数据看板</h2>
+    <h2 class="page-title">数据看板</h2>
     <p v-if="error" class="msg error">{{ error }}</p>
 
     <!-- —— 五统计卡片行 —— -->
@@ -178,7 +179,7 @@ async function toggleV2Spans(run) {
         <div class="stat-top">
           <span class="stat-dot"></span>
           <span class="stat-label">{{ card.label }}</span>
-          <span class="stat-icon">{{ card.icon }}</span>
+          <Icon class="stat-icon" :name="card.icon" :size="15" />
         </div>
         <div class="stat-num">{{ fmtNum(card.value) }}</div>
       </div>
@@ -187,7 +188,7 @@ async function toggleV2Spans(run) {
     <!-- —— 用户列表卡片（仅管理员） —— -->
     <div v-if="isAdmin" class="panel-card">
       <div class="panel-head">
-        <h3>👥 用户列表</h3>
+        <h3>用户列表</h3>
         <span class="count-badge">共 {{ users.length }} 人</span>
       </div>
       <div ref="userTableRef" class="table-scroll">
@@ -279,7 +280,7 @@ async function toggleV2Spans(run) {
     <!-- —— 面试图编排指标（S1 LangGraph） —— -->
     <div v-if="stats?.interview_graph" class="panel-card">
       <div class="panel-head">
-        <h3>🎤 面试图编排（S1 LangGraph）</h3>
+        <h3>面试图编排（S1 LangGraph）</h3>
       </div>
       <div class="v2-stats-row">
         <span>已完成场次 <b>{{ stats.interview_graph.finished ?? 0 }}</b></span>
@@ -292,7 +293,7 @@ async function toggleV2Spans(run) {
     <!-- —— Agent 任务追踪（v4.0 LangGraph 试点） —— -->
     <div v-if="v2Stats" class="panel-card">
       <div class="panel-head">
-        <h3>🤖 Agent 任务追踪（近 7 日）</h3>
+        <h3>Agent 任务追踪（近 7 日）</h3>
       </div>
       <div class="v2-stats-row">
         <span>任务数 <b>{{ v2Stats.total_runs ?? 0 }}</b></span>

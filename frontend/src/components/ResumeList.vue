@@ -1,5 +1,6 @@
 <script setup>
 // 解析历史列表：数据由父页面传入，点击某条时把 id 交给父页面去加载详情
+import Icon from './Icon.vue'
 import { ref } from 'vue'
 import { del } from '../api.js'
 
@@ -31,7 +32,7 @@ async function remove(id, e) {
   <section class="card">
     <h2>解析历史</h2>
     <p v-if="!resumes.length" class="empty">
-      <span class="empty-icon">🗂️</span><br />
+      <span class="empty-icon"><Icon name="book" :size="28" /></span><br />
       还没有上传记录
     </p>
     <ul v-else class="rlist">

@@ -83,7 +83,7 @@ defineExpose({ refreshList })
     </p>
     <pre v-else class="raw-text">{{ currentResume.raw_text }}</pre>
     <div v-if="currentResume.parse_status === 'success'" class="detail-actions">
-      <button class="btn btn-primary" @click="goInterview">🎤 拿这份简历去模拟面试</button>
+      <button class="btn btn-primary" @click="goInterview">拿这份简历去模拟面试</button>
     </div>
   </section>
 
