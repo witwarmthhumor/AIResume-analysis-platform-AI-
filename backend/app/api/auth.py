@@ -26,7 +26,7 @@ from app.schemas.auth import (
     is_valid_phone,
 )
 from app.services.login_throttle import failure_count, record_failure, reset_failures
-from app.services.username_service import derive_username, is_valid_username
+from app.services.username_service import derive_username_db, is_valid_username
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -71,7 +71,8 @@ def register(
                 422, "用户名需为 3~64 位小写字母、数字或下划线，且不能用保留字"
             )
     elif email:
-        username = derive_username(email, set(db.scalars(select(User.username)).all()))
+        # 按候选逐个探测存在性（S-4：不把全表 username 拉进内存）
+        username = derive_username_db(db, email)
     else:
         raise HTTPException(422, "请填写用户名")
     # v4.2：手机号（前端必填，API 过渡期可选）——校验格式；唯一冲突走 IntegrityError 409
@@ -99,7 +100,11 @@ def register(
     except IntegrityError:
         db.rollback()
         # 409 明确话术区分撞了哪个唯一键（注册页不是防枚举重点，明确比含糊有用）
-        if db.scalar(select(User).where(User.email == email)) is not None:
+        # S-3：email 可空后，email IS NULL 查询永远不命中——只有 email 非空才查邮箱分支
+        if (
+            email is not None
+            and db.scalar(select(User).where(User.email == email)) is not None
+        ):
             raise HTTPException(409, "该邮箱已注册") from None
         if (
             phone is not None

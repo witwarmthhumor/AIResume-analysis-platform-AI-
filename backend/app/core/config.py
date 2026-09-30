@@ -115,8 +115,8 @@ class Settings(BaseSettings):
     agent_approval_ttl_minutes: int = 30  # 审批单超时，超时自动 expired
     langsmith_enabled: bool = False  # 强制默认关闭（简历隐私不外传，PRD §10.4）
 
-    # 登录防爆破：按 IP+邮箱计失败次数，超限锁定。内存实现（进程重启即解锁），
-    # 多 worker 部署需换 Redis 集中计数——当前单 worker 部署够用
+    # 登录防爆破（v4.1 起为 Redis 集中计数：services/login_throttle.py，键 login:fail:*，
+    # 多 worker 部署语义正确；Redis 故障 fail-open 放行登录并记告警日志
     login_max_failures: int = 10
     login_lockout_minutes: int = 15
 

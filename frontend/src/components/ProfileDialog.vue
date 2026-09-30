@@ -33,7 +33,7 @@ async function save() {
   try {
     const body = await put('/api/me/profile', {
       avatar_key: form.value.avatar_key || null,
-      id_card: form.value.id_card || null,
+      id_card: form.value.id_card, // G-7：原样发送，空串=清空（后端 None=不改，两者语义不同）
       phone: canSetPhone.value ? form.value.phone || null : null,
     })
     msgOk.value = true

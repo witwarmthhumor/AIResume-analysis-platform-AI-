@@ -10,10 +10,6 @@
 import json
 import time
 from collections.abc import Iterator
-
-from app.core.logging import get_logger
-
-logger = get_logger(__name__)
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -25,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.api.auth_deps import get_current_user, get_optional_current_user
 from app.api.deps import enforce_daily_limit, get_anonymous_id
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.db.session import get_db
 from app.models.interview import InterviewMessage, InterviewSession
 from app.models.question_bank import QuestionBank
@@ -46,6 +43,8 @@ from app.services.interview_prompts import (
     build_interviewer_system_prompt,
     stage_for_turn,
 )
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api", tags=["interviews"])
 

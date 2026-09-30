@@ -41,7 +41,8 @@ async function submit() {
 
 // 登录：标识非空 + 密码非空即可提交（内置 admin 的 6 位口令也要能登录）
 const loginReady = () => identifier.value.trim() && password.value
-// 注册：用户名过前端正则 + 邮箱含 @ + 手机号合法 + 密码 ≥8 且两次一致（与后端校验同口径）
+// 注册：用户名过前端正则 + 手机号合法 + 密码 ≥8 且两次一致（v4.2.1 起无邮箱字段；
+// 后端登录仍兼容存量账号的邮箱标识，见 username_service/is_valid_username 同口径校验）
 const registerReady = () =>
   USERNAME_RE.test(regUsername.value.trim().toLowerCase()) &&
   PHONE_RE.test(regPhone.value.trim()) &&

@@ -139,8 +139,10 @@ def transcribe_audio(audio_id: int) -> dict[str, int | str]:
         audio = db.get(AudioAnalysis, audio_id)
         if audio is None:
             raise ValueError("录音记录不存在")
-        data = Path(audio.storage_path).read_bytes()
         try:
+            # 读文件也在 try 内（G-2）：存储文件缺失（并发删除/磁盘清理）时
+            # 与转写失败同口径置 failed，避免记录永久卡在 transcribing
+            data = Path(audio.storage_path).read_bytes()
             result = transcribe(data, audio.filename)
         except Exception as exc:
             logger.exception("录音转写失败 audio_id=%s", audio_id)

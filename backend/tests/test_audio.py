@@ -221,3 +221,31 @@ def test_audio_owner_isolation_and_validation() -> None:
         c_a.post(f"/api/audio/analyses/{empty.json()['id']}/role-review").status_code
         == 400
     )
+
+
+def test_interview_review_uses_edited_text() -> None:
+    """G-1 回归：面试审核请求体带 text 时，送审的是用户编辑后的文本（非角色标注）。"""
+    c = _register()
+    body = _upload_wav(c)
+    audio_id = body["id"]
+    # 做一次角色审核（stub），再带编辑文本请求面试审核
+    c.post(f"/api/audio/analyses/{audio_id}/role-review")
+    captured = {}
+
+    def _fake_review(role_marked):
+        captured["text"] = role_marked
+        return dict(_FAKE_INTERVIEW_REVIEW), _result()
+
+    from app.services import audio_review_service
+
+    import_tests_orig = audio_review_service.interview_review
+    audio_review_service.interview_review = _fake_review
+    try:
+        resp = c.post(
+            f"/api/audio/analyses/{audio_id}/interview-review",
+            json={"text": "【面试官】 edited 问。"},
+        )
+    finally:
+        audio_review_service.interview_review = import_tests_orig
+    assert resp.status_code == 200, resp.text
+    assert captured["text"] == "【面试官】 edited 问。"

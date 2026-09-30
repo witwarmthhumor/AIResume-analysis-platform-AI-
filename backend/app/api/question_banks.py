@@ -44,6 +44,7 @@ def generate_bank(
         )
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from None
+    # 记账：生成成功后写 usage_logs（question_bank 动作），与题库落库同一事务
     db.add(
         UsageLog(
             user_id=user.id,

@@ -35,14 +35,17 @@ def failure_count(key: str) -> int:
 
 
 def record_failure(key: str, window_seconds: int) -> None:
-    """记一次失败并续窗；Redis 异常只记日志（下次成功登录前的失败仍会被正常计数）。"""
+    """记一次失败并续窗；Redis 异常只记日志（下次成功登录前的失败仍会被正常计数）。
+
+    INCR 与 EXPIRE 分两步但只在首次 INCR（count==1）时设 TTL——重复 EXPIRE 会把
+    窗口不断往后推放大锁定时长；S-5 的崩溃缝隙（键无 TTL 残留）由 fail-open 语义兜底。
+    """
     try:
         client = _client()
         full = f"{_KEY_PREFIX}{key}"
-        pipe = client.pipeline()
-        pipe.incr(full)
-        pipe.expire(full, window_seconds)
-        pipe.execute()
+        count = client.incr(full)
+        if count == 1:
+            client.expire(full, window_seconds)
     except Exception:
         logger.warning("登录锁定计数写入失败（fail-open）", exc_info=True)
 

@@ -57,7 +57,7 @@ async function loadHistory() {
 async function openHistoryItem(id) {
   showHistory.value = false
   await loadAudio(id)
-  activeTab.value = current.value?.transcript ? 'transcribe' : 'transcribe'
+  activeTab.value = 'transcribe' // 从历史打开一律回到转写页（文本可能需编辑）
 }
 
 async function loadAudio(id) {
@@ -149,11 +149,13 @@ async function runInterviewReview() {
   interviewReviewing.value = true
   reviewError.value = ''
   try {
-    // 先保存用户在角色审核页的编辑（若有），再跑面试审核
-    if (current.value.role_review && roleText.value && roleText.value !== roleMarked.value) {
-      // 角色标注是 LLM 结构化结果，前端编辑只影响送审文本，不回写结构化字段
-    }
-    const body = await post(`/api/audio/analyses/${current.value.id}/interview-review`)
+    // G-1 修复：把「面试审核」页可编辑的送审文本真实发给后端（后端优先使用请求文本；
+    // 未编辑且无角色标注时留空，由后端回落原文）
+    const payload = roleText.value.trim() ? { text: roleText.value.trim() } : {}
+    const body = await post(
+      `/api/audio/analyses/${current.value.id}/interview-review`,
+      payload,
+    )
     current.value.interview_review = body.interview_review
     current.value.status = 'reviewed'
   } catch (e) {

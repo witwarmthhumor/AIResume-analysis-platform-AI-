@@ -115,7 +115,6 @@ function fmtDateTime(iso) {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-onMounted(load)
 onMounted(() => {
   load()
   if (isAdmin.value) loadV2() // v2 任务追踪是管理员 API，普通用户不调
@@ -194,12 +193,13 @@ async function toggleV2Spans(run) {
       <div ref="userTableRef" class="table-scroll">
         <table class="tbl">
           <thead>
-            <tr><th>ID</th><th>邮箱</th><th>角色</th><th>简历数</th><th>注册时间</th></tr>
+            <tr><th>ID</th><th>用户名</th><th>邮箱</th><th>角色</th><th>简历数</th><th>注册时间</th></tr>
           </thead>
           <tbody>
             <tr v-for="u in pagedUsers" :key="u.id">
               <td>{{ u.id }}</td>
-              <td class="email">{{ u.email }}</td>
+              <td>{{ u.username }}</td>
+              <td class="email">{{ u.email || '-' }}</td>
               <td>
                 <span class="role-badge" :class="u.role === 'admin' ? 'admin' : 'user'">{{ u.role }}</span>
               </td>

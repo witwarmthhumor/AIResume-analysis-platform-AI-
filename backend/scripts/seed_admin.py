@@ -14,11 +14,13 @@
     .venv\\Scripts\\python -m scripts.seed_admin --password Xx   # 指定初始口令（仅创建时生效）
 """
 
+import os
 import sys
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.models.user import User
@@ -59,13 +61,19 @@ def ensure_builtin_admin(
 
 def main() -> int:
     args = sys.argv[1:]
-    password = DEFAULT_PASSWORD
+    # S-7：口令来源优先级 = --password 参数 > SEED_ADMIN_PASSWORD 环境变量（不进 shell
+    # history / 进程列表）> 默认演示口令；prod 环境拒绝默认口令
+    password = os.environ.get("SEED_ADMIN_PASSWORD") or DEFAULT_PASSWORD
     if "--password" in args:
         idx = args.index("--password")
         if idx + 1 >= len(args):
             print("✗ --password 需要跟一个口令值")
             return 2
         password = args[idx + 1]
+    if settings.app_env == "prod" and password == DEFAULT_PASSWORD:
+        print("✗ APP_ENV=prod 禁止使用默认演示口令 123456——请用 --password 或")
+        print("  环境变量 SEED_ADMIN_PASSWORD 指定强口令后再播种")
+        return 1
 
     db = SessionLocal()
     try:

@@ -66,17 +66,22 @@ async def upload_audio(
     import hashlib
 
     file_hash = hashlib.sha256(data).hexdigest()
-    storage_path = AUDIO_UPLOAD_DIR / f"{file_hash}{Path(filename).suffix.lower()}"
-    storage_path.write_bytes(data)
-
+    # S-6：文件名带记录 id（hash-idded），同内容多用户不共享同一磁盘文件，
+    # 任一方删除都不影响他方转写
     audio = AudioAnalysis(
         user_id=user.id,
         filename=filename,
-        storage_path=str(storage_path),
+        storage_path="",  # 先占位拿 id，落盘前回填（下方）
         file_size=len(data),
         status="transcribing",
     )
     db.add(audio)
+    db.flush()  # 拿 audio.id
+    storage_path = (
+        AUDIO_UPLOAD_DIR / f"{file_hash}-{audio.id}{Path(filename).suffix.lower()}"
+    )
+    storage_path.write_bytes(data)
+    audio.storage_path = str(storage_path)
     db.commit()
     db.refresh(audio)
     db.add(
@@ -205,15 +210,23 @@ def run_role_review(
     return {"id": audio.id, "role_review": report}
 
 
+class InterviewReviewIn(BaseModel):
+    """面试审核可选送审文本（G-1 修复）：传了就用用户编辑后的文本，不传回落角色标注。"""
+
+    text: str | None = Field(default=None, max_length=50000)
+
+
 @router.post("/analyses/{audio_id}/interview-review")
 def run_interview_review(
     audio_id: int,
     request: Request,
+    body: InterviewReviewIn | None = None,
     db: Session = Depends(get_db),  # noqa: B008
     anonymous_id: str = Depends(get_anonymous_id),
     user: User = Depends(get_current_user),  # noqa: B008
 ) -> dict:
-    """面试审核：优先用角色标注结果渲染对话体，无标注则用原文；四维评分报告。"""
+    """面试审核：默认用角色标注结果渲染对话体，无标注则用原文；
+    请求体带 text 时优先使用用户编辑后的文本。输出四维评分报告。"""
     audio = _owned_audio(db, user, audio_id)
     if not (audio.transcript or "").strip():
         raise HTTPException(400, "还没有可审核的转写文本")
@@ -231,8 +244,12 @@ def run_interview_review(
         if isinstance(audio.role_review_json, dict)
         else audio.transcript
     )
+    # G-1：前端「可编辑送审文本」真实生效——编辑文本优先于默认渲染
+    source_text = (
+        body.text.strip() if body and body.text and body.text.strip() else role_marked
+    )
     try:
-        report, result = audio_review_service.interview_review(role_marked)
+        report, result = audio_review_service.interview_review(source_text)
     except Exception as exc:
         raise HTTPException(502, "审核失败，AI 服务暂时不可用，请稍后重试") from exc
     audio.interview_review_json = report

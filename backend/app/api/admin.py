@@ -104,6 +104,7 @@ def admin_users(
     return [
         {
             "id": u.id,
+            "username": u.username,  # S-8：email 可空后，用户名是辨识用户的主标识
             "email": u.email,
             "role": u.role,
             "is_active": u.is_active,

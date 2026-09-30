@@ -57,7 +57,8 @@ JSON 结构：
 def generate_question_bank(
     db: Session, user: User, resume_id: int
 ) -> tuple[QuestionBank, AnalysisResult]:
-    """基于本人简历生成题库并落库；简历不存在/未解析成功/非本人 → ValueError（路由转 404/400）。
+    """基于本人简历生成题库并落库；简历不存在/未解析成功/非本人 → ValueError
+    （路由统一转 404——不向调用方泄露"资源存在但无权"的信息）。
 
     返回 (题库, LLM 结果)——tokens 供路由层写 usage_logs 记账。
     """

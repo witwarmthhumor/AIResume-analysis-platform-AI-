@@ -118,7 +118,6 @@ onMounted(loadUser)
   <!-- v4.2.1 独立登录首屏：未登录只见登录页，登录成功才跳转进入系统 -->
   <LoginView v-if="!currentUser" @logged-in="onLoggedIn" />
   <div v-else class="shell">
-  <div class="shell">
     <!-- —— 顶栏 —— -->
     <header class="topbar">
       <div class="topbar-inner">
@@ -223,8 +222,6 @@ onMounted(loadUser)
     </div>
 
     <!-- —— AI 客服悬浮窗：v4.2.1 按"其余先去掉"指示收起（组件保留） —— -->
-
-    </div>
 
     <!-- —— 个人信息弹窗（v4.2）—— -->
     <ProfileDialog

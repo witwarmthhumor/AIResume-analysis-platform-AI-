@@ -50,3 +50,18 @@ def derive_username(email: str, used: set[str]) -> str:
         candidate = f"{base}_{n}"
     used.add(candidate)
     return candidate
+
+
+def derive_username_db(db, email: str) -> str:
+    """注册路由用的 DB 版派生（S-4）：按候选逐个探测存在性，
+    避免把全表 username 拉进内存；派生候选数通常 ≤2，探测次数有界。"""
+    from sqlalchemy import select
+
+    from app.models.user import User
+
+    base = _sanitize_base(email)
+    candidate, n = base, 1
+    while db.scalar(select(User).where(User.username == candidate)) is not None:
+        n += 1
+        candidate = f"{base}_{n}"
+    return candidate
