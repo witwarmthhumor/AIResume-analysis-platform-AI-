@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 应用全景图 — AI 简历分析 + AI 模拟面试</title>
+<style>
+  :root{
+    --ink:#111827; --muted:#6b7280; --line:#e5e7eb; --bg:#f5f6f8;
+    --v1:#4f46e5; --v1-bg:#eef2ff;
+    --v2:#0f766e; --v2-bg:#f0fdfa;
+    --vi:#b45309; --vi-bg:#fffbeb;
+    --dark:#1f2937; --ok:#047857;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+    line-height:1.55; -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1120px; margin:0 auto; padding:32px 20px 64px;}
+  h1{font-size:23px; margin:0; letter-spacing:.5px;}
+  .meta{color:var(--muted); font-size:13px; margin-top:6px;}
+  .meta code{font-family:ui-monospace,Consolas,monospace; font-size:12px; background:#eceef1;
+    padding:1px 6px; border-radius:4px;}
+  section.card{background:#fff; border:1px solid var(--line); border-radius:12px;
+    padding:20px 22px; margin-top:18px;}
+  h2{font-size:16px; margin:0;}
+  p.sub{color:var(--muted); font-size:13px; margin:4px 0 0;}
+  code{font-family:ui-monospace,Consolas,monospace; font-size:.92em; background:#f3f4f6;
+    padding:1px 5px; border-radius:4px;}
+
+  /* ===== 场景三车道 ===== */
+  .lanes{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:16px;}
+  @media (max-width:920px){ .lanes{grid-template-columns:1fr;} }
+  .lane{border:1px solid var(--line); border-radius:10px; background:#fff;
+    display:flex; flex-direction:column; overflow:hidden;}
+  .lane-head{padding:10px 14px; font-weight:600; font-size:14px;
+    display:flex; justify-content:space-between; align-items:center; gap:8px;
+    border-bottom:1px solid var(--line);}
+  .lane.v1 .lane-head{background:var(--v1-bg); color:var(--v1);}
+  .lane.v2 .lane-head{background:var(--v2-bg); color:var(--v2);}
+  .lane.vi .lane-head{background:var(--vi-bg); color:var(--vi);}
+  .badge{font-size:11px; padding:2px 8px; border-radius:999px; background:#fff;
+    border:1px solid currentColor; font-family:ui-monospace,Consolas,monospace; white-space:nowrap;}
+  .lane-body{padding:12px 14px; display:flex; flex-direction:column; flex:1;}
+  .node{border:1px solid var(--line); border-radius:8px; padding:8px 11px; background:#fafafa;}
+  .node b{font-size:12.5px; display:block;}
+  .node span{font-size:12px; color:var(--muted); display:block; margin-top:2px;}
+  .varrow{text-align:center; color:#9ca3af; font-size:11px; padding:4px 0;}
+  .lane-foot{margin-top:auto; padding-top:10px; font-size:12px; color:var(--muted);
+    border-top:1px dashed var(--line);}
+  .lane-foot b{color:var(--ink);}
+
+  /* ===== 共用底座 ===== */
+  .foundation{margin-top:14px; background:var(--dark); color:#d1d5db;
+    border-radius:10px; padding:14px 18px 16px;}
+  .foundation h3{margin:0; font-size:13px; color:#fff; font-weight:600; letter-spacing:.5px;}
+  .chip{display:inline-block; background:#374151; border-radius:6px; padding:4px 10px;
+    font-size:12px; margin:8px 6px 0 0;}
+  .chip b{color:#fff; font-weight:600;}
+  .chip code{background:transparent; padding:0; font-size:11.5px; color:#93c5fd;}
+
+  /* ===== 流程图 ===== */
+  .flow{display:flex; flex-wrap:wrap; align-items:stretch; gap:6px; margin-top:14px;}
+  .fnode{border:1px solid var(--line); border-radius:8px; background:#fafafa; padding:7px 11px;}
+  .fnode b{display:block; font-family:ui-monospace,Consolas,monospace; font-size:12px;}
+  .fnode span{font-size:11px; color:var(--muted); display:block; margin-top:2px;}
+  .farr{align-self:center; color:#9ca3af; font-size:14px; padding:0 2px;}
+  .farr.lab{font-size:11px; color:#6b7280; background:#f3f4f6;
+    border:1px dashed var(--line); border-radius:999px; padding:2px 9px;}
+  .fbreak{flex-basis:100%; height:0;}
+  .fnode.loop{border-color:#d97706; background:#fffbeb;}
+  .fnode.gate{border-style:dashed; border-color:var(--v2); background:var(--v2-bg);}
+  .fnode.wait{border-style:dashed; border-color:var(--vi); background:var(--vi-bg);}
+  .fnode.end{background:var(--dark); border-color:var(--dark);}
+  .fnode.end b{color:#fff;}
+  .fnode.end span{color:#9ca3af;}
+  .notes{margin-top:13px; display:flex; flex-direction:column; gap:6px;}
+  .note{font-size:12.5px; color:#374151; background:#f9fafb;
+    border:1px dashed var(--line); border-radius:8px; padding:7px 11px;}
+
+  /* ===== 工具清单 ===== */
+  .tools{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:14px;}
+  @media (max-width:920px){ .tools{grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:560px){ .tools{grid-template-columns:1fr;} }
+  .tgroup{border:1px solid var(--line); border-radius:10px; padding:11px 13px;}
+  .tgroup h4{margin:0; font-size:13px;}
+  .tgroup h4 small{color:var(--muted); font-weight:400;}
+  .tgroup p{margin:5px 0 0; font-size:12px; color:var(--muted);}
+  .tlist{margin-top:8px; display:flex; flex-wrap:wrap; gap:5px;}
+  .t{font-family:ui-monospace,Consolas,monospace; font-size:11px; background:#f3f4f6;
+    border:1px solid var(--line); border-radius:5px; padding:2px 7px;}
+
+  /* ===== 评测指标 ===== */
+  .metrics{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:14px;}
+  @media (max-width:920px){ .metrics{grid-template-columns:repeat(2,1fr);} }
+  .metric{border:1px solid var(--line); border-radius:10px; padding:13px 15px; background:#fafafa;}
+  .metric .num{font-size:21px; font-weight:700; color:var(--ok);}
+  .metric .lbl{font-size:12px; color:var(--muted); margin-top:3px;}
+
+  .src{margin-top:18px; font-size:12px; color:var(--muted); line-height:1.9;}
+  .src b{color:var(--ink);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Agent 应用全景图</h1>
+  <div class="meta">项目：AI 简历分析 + AI 模拟面试 · 当前版本 <code>v4.2.1</code> · 生成于 2026-10-01 · 依据源码实测梳理</div>
+
+  <!-- ============ 一、全景架构 ============ -->
+  <section class="card">
+    <h2>一、全景架构：三场景 × 双轨引擎</h2>
+    <p class="sub">v1 负责「问」（即时问答），v2 / 面视图负责「做」（长任务编排）；工具与能力层三者共用，故障域靠开关隔离。</p>
+
+    <div class="lanes">
+      <div class="lane v1">
+        <div class="lane-head">场景一 · AI 客服 <span class="badge">v1 ReAct</span></div>
+        <div class="lane-body">
+          <div class="node"><b>前端：AgentChatCore.vue / AgentWidget.vue</b>
+            <span>悬浮窗 + 页签；消息流 + 工具过程可视化（13 工具中文名映射）</span></div>
+          <div class="varrow">▼</div>
+          <div class="node"><b>API：POST /api/agent/ask（SSE 流式）</b>
+            <span>事件：action / observation / delta / final / error · 另有会话 CRUD</span></div>
+          <div class="varrow">▼</div>
+          <div class="node"><b>引擎：services/agent/executor.py</b>
+            <span>create_openai_tools_agent + AgentExecutor，最多迭代 6 步；后台线程 + 队列做真流式</span></div>
+          <div class="lane-foot"><b>会话隔离：</b>复用 chat_sessions 表，session_type='agent'，与在线对话（chat）互不串数据</div>
+        </div>
+      </div>
+
+      <div class="lane v2">
+        <div class="lane-head">场景二 · 一键求职准备 <span class="badge">v2 LangGraph</span></div>
+        <div class="lane-body">
+          <div class="node"><b>前端：AgentRunView.vue</b>
+            <span>步骤条随节点流转 / 审批卡（TTL 倒计时）/ 结果分区展示</span></div>
+          <div class="varrow">▼</div>
+          <div class="node"><b>API：/api/agent-v2/*</b>
+            <span>创建 run · stream（SSE）· approve · retry-node · abort · admin 运维</span></div>
+          <div class="varrow">▼</div>
+          <div class="node"><b>引擎：services/agent_v2/graph.py</b>
+            <span>StateGraph 9 节点 + PostgresSaver 断点续跑 + interrupt 人工审批（TTL 30 分钟）</span></div>
+          <div class="lane-foot"><b>开关：</b>agent_v2_enabled（默认开）→ 关闭后 v2 全部 503，客服回归 v1</div>
+        </div>
+      </div>
+
+      <div class="lane vi">
+        <div class="lane-head">场景三 · 模拟面试图 <span class="badge">S1 LangGraph</span></div>
+        <div class="lane-body">
+          <div class="node"><b>前端：面试流程页</b>
+            <span>逐题作答 / 结束上报；题库面试纯 state 扩展、零新节点</span></div>
+          <div class="varrow">▼</div>
+          <div class="node"><b>API：/api/interviews/*</b>
+            <span>开题（graph_start）/ 作答（graph_answer）/ 结束上报</span></div>
+          <div class="varrow">▼</div>
+          <div class="node"><b>引擎：services/interview_graph/graph.py</b>
+            <span>5 节点图 + PostgresSaver checkpoint（独立 langgraph schema）</span></div>
+          <div class="lane-foot"><b>开关：</b>interview_graph_enabled（默认开）：有 checkpoint 走图续跑，旧行为会话自动回退单轮</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="foundation">
+      <h3>共用底座（三个场景共享）</h3>
+      <span class="chip"><b>13 个工具</b> tools.py（kb_search 恒居首位）</span>
+      <span class="chip"><b>能力层</b> agent_capabilities.py：job_match / question_gen / analyze_resume（v1 工具与 v2 节点共用）</span>
+      <span class="chip"><b>三层限额</b> 主循环 30/日 · 工具内 AI 20/日 · v2 run 10/日</span>
+      <span class="chip"><b>LLM</b> DeepSeek deepseek-chat（OpenAI 兼容协议）</span>
+      <span class="chip"><b>存储</b> Postgres 16 + pgvector 混合检索 · Redis（队列 / 登录锁定）</span>
+    </div>
+  </section>
+
+  <!-- ============ 二、v2 流程 ============ -->
+  <section class="card">
+    <h2>二、v2「一键求职准备」图流程（LangGraph StateGraph）</h2>
+    <p class="sub">planner 规划 → 能力节点执行 → verifier 校验回环 → hitl_gate 人工审批 → deliver 交付；异常统一汇总到 fail。</p>
+
+    <div class="flow">
+      <div class="fnode"><b>planner</b><span>规划任务</span></div>
+      <div class="farr">→</div>
+      <div class="fnode"><b>load_resume</b><span>读取简历</span></div>
+      <div class="farr">→</div>
+      <div class="fnode"><b>need_analysis</b><span>路由：已有分析则跳过</span></div>
+      <div class="farr">→</div>
+      <div class="fnode"><b>analyzer</b><span>AI 分析</span></div>
+      <div class="farr">→</div>
+      <div class="fnode"><b>matcher</b><span>岗位匹配</span></div>
+      <div class="farr">→</div>
+      <div class="fnode"><b>questioner</b><span>模拟出题</span></div>
+      <span class="fbreak"></span>
+      <div class="fnode loop"><b>verifier</b><span>结果校验 ⟲</span></div>
+      <div class="farr">→</div>
+      <div class="fnode gate"><b>hitl_gate</b><span>人工审批 ⏸</span></div>
+      <div class="farr lab">通过</div>
+      <div class="fnode"><b>deliver</b><span>交付结果</span></div>
+      <div class="farr">→</div>
+      <div class="fnode end"><b>END</b><span>完成</span></div>
+    </div>
+
+    <div class="notes">
+      <div class="note">⟲ <b>回环：</b>verifier 校验不合格 → 退回 analyzer / matcher / questioner（每节点最多重试 2 次），重试耗尽或坏输出 → fail（失败汇总终点）</div>
+      <div class="note">⏸ <b>审批门禁：</b>hitl_gate 先建审批单（TTL 30 分钟，过期自动作废）再 interrupt() 挂起图；<b>通过</b> → 执行建面试场并 deliver；<b>拒绝 / 超时</b> → run 终止为 failed（可 retry-node 重跑）</div>
+      <div class="note">💾 <b>断点续跑：</b>PostgresSaver，thread_id = run-{run_id}；事件经总线缓冲，断线后 /stream 重连补发；恢复用 Command(resume) 从 checkpoint 继续</div>
+      <div class="note">🔥 <b>防护：</b>单 run token 熔断 30000 · 限额 10 run/日 · lifespan 启动回收孤儿 run（waiting_approval 不动留审批）</div>
+    </div>
+  </section>
+
+  <!-- ============ 三、面试图流程 ============ -->
+  <section class="card">
+    <h2>三、模拟面试图流程（S1 · interview_graph）</h2>
+    <p class="sub">每场面试是一张图：出题与评分回环，直到生成报告；作答等待是纯 interrupt、零副作用。</p>
+
+    <div class="flow">
+      <div class="fnode"><b>intro</b><span>开场</span></div>
+      <div class="farr">→</div>
+      <div class="fnode"><b>ask_question</b><span>出题</span></div>
+      <div class="farr">→</div>
+      <div class="fnode wait"><b>wait_answer</b><span>等待作答 ⏸</span></div>
+      <div class="farr">→</div>
+      <div class="fnode"><b>score_answer</b><span>评分</span></div>
+      <div class="farr lab">未结束</div>
+      <div class="fnode loop"><b>ask_question</b><span>回到出题 ⟲</span></div>
+      <div class="farr lab">已结束</div>
+      <div class="fnode"><b>generate_report</b><span>生成报告</span></div>
+      <div class="farr">→</div>
+      <div class="fnode end"><b>END</b><span>面试结束</span></div>
+    </div>
+
+    <div class="notes">
+      <div class="note">💾 thread_id = interview-{session_id}，checkpoint 存独立 langgraph schema；每轮 trace 从 session.trace_json 续接</div>
+      <div class="note">🔀 <b>续跑 / 回退：</b>interview_graph_enabled 且会话有 checkpoint → 走图续跑；否则自动回退旧的单轮路径（旧会话无感兼容）</div>
+    </div>
+  </section>
+
+  <!-- ============ 四、工具清单 ============ -->
+  <section class="card">
+    <h2>四、13 个工具（v1 ReAct 调用；内调 AI 的三个与 v2 节点共用能力层）</h2>
+    <p class="sub">清单有五处口径必须同步（tools.py docstring / 测试断言 / 设计文档 / README / 前端 TOOL_LABELS）；增删工具必跑路由评测。</p>
+
+    <div class="tools">
+      <div class="tgroup">
+        <h4>知识库 <small>· 2 个</small></h4>
+        <p>混合检索（向量 + jieba/BM25 + RRF）</p>
+        <div class="tlist"><span class="t">kb_search 检索知识库（恒居首位）</span><span class="t">kb_list 文档清单</span></div>
+      </div>
+      <div class="tgroup">
+        <h4>个人数据 <small>· 7 个 · owner_clause 归属过滤</small></h4>
+        <p>只查本人数据，防横向越权</p>
+        <div class="tlist">
+          <span class="t">resume_lookup 简历原文</span><span class="t">interview_history 面试记录</span>
+          <span class="t">interview_transcript 问答原文</span><span class="t">score_trend 分数趋势</span>
+          <span class="t">conversation_search 历史对话</span><span class="t">usage_stats 用量统计</span>
+          <span class="t">analysis_read 分析报告</span>
+        </div>
+      </div>
+      <div class="tgroup">
+        <h4>内调 LLM <small>· 3 个 · 走 run_tool_llm</small></h4>
+        <p>限额 → 执行 → 记账（agent_tool_llm），与 v2 matcher/questioner 共用能力层</p>
+        <div class="tlist"><span class="t">job_match JD 匹配</span><span class="t">question_gen 主题出题</span><span class="t">answer_review 回答点评</span></div>
+      </div>
+      <div class="tgroup">
+        <h4>内置 <small>· 1 个</small></h4>
+        <p>纯话术，不查库、不调模型</p>
+        <div class="tlist"><span class="t">platform_help 功能说明</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 五、评测基线 ============ -->
+  <section class="card">
+    <h2>五、评测基线（改动后的门禁）</h2>
+    <p class="sub">改工具描述/增删工具 → 必跑 eval_agent_routing；改图结构/节点逻辑 → 必跑 eval_agent_e2e；改检索 → 必跑 eval_rag。</p>
+
+    <div class="metrics">
+      <div class="metric"><div class="num">40/40</div><div class="lbl">工具路由评测 · 13 工具 top-1 100%</div></div>
+      <div class="metric"><div class="num">11/11</div><div class="lbl">v2 端到端黄金任务 · LLM 全打桩可进 CI</div></div>
+      <div class="metric"><div class="num">87.8%</div><div class="lbl">RAG hit@1（hit@5 100%）· kb_search 依赖</div></div>
+      <div class="metric"><div class="num">30 / 20 / 10</div><div class="lbl">三层日限额：主循环 / 工具内 AI / v2 run</div></div>
+    </div>
+  </section>
+
+  <div class="src">
+    <b>关键源码：</b>backend/app/services/agent/executor.py · services/agent_v2/graph.py · services/interview_graph/graph.py · services/agent/tools.py · services/agent_capabilities.py · api/agent.py · api/agent_v2.py · api/interviews.py<br>
+    <b>延伸阅读：</b>docs/Agent工具设计.md（工具设计规范 + §六 限额记账）· docs/后续开发规划.md（下一批：面试官 Agent——独立人格场景，明确不拆多 Agent）
+  </div>
+
+</div>
+</body>
+</html>

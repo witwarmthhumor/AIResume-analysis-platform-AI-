@@ -52,6 +52,7 @@
 .stat-num,
 .tbl td {
   font-variant-numeric: tabular-nums;
+}
 
 ::selection {
   background: #a7f3d0;
