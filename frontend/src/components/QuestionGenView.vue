@@ -107,9 +107,9 @@ onMounted(() => {
         简历列表加载失败 <button class="link-btn" @click="loadResumes">重试</button>
       </p>
       <p v-else-if="resumesState === 'loading'" class="msg muted">加载中…</p>
-      <div v-else-if="!resumes.length" class="empty-box">
-        <p class="msg muted">还没有解析成功的简历。</p>
-        <button class="btn btn-primary" @click="emit('navigate', 'resume')">📄 去简历评估上传</button>
+      <div v-else-if="!resumes.length" class="empty-state">
+        <p class="es-text">还没有解析成功的简历——先去简历评估上传一份</p>
+        <button class="btn btn-primary" @click="emit('navigate', 'resume')">去简历评估上传</button>
       </div>
       <div v-else class="gen-row">
         <select v-model="selectedResumeId" class="resume-select">
@@ -151,7 +151,10 @@ onMounted(() => {
       <p v-else-if="banksState === 'error'" class="msg error">
         题库列表加载失败 <button class="link-btn" @click="loadBanks">重试</button>
       </p>
-      <p v-else-if="banksState === 'empty'" class="msg muted">还没有题库——选一份简历点「生成面试题」。</p>
+      <div v-else-if="banksState === 'empty'" class="empty-state">
+        <span class="es-icon"><Icon name="book" :size="24" /></span>
+        <p class="es-text">还没有题库——选一份简历点「生成面试题」</p>
+      </div>
       <ul v-else class="bank-list">
         <li v-for="b in banks" :key="b.id">
           <div class="bank-info">

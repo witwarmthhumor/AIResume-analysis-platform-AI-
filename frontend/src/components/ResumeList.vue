@@ -31,10 +31,10 @@ async function remove(id, e) {
 <template>
   <section class="card">
     <h2>解析历史</h2>
-    <p v-if="!resumes.length" class="empty">
-      <span class="empty-icon"><Icon name="book" :size="28" /></span><br />
-      还没有上传记录
-    </p>
+    <div v-if="!resumes.length" class="empty-state">
+      <span class="es-icon"><Icon name="book" :size="24" /></span>
+      <p class="es-text">还没有上传记录——上传一份简历后，这里会显示解析历史</p>
+    </div>
     <ul v-else class="rlist">
       <li
         v-for="r in resumes"
@@ -113,9 +113,6 @@ async function remove(id, e) {
   color: var(--c-faint);
   font-size: 12px;
   white-space: nowrap;
-}
-.empty-icon {
-  font-size: 26px;
 }
 .del-btn {
   border: 0;

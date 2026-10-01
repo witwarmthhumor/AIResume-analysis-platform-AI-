@@ -6,6 +6,7 @@
 import { onMounted, ref } from 'vue'
 import { get } from '../api.js'
 import InterviewChat from './InterviewChat.vue'
+import Icon from './Icon.vue'
 import InterviewReport from './InterviewReport.vue'
 
 const emit = defineEmits(['navigate', 'pending-consumed'])
@@ -177,8 +178,9 @@ onMounted(async () => {
         简历列表加载失败 <button class="link-btn" @click="loadResumes">重试</button>
       </p>
       <p v-else-if="resumesState === 'loading'" class="msg muted">加载中…</p>
-      <div v-else-if="!resumes.length" class="empty-box">
-        <p class="msg muted">还没有解析成功的简历。</p>
+      <div v-else-if="!resumes.length" class="empty-state">
+        <span class="es-icon"><Icon name="file" :size="24" /></span>
+        <p class="es-text">还没有解析成功的简历——先上传一份，AI 才能出题与提问</p>
         <button class="btn btn-primary" @click="emit('navigate', 'resume')">去简历评估上传</button>
       </div>
       <ul v-else class="resume-pick">
@@ -196,7 +198,10 @@ onMounted(async () => {
       <p v-else-if="histState === 'error'" class="msg error">
         历史记录加载失败 <button class="link-btn" @click="loadHistory">重试</button>
       </p>
-      <p v-else-if="histState === 'empty'" class="msg muted">还没有已完成的面试——完成一场后会在这里看到四维评分复盘。</p>
+      <div v-else-if="histState === 'empty'" class="empty-state">
+        <span class="es-icon"><Icon name="clock" :size="24" /></span>
+        <p class="es-text">还没有已完成的面试——完成一场后会在这里看到四维评分复盘</p>
+      </div>
       <ul v-else class="history-list">
         <li v-for="h in history" :key="h.id">
           <div class="hist-info">
@@ -213,7 +218,8 @@ onMounted(async () => {
 <style scoped>
 .page-title {
   margin: 0;
-  font-size: 18px;
+  font-size: 20px;
+  letter-spacing: 0.3px;
 }
 .back-btn {
   align-self: flex-start;
@@ -221,7 +227,7 @@ onMounted(async () => {
 .continue-card {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   gap: 12px;
   border-left: 3px solid var(--c-primary);
 }
@@ -254,7 +260,7 @@ onMounted(async () => {
 .section-head {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  gap: 10px;
   gap: 10px;
   margin-bottom: 8px;
 }
@@ -284,7 +290,7 @@ onMounted(async () => {
 .history-list li {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   gap: 12px;
   padding: 10px 4px;
   border-bottom: 1px solid var(--c-border);

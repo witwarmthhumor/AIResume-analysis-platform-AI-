@@ -231,14 +231,16 @@ onBeforeUnmount(stopPolling)
           <span v-if="transcriptMsg" class="muted save-msg">{{ transcriptMsg }}</span>
         </template>
       </template>
-      <p v-else class="msg muted">上传或从「历史记录」打开一段录音开始。</p>
+      <div v-else class="empty-state">
+        <p class="es-text">上传一段录音，或从右上角「历史记录」打开已有记录</p>
+      </div>
     </section>
 
     <!-- ② 角色审核 -->
     <section v-else-if="activeTab === 'role'" class="card">
       <p class="muted">角色审核（LLM 按面试官/候选人分段标注），标注结果将同步到面试审核。</p>
       <button class="btn btn-primary" :disabled="roleReviewing || !current?.transcript" @click="runRoleReview">
-        {{ roleReviewing ? '审核中…' : '👁️ 开始角色审核' }}
+        {{ roleReviewing ? '审核中…' : '开始角色审核' }}
       </button>
       <div v-if="current?.role_review" class="role-result">
         <div
