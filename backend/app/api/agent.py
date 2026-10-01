@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.auth_deps import get_optional_current_user
+from app.api.auth_deps import get_current_user, get_optional_current_user
 from app.api.deps import enforce_daily_limit, get_anonymous_id, get_owned_chat_session
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -36,6 +36,7 @@ from app.services.agent import (
     make_tools,
     stream_agent_events,
 )
+from app.services.agent.tools import TOOLS_META
 from app.services.usage_service import write_usage
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
@@ -74,6 +75,12 @@ def _session_out(s: ChatSession) -> dict:
 
 
 # —— 会话 CRUD ——
+
+
+@router.get("/tools")
+def agent_tools(user: User = Depends(get_current_user)) -> dict:  # noqa: B008
+    """工具元数据（v4.3 单一数据源）：前端工具中文名从这里拉取，不再手写映射。"""
+    return {"tools": TOOLS_META}
 
 
 @router.get("/sessions")

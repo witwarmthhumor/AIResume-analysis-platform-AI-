@@ -5,6 +5,7 @@
    父组件通过 :session-id 指定当前会话；无会话时发送会自动新建并 emit session-created。 */
 import { nextTick, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
 import { get, parseSseBlock, post, streamChat } from '../../api.js'
+import { loadToolLabels, toolLabel } from '../../toolLabels.js'
 
 const props = defineProps({
   sessionId: { type: [Number, null], default: null },
@@ -21,28 +22,9 @@ let currentSessionId = props.sessionId
 let activeAbort = null // 当前流的 abort 句柄：切会话/组件卸载时中止后台空转的流
 let loadSeq = 0 // 历史消息加载序号守卫：快速连点会话时"先发慢回"的旧响应不得覆盖新状态
 
-// 工具名 → 中文名（与后端 make_tools 的 13 个工具一一对应，v3.10 起）
-// 不在表内的工具名原样显示，保证新增工具不会显示为空
-const TOOL_LABELS = {
-  kb_search: '检索知识库',
-  resume_lookup: '查看简历原文',
-  interview_history: '查看面试历史',
-  interview_transcript: '查看面试问答原文',
-  conversation_search: '检索历史对话',
-  score_trend: '查看分数趋势',
-  usage_stats: '查看用量统计',
-  analysis_read: '读取分析报告',
-  kb_list: '列出知识库文档',
-  platform_help: '平台功能说明',
-  job_match: '岗位匹配分析',
-  question_gen: '生成面试题',
-  answer_review: '点评我的回答',
-  unknown_tool: '未知工具',
-}
-
-function toolLabel(name) {
-  return TOOL_LABELS[name] || name
-}
+// v4.3 单一数据源：工具中文名从后端 registry（GET /api/agent/tools）拉取，
+// 未加载完成或接口失败时回退英文原名，新增工具不会显示为空
+loadToolLabels()
 
 async function scrollBottom() {
   await nextTick()
