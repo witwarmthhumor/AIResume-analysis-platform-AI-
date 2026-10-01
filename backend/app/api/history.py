@@ -2,9 +2,10 @@
 
 v3.3 起前端改用 /api/usage/logs（明细）+ /api/resumes（列表）组合；
 本接口前端已无调用，按 v3.3 决策保留作为对外 API 兼容层（PROGRESS.md）。
+v4.3 分页收口：三组列表统一 limit 上限（默认 50，防老账号全量拖接口）。
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -20,6 +21,7 @@ router = APIRouter(prefix="/api/history", tags=["history"])
 
 @router.get("")
 def get_history(
+    limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),  # noqa: B008
     user: User = Depends(get_current_user),  # noqa: B008
 ) -> dict:
@@ -28,6 +30,7 @@ def get_history(
             select(Resume)
             .where(Resume.user_id == user.id, Resume.deleted_at.is_(None))
             .order_by(Resume.created_at.desc(), Resume.id.desc())
+            .limit(limit)
         )
     )
     resume_ids = [item.id for item in resumes]
@@ -36,6 +39,7 @@ def get_history(
             select(Analysis)
             .where(Analysis.user_id == user.id)
             .order_by(Analysis.created_at.desc(), Analysis.id.desc())
+            .limit(limit)
         )
     )
     interviews = list(
@@ -43,6 +47,7 @@ def get_history(
             select(InterviewSession)
             .where(InterviewSession.user_id == user.id)
             .order_by(InterviewSession.created_at.desc(), InterviewSession.id.desc())
+            .limit(limit)
         )
     )
     return {

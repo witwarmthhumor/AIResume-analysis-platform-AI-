@@ -11,7 +11,7 @@ reset：模型在工具决策轮同时吐出的文本 token 不是最终回答�
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -78,6 +78,8 @@ def _session_out(s: ChatSession) -> dict:
 
 @router.get("/sessions")
 def list_sessions(
+    limit: int = Query(100, ge=1, le=500),  # v4.3 分页收口：默认 100 封顶防全量
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),  # noqa: B008
     anonymous_id: str = Depends(get_anonymous_id),
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
@@ -91,6 +93,8 @@ def list_sessions(
             ChatSession.session_type == SESSION_TYPE_AGENT,
         )
         .order_by(ChatSession.updated_at.desc(), ChatSession.id.desc())
+        .offset(offset)
+        .limit(limit)
     )
     return [_session_out(s) for s in db.scalars(stmt)]
 
