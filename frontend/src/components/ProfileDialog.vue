@@ -263,4 +263,17 @@ input.readonly {
   from { opacity: 0; transform: translateY(12px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
+
+/* —— 响应式（v4.2.1）—— */
+@media (max-width: 480px) {
+  .profile-box {
+    padding: 18px 14px;
+  }
+  .avatar-pick {
+    width: 38px;
+    height: 38px;
+    font-size: 18px;
+  }
+}
+
 </style>

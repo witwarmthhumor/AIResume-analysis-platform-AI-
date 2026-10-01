@@ -72,4 +72,12 @@ const emit = defineEmits(['logged-in'])
   color: var(--c-muted);
   letter-spacing: 1px;
 }
+
+/* —— 响应式（v4.2.1）—— */
+@media (max-width: 480px) {
+  .brand-title {
+    font-size: 17px;
+  }
+}
+
 </style>

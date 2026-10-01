@@ -313,4 +313,28 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
 }
+
+/* —— 响应式（v4.2.1）—— */
+@media (max-width: 768px) {
+  .gen-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .resume-select {
+    width: 100%;
+    min-width: 0;
+  }
+  .bank-list li {
+    flex-wrap: wrap;
+  }
+  .bank-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .bank-head {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+}
+
 </style>

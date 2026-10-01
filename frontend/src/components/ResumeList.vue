@@ -131,4 +131,23 @@ async function remove(id, e) {
 .del-btn:hover {
   background: #fee2e2;
 }
+
+/* —— 响应式 + 触屏可用性（v4.2.1）—— */
+@media (hover: none) {
+  .del-btn {
+    opacity: 0.6;
+  }
+}
+@media (max-width: 640px) {
+  .ritem {
+    flex-wrap: wrap;
+  }
+  .time {
+    display: none;
+  }
+  .del-btn {
+    opacity: 0.6;
+  }
+}
+
 </style>

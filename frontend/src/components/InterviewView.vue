@@ -344,4 +344,24 @@ onMounted(async () => {
   font-family: inherit;
   background: #fff;
 }
+
+/* —— 响应式（v4.2.1）—— */
+@media (max-width: 768px) {
+  .continue-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .bank-select-row {
+    flex-wrap: wrap;
+  }
+  .bank-select {
+    width: 100%;
+    min-width: 0;
+  }
+  .resume-pick li,
+  .history-list li {
+    flex-wrap: wrap;
+  }
+}
+
 </style>

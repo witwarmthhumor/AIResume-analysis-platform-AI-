@@ -500,4 +500,29 @@ onBeforeUnmount(stopPolling)
   padding: 6px 12px;
   font-size: 12px;
 }
+
+/* —— 响应式（v4.2.1）—— */
+@media (max-width: 768px) {
+  .head-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .tabs {
+    flex-wrap: wrap;
+  }
+  .tab {
+    flex: 1 1 30%;
+    text-align: center;
+  }
+  .dropzone {
+    padding: 20px 12px;
+  }
+  .hist-list li {
+    flex-wrap: wrap;
+  }
+  .score-row {
+    gap: 10px;
+  }
+}
+
 </style>
