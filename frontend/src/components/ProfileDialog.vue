@@ -77,7 +77,7 @@ async function changePassword() {
 <template>
   <div class="modal-overlay" @click.self="emit('close')">
     <div class="profile-box">
-      <button class="modal-close" @click="emit('close')" aria-label="关闭">✕</button>
+      <button class="modal-close" aria-label="关闭" @click="emit('close')">✕</button>
       <h2 class="box-title">个人信息</h2>
 
       <!-- 头像 -->
@@ -97,7 +97,9 @@ async function changePassword() {
           :class="{ picked: form.avatar_key === p.key }"
           :style="{ background: p.color }"
           @click="pickAvatar(p.key)"
-        >{{ p.emoji }}</button>
+        >
+{{ p.emoji }}
+</button>
       </div>
 
       <!-- 字段 -->
@@ -112,7 +114,7 @@ async function changePassword() {
         :class="{ readonly: !canSetPhone }"
         placeholder="11 位手机号"
       />
-      <div class="field-label" v-if="props.user.email">邮箱（不可修改）</div>
+      <div v-if="props.user.email" class="field-label">邮箱（不可修改）</div>
       <input v-if="props.user.email" :value="props.user.email" readonly class="readonly" />
       <div class="field-label">注册时间</div>
       <input :value="fmtDateTime(props.user.created_at)" readonly class="readonly" />
@@ -133,7 +135,9 @@ async function changePassword() {
           class="btn btn-primary save-btn"
           type="submit"
           :disabled="pwdBusy || !pwd.old || pwd.neu.length < 8 || pwd.neu !== pwd.confirm"
-        >{{ pwdBusy ? '保存中…' : '修改密码' }}</button>
+        >
+{{ pwdBusy ? '保存中…' : '修改密码' }}
+</button>
       </form>
       <p v-if="pwdMsg" class="msg" :class="pwdOk ? 'ok' : 'error'">{{ pwdMsg }}</p>
     </div>

@@ -123,14 +123,14 @@ onMounted(loadUser)
       <div class="topbar-inner">
         <div class="brand">
           <svg class="logo-svg" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-            <path d="M4 8a4 4 0 0 1 4-4h16a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H12l-6 5v-5a4 4 0 0 1-2-3.46V8z" fill="url(#logo-g)"/>
-            <circle cx="11" cy="13" r="1.8" fill="#fff"/>
-            <circle cx="16" cy="13" r="1.8" fill="#fff"/>
-            <circle cx="21" cy="13" r="1.8" fill="#fff"/>
+            <path d="M4 8a4 4 0 0 1 4-4h16a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H12l-6 5v-5a4 4 0 0 1-2-3.46V8z" fill="url(#logo-g)" />
+            <circle cx="11" cy="13" r="1.8" fill="#fff" />
+            <circle cx="16" cy="13" r="1.8" fill="#fff" />
+            <circle cx="21" cy="13" r="1.8" fill="#fff" />
             <defs>
               <linearGradient id="logo-g" x1="4" y1="4" x2="28" y2="28">
-                <stop stop-color="#10b981"/>
-                <stop offset="1" stop-color="#059669"/>
+                <stop stop-color="#10b981" />
+                <stop offset="1" stop-color="#059669" />
               </linearGradient>
             </defs>
           </svg>
@@ -139,7 +139,7 @@ onMounted(loadUser)
         <div class="topbar-right">
           <template v-if="currentUser">
             <div class="user-menu-wrap">
-              <button class="avatar-btn" @click="showUserMenu = !showUserMenu" :title="currentUser.username">
+              <button class="avatar-btn" :title="currentUser.username" @click="showUserMenu = !showUserMenu">
                 <span class="avatar" :style="avatarColor ? { background: avatarColor } : {}">{{ avatarLetter }}</span>
               </button>
               <!-- 下拉菜单（v4.2：个人信息概览 + 三入口，对齐参考页面形态） -->
@@ -171,14 +171,14 @@ onMounted(loadUser)
             :key="item.key"
             class="nav-item"
             :class="{ active: activeView === item.key }"
-            @click="selectView(item)"
             :title="collapsed ? item.label : ''"
+            @click="selectView(item)"
           >
             <Icon class="nav-icon" :name="item.icon" :size="17" />
             <span class="nav-label">{{ item.label }}</span>
           </button>
         </nav>
-        <button class="collapse-btn" @click="collapsed = !collapsed" :title="collapsed ? '展开侧边栏' : '折叠侧边栏'">
+        <button class="collapse-btn" :title="collapsed ? '展开侧边栏' : '折叠侧边栏'" @click="collapsed = !collapsed">
           <span class="collapse-icon">{{ collapsed ? '»' : '«' }}</span>
           <span class="nav-label">{{ collapsed ? '展开' : '折叠' }}</span>
         </button>

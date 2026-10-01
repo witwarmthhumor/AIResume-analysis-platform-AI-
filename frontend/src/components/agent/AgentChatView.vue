@@ -68,12 +68,16 @@ onMounted(loadSessions)
           class="av-tab"
           :class="{ active: mode === 'chat' }"
           @click="mode = 'chat'"
-        >💬 对话</button>
+        >
+💬 对话
+</button>
         <button
           class="av-tab"
           :class="{ active: mode === 'run' }"
           @click="mode = 'run'"
-        >🚀 一键求职准备</button>
+        >
+🚀 一键求职准备
+</button>
       </div>
       <div class="av-list">
         <div v-if="loading" class="av-empty">加载中…</div>

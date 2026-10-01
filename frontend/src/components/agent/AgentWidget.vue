@@ -73,12 +73,12 @@ function onSessionCreated(s) {
 <template>
   <div class="agent-widget">
     <!-- 收起态气泡 -->
-    <button v-if="!open" class="aw-fab" @click="toggle" title="AI 客服">
+    <button v-if="!open" class="aw-fab" title="AI 客服" @click="toggle">
       <svg viewBox="0 0 32 32" width="26" height="26" fill="none" aria-hidden="true">
-        <path d="M5 9a4 4 0 0 1 4-4h14a4 4 0 0 1 4 4v9a4 4 0 0 1-4 4H13l-6 4.5V22a4 4 0 0 1-2-3.46V9z" fill="#fff"/>
-        <circle cx="12" cy="13.5" r="1.7" fill="#10b981"/>
-        <circle cx="16.5" cy="13.5" r="1.7" fill="#10b981"/>
-        <circle cx="21" cy="13.5" r="1.7" fill="#10b981"/>
+        <path d="M5 9a4 4 0 0 1 4-4h14a4 4 0 0 1 4 4v9a4 4 0 0 1-4 4H13l-6 4.5V22a4 4 0 0 1-2-3.46V9z" fill="#fff" />
+        <circle cx="12" cy="13.5" r="1.7" fill="#10b981" />
+        <circle cx="16.5" cy="13.5" r="1.7" fill="#10b981" />
+        <circle cx="21" cy="13.5" r="1.7" fill="#10b981" />
       </svg>
     </button>
 
@@ -93,8 +93,8 @@ function onSessionCreated(s) {
           <div class="aw-name">AI 客服</div>
           <div class="aw-sub">在线为您解答技术问题</div>
         </div>
-        <button class="aw-head-btn" @click="showHistory = !showHistory" title="历史对话">🕘 历史</button>
-        <button class="aw-head-btn" @click="newSession" title="新建对话">＋ 新建</button>
+        <button class="aw-head-btn" title="历史对话" @click="showHistory = !showHistory">🕘 历史</button>
+        <button class="aw-head-btn" title="新建对话" @click="newSession">＋ 新建</button>
         <button class="aw-close" @click="close">✕</button>
 
         <!-- 历史下拉 -->

@@ -394,7 +394,7 @@ onDeactivated(() => {
           <div v-if="output.analysis.target_position">目标岗位：{{ output.analysis.target_position }}</div>
           <div v-if="output.analysis.position_match">{{ output.analysis.position_match }}</div>
           <div v-if="output.analysis.strengths?.length" class="rv-list">
-            <span class="rv-tag plus" v-for="t in output.analysis.strengths" :key="t">{{ t }}</span>
+            <span v-for="t in output.analysis.strengths" :key="t" class="rv-tag plus">{{ t }}</span>
           </div>
           <div v-if="output.analysis.suggestions?.length" class="rv-suggest">
             <div v-for="t in output.analysis.suggestions" :key="t">· {{ t }}</div>
@@ -405,10 +405,10 @@ onDeactivated(() => {
         <div class="rv-card-title">🎯 JD 匹配（{{ output.match.match_score ?? '-' }} 分）</div>
         <div class="rv-card-body">
           <div v-if="output.match.matched_keywords?.length" class="rv-list">
-            <span class="rv-tag plus" v-for="t in output.match.matched_keywords" :key="t">{{ t }}</span>
+            <span v-for="t in output.match.matched_keywords" :key="t" class="rv-tag plus">{{ t }}</span>
           </div>
           <div v-if="output.match.missing_keywords?.length" class="rv-list">
-            <span class="rv-tag minus" v-for="t in output.match.missing_keywords" :key="t">{{ t }}</span>
+            <span v-for="t in output.match.missing_keywords" :key="t" class="rv-tag minus">{{ t }}</span>
           </div>
           <div v-if="output.match.suggestions?.length" class="rv-suggest">
             <div v-for="t in output.match.suggestions" :key="t">· {{ t }}</div>
