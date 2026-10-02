@@ -42,11 +42,15 @@ def report(ok: bool, msg: str) -> None:
 
 
 def doc_has(path: Path, patterns: list[str]) -> bool:
-    """任一模式命中即算同步（文档表述有「N 个工具」「N 个用例」等多种写法）。"""
+    """任一模式命中即算同步（文档表述有「N 个工具」「N 个用例」等多种写法）。
+
+    匹配前剥掉 Markdown 强调标记（**17 次**迁移 这类粗体夹数字的写法）。
+    """
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return False
+    text = text.replace("**", "").replace("`", "")
     return any(p in text for p in patterns)
 
 
@@ -121,7 +125,9 @@ def main() -> int:
     # —— 4. 版本号（AGENTS.md 为权威来源）+ git tag 在位 ——
     agents_path = ROOT / "AGENTS.md"
     # AGENTS.md 是本地文件（.gitignore 有意忽略），不存在时版本号检查会明确报 FAIL
-    agents_text = agents_path.read_text(encoding="utf-8") if agents_path.exists() else ""
+    agents_text = (
+        agents_path.read_text(encoding="utf-8") if agents_path.exists() else ""
+    )
     vm = re.search(r"当前版本：\*\*v(\d+\.\d+\.\d+)\*\*", agents_text)
     if vm is None:
         report(False, "版本号：AGENTS.md 未找到「当前版本：**vX.Y.Z**」标记")
