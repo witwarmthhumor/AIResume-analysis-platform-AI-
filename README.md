@@ -53,8 +53,8 @@ bash scripts/demo-up.sh --no-seed                                 # 只准备环
 - 📝 **面试题生成**（v4.2）：基于简历一键生成 10~20 道定制化面试题（基础/项目/深挖分维度 + 难度星级），保存为题库
 - 用户注册/登录（**用户名标识**，手机号兼容；v4.2.1 起注册不再收集邮箱，存量账号保留）、修改密码（改密即全端下线）、JWT + token_version、**/api/\*\* 默认拒绝闸门**、用户数据隔离、个人信息（预设头像 + 身份证号 + 手机号）、个人中心（本人五卡统计 + 近 7 日用量 + 改密）
 - 🧪 **知识库问答 / 在线对话**（v3.0 → v3.1 → v3.5）：基于预置语料库（面试题/八股文/岗位 JD）+ 用户上传文档，**混合检索（向量 + BM25，RRF 融合）** + RAG 流式回答，带引用来源；**多会话管理**（新建/切换/删除，标题自动生成）
-- 🤖 **AI 客服 Agent**（v3.4 → v3.10）：基于 LangChain 0.3 ReAct Agent，**SSE 流式输出 + 工具调用过程可见**，会话历史持久化；**13 个工具**——检索/查询类 9 个（知识库检索 / 我的简历 / 我的面试记录 / 面试问答原文 / 评分趋势 / 历史对话检索 / 我的用量 / 读分析报告 / 语料清单）+ 平台功能说明 1 个 + 工具内 LLM 类 3 个（岗位匹配 job_match / 出题 question_gen / 回答点评 answer_review，独立限额）；工具路由实测 40/40 = 100%；用户端整页形态 + 管理端右下角悬浮形态
-- 🚀 **一键求职准备**（v4.0 LangGraph 试点）：AI 客服页新页签，贴入 JD 后自动串起「读简历 →（补）AI 分析 → 岗位匹配 → 定制出题 → 整理交付」，步骤条实时流转；**创建面试场次前先弹审批卡（TTL 倒计时，批准才建场次）**；失败自动回环重试（≤2 次）并可从失败节点续跑；结果分区展示分析/匹配（命中词、缺口词）/出题（含出题依据）；LangGraph 0.2.76 + PostgresSaver 断点续跑，全程 trace span 落库可回看
+- 🤖 **AI 客服 Agent**（v3.4 → v3.10）：基于 LangChain 1.x ReAct Agent（`create_agent` 图编排 + `astream_events` 流式桥），**SSE 流式输出 + 工具调用过程可见**，会话历史持久化；**13 个工具**——检索/查询类 9 个（知识库检索 / 我的简历 / 我的面试记录 / 面试问答原文 / 评分趋势 / 历史对话检索 / 我的用量 / 读分析报告 / 语料清单）+ 平台功能说明 1 个 + 工具内 LLM 类 3 个（岗位匹配 job_match / 出题 question_gen / 回答点评 answer_review，独立限额）；工具路由实测 40/40 = 100%；用户端整页形态 + 管理端右下角悬浮形态
+- 🚀 **一键求职准备**（v4.0 LangGraph 试点）：AI 客服页新页签，贴入 JD 后自动串起「读简历 →（补）AI 分析 → 岗位匹配 → 定制出题 → 整理交付」，步骤条实时流转；**创建面试场次前先弹审批卡（TTL 倒计时，批准才建场次）**；失败自动回环重试（≤2 次）并可从失败节点续跑；结果分区展示分析/匹配（命中词、缺口词）/出题（含出题依据）；LangGraph 1.2 + PostgresSaver 断点续跑，全程 trace span 落库可回看
 - 📊 **数据看板**（v3.2）与 📋 **使用日志**（v3.3）：五卡统计 + 用户列表分页 + 近 7 日用量柱状图；使用明细支持动作/模型/IP/日期范围筛选与后端分页
 - 📈 **面试复盘雷达图**（v3.5）：结束评价的四维度评分可视化，可叠加本人历史场次对比
 - 🔀 **分析版本对比**（v3.5）：同一份简历历次分析（不同提示词版本）并排对比，标出各自独有条目
@@ -68,8 +68,8 @@ bash scripts/demo-up.sh --no-seed                                 # 只准备环
 - 前端：Vue 3 + Vite（零 UI 框架，手写 CSS 设计系统），生产环境由 Nginx 提供静态文件并反代 `/api`
 - 异步：Redis 7 + Celery
 - AI：国产大模型 OpenAI 兼容协议（当前 DeepSeek，可切换通义）
-- Agent（v3.4）：LangChain 0.3 稳定线（`langchain` / `langchain-openai` 锁 `<0.4`）+ ReAct AgentExecutor，SSE 流式
-- Agent v2（v4.0 试点）：**LangGraph 0.2.76**（pin，不升 1.x）+ PostgresSaver 断点持久化 + interrupt/Command 人机协同；与 v1 双轨并存（`agent_v2_enabled` 开关，v2 异常不影响 v1）
+- Agent（v3.4）：LangChain 1.x（`langchain` 1.4 / `langchain-openai` 1.6）+ `create_agent` 图编排，`astream_events` 桥接 SSE 流式（v4.4 依赖链解冻）
+- Agent v2（v4.0 试点）：**LangGraph 1.2** + PostgresSaver 断点持久化 + interrupt/Command 人机协同；与 v1 双轨并存（`agent_v2_enabled` 开关，v2 异常不影响 v1）
 - Embedding（v3.0）：Ollama 本地 nomic-embed-text（768 维，OpenAI 兼容 API），pgvector HNSW 向量检索；可切云端 embedding
 
 ## 生产 Docker 一键启动
@@ -187,7 +187,7 @@ npm run build
 - `docs/后续开发规划.md`：v3.4 之后的方向、优先级与推进顺序
 
 
-## 技术亮点（真实代码支撑 · v4.3.0）
+## 技术亮点（真实代码支撑 · v4.4.0）
 
 ### 架构与工程
 - **Router → Service → Model 三层**：API 路由不堆业务逻辑，限流/记账/分析落库全下沉到 `services/`（`usage_service.py`、`analysis_service.py`），`RouterRegistry` 自动注册路由，`main.py` 仅保留两行注册调用
@@ -203,7 +203,7 @@ npm run build
 - **RAG 检索（v3.5 混合检索）**：`kb_chunker.py` 段落合并切块（~600字/块 + 60字重叠，无内容丢失）；检索为**向量 + BM25 双路召回 + RRF 融合**——向量路走 pgvector HNSW（数据库排序），词法路用 jieba 分词 + 手写 BM25；`kb_service.py` 幂等入库；问答 SSE 流式回答带引用来源（来源可折叠展开）
 - **可量化的检索质量**：`scripts/eval_rag.py` 同一份 49 题黄金问答集并排跑「纯向量 vs 混合」——hit@1 **71.4% → 87.8%**，hit@5 **91.8% → 100%**，报告落 `data/kb_eval/report.md`
 - **异步入库**（v3.0）：`ingest_kb` Celery 任务切块+向量化，用户上传文档提交任务后状态 pending→processing→ready
-- **LangChain ReAct Agent**（v3.4 / v3.5 扩工具）：`services/agent/` 四件套——`llm_factory`（ChatOpenAI streaming，未配 Key 抛 ValueError → API 503）、`tools`（**每请求闭包工厂**，绑定本次请求的 db 会话与归属者，杜绝多请求串数据）、`executor`（AgentExecutor + 后台线程 + 自定义 Callback，把 `on_tool_start` / `on_tool_end` / `on_llm_new_token` 转成 action / observation / delta 事件队列）
+- **LangChain ReAct Agent**（v3.4 / v3.5 扩工具）：`services/agent/` 四件套——`llm_factory`（ChatOpenAI streaming，未配 Key 抛 ValueError → API 503）、`tools`（**每请求闭包工厂**，绑定本次请求的 db 会话与归属者，杜绝多请求串数据）、`executor`（1.x `create_agent` 图 + 后台线程内 `astream_events` 泵，把 `on_tool_start` / `on_tool_end` / `on_chat_model_stream` 转成 action / observation / delta 事件队列，SSE 协议零变化）
 - **13 个 Agent 工具**（v3.10）：检索/查询类 9 个——`kb_search`（知识库，可按 `document` 限定单篇）、`resume_lookup`（本人简历 + 关键词定位）、`interview_history`（本人面试场次与四维评分）、`interview_transcript`（本人面试问答原文）、`score_trend`（评分趋势）、`conversation_search`（历史对话检索）、`usage_stats`（本人用量，可按 `action` 过滤）、`analysis_read`（读本人分析报告）、`kb_list`（语料清单）；静态类 1 个 `platform_help`；工具内 LLM 类 3 个 `job_match` / `question_gen` / `answer_review`（走 `_run_tool_llm` 独立限额）。全部按归属者过滤，无身份时明确拒绝而非返回空结果
 - **路由准确率有量化兜底**：`scripts/eval_agent_routing.py` 40 题 × 13 工具，top-1 **40/40 = 100%**（`data/agent_eval/report.md`）；工具描述按「什么时候用 / 什么时候**不**用」三段式写，易撞的工具互相点名排他（如 `resume_lookup` 原文 ↔ `analysis_read` 结论）
 - **Agent SSE 事件协议**（v3.4）：`meta → (action → observation)* → delta* → done{content, iterations, tokens, citations, message_id}`，异常走 `error` 事件；工具调用过程落库 `chat_messages.tool_steps`（JSONB），前端可折叠回看
@@ -225,11 +225,12 @@ npm run build
 - **AI 客服两形态复用**（v3.4）：`AgentChatCore`（核心：SSE 打字机 + 工具过程折叠 + 引用来源）被整页视图 `AgentChatView` 与右下角 400px 浮层 `AgentWidget` 共用，`props.compact` 切换密度
 - **纯手写数据可视化**（v3.2 / v3.3 / v3.5）：零图表库——CSS 渐变柱状图（近 7 日用量）+ 手写日期范围选择器 `DateRangePicker.vue`（6×7 日历网格 + 时间输入 + 点击外部关闭）+ **面试评分雷达图**（四维度、支持叠加历史场次对比）
 - **数据看板**（v3.2）：五卡悬浮（用户/简历/分析/面试/今日 Token）+ 用户列表前端分页 + 双卡片等比布局，窄屏自动堆叠
+- **依赖链解冻**（v4.4.0）：LangChain 0.3/LangGraph 0.2 整体切 1.x（langchain 1.4.3 / langgraph 1.2.12 / checkpoint-postgres 3.1.2）——v1 executor 重写为 `create_agent` + `astream_events` 桥（SSE 协议零变化），v2/interview 图仅修一处节点 `config: RunnableConfig` 注解即兼容；pip-audit 漏洞 **14 → 0**，CI 的 12 个版本锁死豁免全部删除；升级窗口清场在途 run（旧 checkpoint 能读不能续跑，见 docs/依赖链解冻调研报告.md）
 - **工程质量门禁批次**（v4.3.0）：列表接口分页收口（admin/users 服务端 envelope 分页，其余列表 limit/offset 安全上限）；Agent 工具层拆包 `services/agent/tools/`（六域模块 + registry 单一数据源，`GET /api/agent/tools` 下发工具中文名，前端不再手写映射）；前端接入 **vue-router（hash）+ vitest（SSE 状态机 19 例）+ eslint**；CI 新增 **pip-audit / npm audit 依赖审计**（12 个被 langchain/langgraph 版本锁死的漏洞 ID 显式豁免并注明解冻条件）与 Dependabot 周检；`scripts/release_check.py` 收口闸门机器核对文档口径（pytest 数/工具数/迁移数/版本号/git tag）——文档口径失真 #23/#26/#27 三次复发的根治
 - **报告版本对比**（v3.5）：简历分析报告可取历次 `prompt_version` 两版并排，逐条标出「仅本版有」——改提示词后能直观看出结论变化
 
 ### 测试
-- **387 个 pytest 全量覆盖**：上传校验（含 docx）、分析、面试（SSE/状态机/图编排/题库驱动）、认证（用户名/手机号注册登录/改密全端下线/锁定 fail-open/**登录闸门真身/跨用户越权 sweep**）、个人信息（头像/身份证/手机号一次绑定）、**面试题库（生成/归属隔离/题库驱动面试）**、**录音分析（转写 stub/角色审核/面试审核/记账）**、任务、隔离、软删除、知识库（切块器/检索/owner 隔离/Playground SSE）、**混合检索（BM25 分词/排序/阈值回退）**、在线对话（多会话 CRUD/隔离/标题自动生成）、管理端语料库、使用日志筛选分页、Agent（工具命中/未命中兜底/回调事件/SSE 编排/归属校验/限额/503）、**Agent 个人数据工具（归属隔离/无身份拒绝/聚合口径）**、**面试评分列表与分析版本列表**、**LangGraph v2 编排（图节点/审批超时与并发乐观锁/事件总线多订阅者/断点重连快照/孤儿 run 回收/SQL 分页聚合）**；全部 mock AI/embedding/whisper 不烧额度
+- **388 个 pytest 全量覆盖**：上传校验（含 docx）、分析、面试（SSE/状态机/图编排/题库驱动）、认证（用户名/手机号注册登录/改密全端下线/锁定 fail-open/**登录闸门真身/跨用户越权 sweep**）、个人信息（头像/身份证/手机号一次绑定）、**面试题库（生成/归属隔离/题库驱动面试）**、**录音分析（转写 stub/角色审核/面试审核/记账）**、任务、隔离、软删除、知识库（切块器/检索/owner 隔离/Playground SSE）、**混合检索（BM25 分词/排序/阈值回退）**、在线对话（多会话 CRUD/隔离/标题自动生成）、管理端语料库、使用日志筛选分页、Agent（工具命中/未命中兜底/回调事件/SSE 编排/归属校验/限额/503）、**Agent 个人数据工具（归属隔离/无身份拒绝/聚合口径）**、**面试评分列表与分析版本列表**、**LangGraph v2 编排（图节点/审批超时与并发乐观锁/事件总线多订阅者/断点重连快照/孤儿 run 回收/SQL 分页聚合）**；全部 mock AI/embedding/whisper 不烧额度
 - ruff check + ruff format --check 全绿（CI 两道都跑）、npm build 通过
 - **RAG 有量化基线**：`scripts/eval_rag.py` 跑 49 题黄金问答集并排对比「纯向量 / 混合」，改检索逻辑必须对比 `data/kb_eval/report.md`
 - **工具路由有量化基线**：`scripts/eval_agent_routing.py` 40 题 40/40 = 100%（`data/agent_eval/report.md`），改工具描述/增删工具必须对比
