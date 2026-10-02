@@ -9,7 +9,8 @@ const props = defineProps({ user: { type: Object, required: true } })
 const isAdmin = computed(() => props.user?.role === 'admin')
 
 const stats = ref(null)
-const users = ref([])
+const users = ref([]) // v4.3 服务端分页：只持当前页
+const userTotal = ref(0)
 const usage = ref([])
 const error = ref('')
 
@@ -17,14 +18,13 @@ async function load() {
   error.value = ''
   try {
     if (isAdmin.value) {
-      const [s, u, us] = await Promise.all([
+      const [s, us] = await Promise.all([
         get('/api/admin/stats'),
-        get('/api/admin/users'),
         get('/api/admin/usage'),
       ])
       stats.value = s
-      users.value = u
       usage.value = us
+      await fetchUsers() // v4.3 服务端分页：用户列表按页拉取
     } else {
       // 普通用户：本人口径（/api/me/* 均按当前用户过滤）
       const [s, us] = await Promise.all([get('/api/me/stats'), get('/api/me/usage')])
@@ -59,18 +59,25 @@ const cards = computed(() => {
   ]
 })
 
-// —— 分页：用户列表（每页 10 条） ——
+// —— 分页：用户列表（v4.3 服务端分页，每页 10 条，翻页向服务端重查） ——
 const USER_PAGE_SIZE = 10
 const userPage = ref(1)
 const userTableRef = ref(null)
-const userTotalPages = computed(() => Math.max(1, Math.ceil(users.value.length / USER_PAGE_SIZE)))
-const pagedUsers = computed(() => {
-  const start = (userPage.value - 1) * USER_PAGE_SIZE
-  return users.value.slice(start, start + USER_PAGE_SIZE)
-})
+const userTotalPages = computed(() => Math.max(1, Math.ceil(userTotal.value / USER_PAGE_SIZE)))
+async function fetchUsers() {
+  const offset = (userPage.value - 1) * USER_PAGE_SIZE
+  const data = await get(`/api/admin/users?limit=${USER_PAGE_SIZE}&offset=${offset}`)
+  users.value = data.items
+  userTotal.value = data.total
+}
 async function goUserPage(p) {
   if (p < 1 || p > userTotalPages.value) return
   userPage.value = p
+  try {
+    await fetchUsers()
+  } catch (e) {
+    error.value = e.message || '加载失败'
+  }
   await nextTick()
   if (userTableRef.value) userTableRef.value.scrollTop = 0
 }
@@ -188,7 +195,7 @@ async function toggleV2Spans(run) {
     <div v-if="isAdmin" class="panel-card">
       <div class="panel-head">
         <h3>用户列表</h3>
-        <span class="count-badge">共 {{ users.length }} 人</span>
+        <span class="count-badge">共 {{ userTotal }} 人</span>
       </div>
       <div ref="userTableRef" class="table-scroll">
         <table class="tbl">
@@ -196,7 +203,7 @@ async function toggleV2Spans(run) {
             <tr><th>ID</th><th>用户名</th><th>邮箱</th><th>角色</th><th>简历数</th><th>注册时间</th></tr>
           </thead>
           <tbody>
-            <tr v-for="u in pagedUsers" :key="u.id">
+            <tr v-for="u in users" :key="u.id">
               <td>{{ u.id }}</td>
               <td>{{ u.username }}</td>
               <td class="email">{{ u.email || '-' }}</td>
@@ -210,7 +217,7 @@ async function toggleV2Spans(run) {
         </table>
       </div>
       <div class="pagination">
-        <span class="page-info">共 {{ users.length }} 条 · 第 {{ userPage }}/{{ userTotalPages }} 页</span>
+        <span class="page-info">共 {{ userTotal }} 条 · 第 {{ userPage }}/{{ userTotalPages }} 页</span>
         <div class="page-btns">
           <button :disabled="userPage <= 1" @click="goUserPage(userPage - 1)">上一页</button>
           <template v-for="(p, i) in pageNumbers(userPage, userTotalPages)" :key="i">

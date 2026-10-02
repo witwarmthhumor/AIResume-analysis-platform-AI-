@@ -9,7 +9,7 @@ import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -147,6 +147,8 @@ async def upload_resume(
 
 @router.get("/resumes", response_model=list[ResumeOut])
 def list_resumes(
+    limit: int = Query(100, ge=1, le=500),  # v4.3 分页收口：默认 100 封顶防全量
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),  # noqa: B008
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
     anonymous_id: str = Depends(get_anonymous_id),
@@ -156,7 +158,13 @@ def list_resumes(
         Resume.deleted_at.is_(None),
         owner_clause(Resume, user, anonymous_id),
     )
-    return list(db.scalars(query.order_by(Resume.created_at.desc(), Resume.id.desc())))
+    return list(
+        db.scalars(
+            query.order_by(Resume.created_at.desc(), Resume.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    )
 
 
 @router.get("/resumes/{resume_id}", response_model=ResumeDetail)

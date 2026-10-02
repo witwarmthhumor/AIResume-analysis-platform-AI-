@@ -157,7 +157,9 @@ onMounted(async () => {
         v-if="lastSession.status === 'in_progress'"
         class="btn btn-primary"
         @click="continueLast"
-      >继续上次会话 →</button>
+      >
+继续上次会话 →
+</button>
       <button v-else class="btn btn-ghost" @click="openReport(lastSession.id)">查看复盘报告</button>
     </section>
     <p v-else-if="lastState === 'error'" class="msg error">

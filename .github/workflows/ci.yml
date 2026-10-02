@@ -1,6 +1,7 @@
 # CI（v3.7·7.7）：push 到 main / PR 时自动跑
 #   后端：pip install -r requirements.lock（版本快照）→ ruff → alembic 迁移 → pytest
-#   前端：npm ci → npm run build
+#   前端：npm ci → npm run build → eslint → vitest → npm audit
+#   依赖审计：pip-audit（requirements.lock）+ npm audit，v4.3 起入闸
 # 说明：测试里 AI/embedding 全部 mock（不需要 Ollama 服务）；数据库用 pgvector 官方镜像，
 #       凭据与 backend/.env 默认值（ai/ai/ai_interview）对齐，conftest 的本机护栏可直连。
 name: CI
@@ -59,10 +60,17 @@ jobs:
       - name: 数据库迁移到 head
         run: python -m alembic upgrade head
 
-      - name: pytest 全量（260+ 用例）
+      - name: pytest 全量（370+ 用例）
         run: |
           python -m pytest -q --junitxml=pytest-result.xml | tee pytest.log
           exit ${PIPESTATUS[0]}
+      - name: 依赖漏洞审计（pip-audit，v4.3 起）
+        run: |
+          python -m pip install pip-audit
+          # 以下 12 个 ID 全部是 langchain<0.4 / langgraph<0.3 上限锁住的家族，
+          # 修复版本都在 1.x / 0.3+ 线——依赖链解冻（docs/依赖链解冻调研报告.md）
+          # 落地后必须删除这些豁免，不得续期
+          python -m pip_audit -r requirements.lock --progress-spinner off             --ignore-vuln PYSEC-2026-76             --ignore-vuln PYSEC-2026-77             --ignore-vuln PYSEC-2026-83             --ignore-vuln PYSEC-2026-1527             --ignore-vuln PYSEC-2026-2192             --ignore-vuln PYSEC-2026-2193             --ignore-vuln PYSEC-2026-2194             --ignore-vuln PYSEC-2026-2562             --ignore-vuln PYSEC-2026-2573             --ignore-vuln PYSEC-2026-2574             --ignore-vuln PYSEC-2026-2575             --ignore-vuln PYSEC-2026-3635
       - name: 失败用例转 annotation（无需 gh 即可从 API 读取失败明细）
         if: failure()
         run: |
@@ -90,3 +98,12 @@ jobs:
 
       - name: 构建
         run: npm run build
+
+      - name: ESLint 检查（v4.3 起）
+        run: npm run lint
+
+      - name: vitest 单测（v4.3 起）
+        run: npm test
+
+      - name: npm 依赖审计（生产依赖，v4.3 起）
+        run: npm audit --omit=dev

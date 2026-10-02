@@ -6,7 +6,7 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -38,6 +38,8 @@ def _get_owned_session(
 
 @router.get("/sessions")
 def list_sessions(
+    limit: int = Query(100, ge=1, le=500),  # v4.3 分页收口：默认 100 封顶防全量
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),  # noqa: B008
     anonymous_id: str = Depends(get_anonymous_id),
     user: User | None = Depends(get_optional_current_user),  # noqa: B008
@@ -47,6 +49,8 @@ def list_sessions(
         select(ChatSession)
         .where(_owner_filter(user, anonymous_id), ChatSession.deleted_at.is_(None))
         .order_by(ChatSession.updated_at.desc(), ChatSession.id.desc())
+        .offset(offset)
+        .limit(limit)
     )
     sessions = list(db.scalars(stmt))
     return [

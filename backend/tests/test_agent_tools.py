@@ -33,6 +33,8 @@ from app.services.agent.tools import (
     _TOOL_CONV_LIMIT,
     _TOOL_TRANSCRIPT_CHARS,
     _TOOL_TRANSCRIPT_LIMIT,
+    TOOL_NAMES,
+    TOOLS_META,
 )
 from app.services.agent_capabilities import (
     JD_MAX_CHARS as _TOOL_JD_CHARS,
@@ -1062,7 +1064,7 @@ def test_analysis_read_swallows_query_error(db_session, monkeypatch) -> None:
     def _boom(*args, **kwargs):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr("app.services.agent.tools.latest_valid_analysis", _boom)
+    monkeypatch.setattr("app.services.agent.tools.resume.latest_valid_analysis", _boom)
 
     out = _tool(db, "analysis_read").invoke({"resume_hint": ""})
 
@@ -1167,7 +1169,9 @@ def test_kb_list_caps_at_twenty(db_session) -> None:
 
 def test_kb_list_empty_library(db_session, monkeypatch) -> None:
     """开发库里预置语料一直存在，空库分支用 monkeypatch 隔离验证。"""
-    monkeypatch.setattr("app.services.agent.tools.list_documents", lambda *a, **k: [])
+    monkeypatch.setattr(
+        "app.services.agent.tools.kb.list_documents", lambda *a, **k: []
+    )
 
     out = _tool(db_session, "kb_list").invoke({"query": ""})
 
@@ -1193,7 +1197,7 @@ def test_kb_list_swallows_query_error(db_session, monkeypatch) -> None:
     def _boom(*args, **kwargs):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr("app.services.agent.tools.list_documents", _boom)
+    monkeypatch.setattr("app.services.agent.tools.kb.list_documents", _boom)
 
     out = _tool(db_session, "kb_list").invoke({"query": ""})
 
@@ -1389,21 +1393,8 @@ def test_kb_search_and_platform_help_are_mutually_exclusive(db_session) -> None:
 
 # —— 工具描述互斥性（13 个工具统一口径）——
 
-_ALL_TOOLS = (
-    "kb_search",
-    "resume_lookup",
-    "interview_history",
-    "interview_transcript",
-    "score_trend",
-    "conversation_search",
-    "usage_stats",
-    "analysis_read",
-    "kb_list",
-    "platform_help",
-    "job_match",
-    "question_gen",
-    "answer_review",
-)
+# v4.3 单一数据源：工具清单一律从 registry.TOOLS_META 派生，不再手写清单
+_ALL_TOOLS = TOOL_NAMES
 
 
 def _descriptions() -> dict:
@@ -1448,6 +1439,16 @@ def test_confusable_tools_name_each_other(name: str, other: str) -> None:
 def test_descriptions_cover_every_tool() -> None:
     """上面的参数化清单要跟 make_tools 的实际返回一致，防止加了工具忘了补描述口径。"""
     assert set(_descriptions()) == set(_ALL_TOOLS)
+
+
+def test_registry_matches_make_tools() -> None:
+    """registry 与 make_tools 实际产物强一致（防两处口径漂移）；kb_search 必须第一。"""
+    tools = make_tools(None, None, None, ToolContext())
+    assert [t.name for t in tools] == list(TOOL_NAMES)
+    assert TOOL_NAMES[0] == "kb_search"
+    assert [m["name"] for m in TOOLS_META] == list(TOOL_NAMES)
+    labels = {m["name"]: m["label"] for m in TOOLS_META}
+    assert all(labels.get(t.name) for t in tools)
 
 
 # —— 工具内 LLM 调用的独立限额与记账 ——
@@ -1622,7 +1623,7 @@ def _patch_chat_json(monkeypatch, result: AnalysisResult | None = None, error=No
     # answer_review 仍在 tools.py，job_match/question_gen 已下沉 capabilities：
     # 两处 chat_json 都 patch，替身对两类测试都生效
     monkeypatch.setattr("app.services.agent_capabilities.chat_json", _fake)
-    monkeypatch.setattr("app.services.agent.tools.chat_json", _fake)
+    monkeypatch.setattr("app.services.agent.tools.llm.chat_json", _fake)
     return seen
 
 

@@ -178,11 +178,11 @@ const displayText = computed(() => {
       <div class="drp-times">
         <label class="time-field">
           <span>开始</span>
-          <input type="time" v-model="tempStartTime" />
+          <input v-model="tempStartTime" type="time" />
         </label>
         <label class="time-field">
           <span>结束</span>
-          <input type="time" v-model="tempEndTime" />
+          <input v-model="tempEndTime" type="time" />
         </label>
       </div>
 

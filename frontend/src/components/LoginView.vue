@@ -12,14 +12,14 @@ const emit = defineEmits(['logged-in'])
     <div class="login-card-wrap">
       <div class="brand-block">
         <svg class="logo-svg" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-          <path d="M4 8a4 4 0 0 1 4-4h16a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H12l-6 5v-5a4 4 0 0 1-2-3.46V8z" fill="url(#logo-lg)"/>
-          <circle cx="11" cy="13" r="1.8" fill="#fff"/>
-          <circle cx="16" cy="13" r="1.8" fill="#fff"/>
-          <circle cx="21" cy="13" r="1.8" fill="#fff"/>
+          <path d="M4 8a4 4 0 0 1 4-4h16a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H12l-6 5v-5a4 4 0 0 1-2-3.46V8z" fill="url(#logo-lg)" />
+          <circle cx="11" cy="13" r="1.8" fill="#fff" />
+          <circle cx="16" cy="13" r="1.8" fill="#fff" />
+          <circle cx="21" cy="13" r="1.8" fill="#fff" />
           <defs>
             <linearGradient id="logo-lg" x1="4" y1="4" x2="28" y2="28">
-              <stop stop-color="#10b981"/>
-              <stop offset="1" stop-color="#059669"/>
+              <stop stop-color="#10b981" />
+              <stop offset="1" stop-color="#059669" />
             </linearGradient>
           </defs>
         </svg>

@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -89,11 +89,23 @@ def admin_stats(
 
 @router.get("/users")
 def admin_users(
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),  # noqa: B008
     user: User = Depends(_admin_only),  # noqa: B008
-) -> list[dict]:
-    users = db.scalars(select(User).order_by(User.created_at.desc())).all()
-    # 一条 GROUP BY 拿全部用户的简历数，避免每个用户单独 count 的 N+1 查询
+) -> dict:
+    """用户列表（v4.3 分页收口）：envelope 返回——用户量增长后接口耗时与传输体积恒定。
+
+    limit/offset 由服务端裁决（前端翻页重查），total 供前端渲染总页数。
+    """
+    total = db.scalar(select(func.count()).select_from(User)) or 0
+    users = db.scalars(
+        select(User)
+        .order_by(User.created_at.desc(), User.id.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    # 一条 GROUP BY 拿本页用户的简历数，避免每个用户单独 count 的 N+1 查询
     resume_counts = dict(
         db.execute(
             select(Resume.user_id, func.count())
@@ -101,7 +113,7 @@ def admin_users(
             .group_by(Resume.user_id)
         ).all()
     )
-    return [
+    items = [
         {
             "id": u.id,
             "username": u.username,  # S-8：email 可空后，用户名是辨识用户的主标识
@@ -113,6 +125,7 @@ def admin_users(
         }
         for u in users
     ]
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/usage")

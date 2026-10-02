@@ -1,6 +1,6 @@
 """面试题库接口（v4.2 B3）：生成 / 列表 / 详情 / 删除。挂 /api/question-banks 前缀。"""
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -68,10 +68,14 @@ def generate_bank(
 
 @router.get("")
 def list_banks(
+    limit: int = Query(100, ge=1, le=500),  # v4.3 分页收口：默认 100 封顶防全量
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),  # noqa: B008
     user: User = Depends(get_current_user),  # noqa: B008
 ) -> list[dict]:
-    banks = question_bank_service.list_question_banks(db, user)
+    banks = question_bank_service.list_question_banks(
+        db, user, limit=limit, offset=offset
+    )
     return [
         {
             "id": b.id,

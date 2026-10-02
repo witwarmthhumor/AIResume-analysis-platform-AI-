@@ -6,7 +6,7 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -106,6 +106,8 @@ async def upload_audio(
 
 @router.get("/analyses")
 def list_audios(
+    limit: int = Query(100, ge=1, le=500),  # v4.3 分页收口：默认 100 封顶防全量
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),  # noqa: B008
     user: User = Depends(get_current_user),  # noqa: B008
 ) -> list[dict]:
@@ -113,6 +115,8 @@ def list_audios(
         select(AudioAnalysis)
         .where(AudioAnalysis.user_id == user.id)
         .order_by(AudioAnalysis.created_at.desc(), AudioAnalysis.id.desc())
+        .offset(offset)
+        .limit(limit)
     ).all()
     return [
         {

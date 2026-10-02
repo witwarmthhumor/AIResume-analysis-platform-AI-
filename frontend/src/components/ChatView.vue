@@ -155,7 +155,7 @@ onDeactivated(() => activeAbort?.())
       <button v-if="!sidebarCollapsed" class="new-chat-btn" @click="newSession">
         <span class="plus">+</span> 新建对话
       </button>
-      <button v-else class="new-chat-btn collapsed" @click="newSession" title="新建对话">+</button>
+      <button v-else class="new-chat-btn collapsed" title="新建对话" @click="newSession">+</button>
 
       <div class="session-list">
         <div v-if="sessionsLoading" class="session-empty">加载中…</div>
@@ -175,13 +175,15 @@ onDeactivated(() => activeAbort?.())
               class="session-del"
               title="删除对话"
               @click.stop="deleteSession(s)"
-            >🗑</button>
+            >
+🗑
+</button>
           </div>
           <div v-if="!sessions.length" class="session-empty">暂无对话</div>
         </template>
       </div>
 
-      <button class="sidebar-toggle" @click="sidebarCollapsed = !sidebarCollapsed" :title="sidebarCollapsed ? '展开侧栏' : '折叠侧栏'">
+      <button class="sidebar-toggle" :title="sidebarCollapsed ? '展开侧栏' : '折叠侧栏'" @click="sidebarCollapsed = !sidebarCollapsed">
         {{ sidebarCollapsed ? '»' : '«' }}
       </button>
     </aside>
@@ -213,8 +215,7 @@ onDeactivated(() => activeAbort?.())
             </div>
           </div>
         </div>
-
-      </template>
+</template>
 
       <!-- 无对话空态 -->
       <div v-else class="chat-empty">

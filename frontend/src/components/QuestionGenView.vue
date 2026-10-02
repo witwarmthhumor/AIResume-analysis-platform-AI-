@@ -131,7 +131,9 @@ onMounted(() => {
           v-if="currentBank.resume_id"
           class="btn btn-ghost btn-sm"
           @click="emit('navigate', 'interview', currentBank.resume_id, currentBank.id)"
-        >拿这套题去模拟面试</button>
+        >
+拿这套题去模拟面试
+</button>
       </div>
       <div v-for="(items, cat) in groupedQuestions" :key="cat" class="cat-block">
         <div class="cat-title">{{ cat }}</div>

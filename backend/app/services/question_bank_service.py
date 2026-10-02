@@ -89,13 +89,20 @@ def generate_question_bank(
     return bank, result
 
 
-def list_question_banks(db: Session, user: User) -> list[QuestionBank]:
+def list_question_banks(
+    db: Session,
+    user: User,
+    limit: int = 100,  # v4.3 分页收口：路由层默认 100 封顶，service 侧再兜一层
+    offset: int = 0,
+) -> list[QuestionBank]:
     """本人题库列表（created_at desc, id desc——同事务多行可能同戳，id 兜底排序）。"""
     return list(
         db.scalars(
             select(QuestionBank)
             .where(QuestionBank.user_id == user.id)
             .order_by(QuestionBank.created_at.desc(), QuestionBank.id.desc())
+            .offset(offset)
+            .limit(limit)
         )
     )
 
