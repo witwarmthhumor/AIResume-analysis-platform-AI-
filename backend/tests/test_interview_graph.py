@@ -35,6 +35,9 @@ class _StubLLM:
     def __init__(self):
         self.calls: list[str] = []
         self.n = 0
+        self.score_responses: list[
+            dict
+        ] = []  # v4.5：按序消费的评分脚本（弱回答驱动追问路由）
 
     def _result(self, report: dict) -> AnalysisResult:
         return AnalysisResult(
@@ -54,9 +57,12 @@ class _StubLLM:
             return self._result({"question": f"stub-question-{self.n}"})
         if owner is interview_graph.graph.AnswerScore:
             self.calls.append("score")
-            return self._result(
-                {"score": 7, "depth_signal": "medium", "comment": "回答尚可"}
+            report = (
+                self.score_responses.pop(0)
+                if self.score_responses
+                else {"score": 7, "depth_signal": "medium", "comment": "回答尚可"}
             )
+            return self._result(report)
         if owner is InterviewReport:
             self.calls.append("report")
             return self._result(
@@ -294,3 +300,167 @@ def _capture_stub_calls(_graph_mode):
     global _graph_stub_calls
     _graph_stub_calls = _graph_mode.calls
     yield
+
+
+# —— v4.5 面试官 Agent：智能追问 ——
+
+
+def test_route_after_score_unit(monkeypatch):
+    """纯函数直测：weak/低分触发追问；预算耗尽/strong/收尾/结束/无作答不追问。"""
+    from app.services.interview_graph.graph import route_after_score
+
+    base = {
+        "turn_count": 2,
+        "stage": "technical",
+        "user_answer": "回答内容",
+        "follow_up_count": 0,
+        "last_score": {"score": 3, "depth_signal": "weak", "comment": "弱"},
+    }
+    assert route_after_score(base) == "follow_up"
+
+    # 只有低分没有 depth_signal 的兼容口径：低分同样追问
+    low = dict(base, last_score={"score": 3, "depth_signal": "unknown"})
+    assert route_after_score(low) == "follow_up"
+
+    # 预算耗尽 → 下一题；预算上调后继续追问
+    used = dict(base, follow_up_count=1)
+    monkeypatch.setattr(settings, "interview_max_follow_ups", 1)
+    assert route_after_score(used) == "ask_question"
+    monkeypatch.setattr(settings, "interview_max_follow_ups", 2)
+    assert route_after_score(used) == "follow_up"
+
+    # strong 不追问；收尾阶段不追问；要结束不追问；无作答不追问
+    assert (
+        route_after_score(dict(base, last_score={"score": 8, "depth_signal": "strong"}))
+        == "ask_question"
+    )
+    assert route_after_score(dict(base, stage="wrapup")) == "generate_report"
+    assert route_after_score(dict(base, finish_requested=True)) == "generate_report"
+    assert route_after_score(dict(base, user_answer=None)) == "ask_question"
+
+
+def test_weak_answer_triggers_follow_up_flow() -> None:
+    """弱回答 → follow_up 落库追问且不推进轮次 → 追问后回答 → 下一题（轮次+1）。
+
+    追问轮的 SSE done 事件 content 即追问语、turn 不变——前端无需任何改动即可
+    把追问当作面试官的下一句话展示。
+    """
+    stub = _StubLLM()
+    stub.score_responses = [
+        {"score": 3, "depth_signal": "weak", "comment": "太空泛"},
+        {"score": 7, "depth_signal": "medium", "comment": "追问后展开"},
+    ]
+    import app.services.interview_graph as ig
+
+    old = ig.graph.chat_json
+    ig.graph.chat_json = stub
+    try:
+        c, resume_id = _register_and_upload()
+        session = c.post(f"/api/resumes/{resume_id}/interviews", json={}).json()[
+            "session"
+        ]
+
+        # 弱回答：SSE done 给追问语、turn 不变
+        resp = c.post(
+            f"/api/interviews/{session['id']}/messages", json={"content": "就那样吧。"}
+        )
+        events = _parse_sse(resp.text)
+        assert (
+            events["done"]["content"] == "stub-question-2"
+        )  # 追问复用 NextQuestion 契约
+        assert events["done"]["turn"] == 1  # 追问不占主问题轮次
+
+        # 追问后回答：medium → 回归出题（turn=2）
+        resp2 = c.post(
+            f"/api/interviews/{session['id']}/messages",
+            json={"content": "展开后的回答。"},
+        )
+        events2 = _parse_sse(resp2.text)
+        assert events2["done"]["content"] == "stub-question-3"
+        assert events2["done"]["turn"] == 2
+
+        with engine.begin() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT turn_count, trace_json, "
+                    "(SELECT count(*) FROM interview_messages WHERE session_id = :i) "
+                    "FROM interview_sessions WHERE id = :i"
+                ),
+                {"i": session["id"]},
+            ).fetchone()
+        assert row[0] == 2
+        nodes = [n["node"] for n in row[1]["nodes"]]
+        assert "follow_up" in nodes
+        assert row[2] == 6  # 开场白+问1+答1+追问+答2+问2（候选人作答也落库）
+    finally:
+        ig.graph.chat_json = old
+
+
+def test_follow_up_budget_one_by_default() -> None:
+    """默认预算=1：同一主问题第二次弱回答不再追问，直接出下一题。"""
+    stub = _StubLLM()
+    stub.score_responses = [
+        {"score": 3, "depth_signal": "weak", "comment": "弱1"},
+        {"score": 2, "depth_signal": "weak", "comment": "追问后仍弱（预算已用）"},
+    ]
+    import app.services.interview_graph as ig
+
+    old = ig.graph.chat_json
+    ig.graph.chat_json = stub
+    try:
+        c, resume_id = _register_and_upload()
+        session = c.post(f"/api/resumes/{resume_id}/interviews", json={}).json()[
+            "session"
+        ]
+        c.post(f"/api/interviews/{session['id']}/messages", json={"content": "一答。"})
+        resp = c.post(
+            f"/api/interviews/{session['id']}/messages", json={"content": "追问答。"}
+        )
+        events = _parse_sse(resp.text)
+        assert events["done"]["turn"] == 2  # 第二次弱回答直接进下一题
+        interviewer = [
+            m["content"]
+            for m in events_done_messages(c, session)
+            if m["role"] == "interviewer"
+        ]
+        # 追问复用 NextQuestion 契约（消耗 stub 序号）：opening→问1→追问(n=2)→下一题(n=3)
+        assert interviewer == [
+            OPENING_MESSAGE,
+            "stub-question-1",
+            "stub-question-2",
+            "stub-question-3",
+        ]
+    finally:
+        ig.graph.chat_json = old
+
+
+def events_done_messages(c, session):
+    """拉会话详情的消息列表（追问用例的公共小助手）。"""
+    return c.get(f"/api/interviews/{session['id']}").json()["messages"]
+
+
+def test_finish_after_weak_answer_never_follow_up() -> None:
+    """弱回答挂起在追问位后，用户选择结束：直接出报告，不追问（结束语义优先）。"""
+    stub = _StubLLM()
+    stub.score_responses = [
+        {"score": 3, "depth_signal": "weak", "comment": "弱"},
+    ]
+    import app.services.interview_graph as ig
+
+    old = ig.graph.chat_json
+    ig.graph.chat_json = stub
+    try:
+        c, resume_id = _register_and_upload()
+        session = c.post(f"/api/resumes/{resume_id}/interviews", json={}).json()[
+            "session"
+        ]
+        c.post(f"/api/interviews/{session['id']}/messages", json={"content": "一答。"})
+        # 此时图挂在追问位 wait_answer；finish 从该挂起点恢复——结束语义优先
+        resp = c.post(f"/api/interviews/{session['id']}/finish")
+        assert resp.status_code == 200
+        detail = c.get(f"/api/interviews/{session['id']}").json()
+        assert detail["status"] == "finished"
+        assert detail["final_report"] is not None
+        assert [m["content"] for m in detail["messages"]].count(OPENING_MESSAGE) == 1
+    finally:
+        ig.graph.chat_json = old

@@ -40,15 +40,24 @@ from app.services.interview_prompts import (
     OPENING_MESSAGE,
     build_answer_score_system_prompt,
     build_final_report_system_prompt,
+    build_follow_up_system_prompt,
     build_interviewer_system_prompt,
     stage_for_turn,
 )
 
 logger = logging.getLogger(__name__)
 
+# 追问生成失败时的兜底追问：路由已进入 follow_up，节点必须产出追问语（不挂死、不空转）
+FALLBACK_FOLLOW_UP = (
+    "你刚才提到的那部分能再展开讲讲吗？具体说说是怎么实现的，以及你个人负责了哪些部分。"
+)
+
 # 出题失败时的兜底问题（工具层同口径：吞异常给自然语言兜底，不炸整场面试）
 FALLBACK_QUESTION = "刚才的网络有点问题。我们继续：请再讲讲你简历里最有挑战的一个项目，你具体负责了哪部分？"
 
+_FOLLOW_UP_INSTRUCTION = (
+    '请针对候选人刚才的回答输出一个追问。只输出 JSON：{"question": "追问全文"}'
+)
 _QUESTION_INSTRUCTION = (
     '请基于简历与对话进度提出下一轮面试问题。只输出 JSON：{"question": "问题全文"}'
 )
@@ -85,6 +94,8 @@ class InterviewState(TypedDict, total=False):
     # 随 checkpoint 持久化，session 表无需加列
     bank_questions: list
     bank_index: int
+    # v4.5 面试官 Agent：当前主问题的追问次数（追问不占主问题轮次）
+    follow_up_count: int
 
 
 @dataclass
@@ -224,6 +235,7 @@ def _make_nodes(deps: _Deps) -> dict:
             "turn_count": turn,
             "stage": ask_stage,
             "last_question": question,
+            "follow_up_count": 0,  # 新主问题：追问预算重置
         }
         if source == "bank":
             patch["bank_index"] = idx + 1  # 题库游标随 checkpoint 前进
@@ -277,6 +289,56 @@ def _make_nodes(deps: _Deps) -> dict:
         db.commit()
         return {"last_score": score}
 
+    def follow_up(state: InterviewState) -> dict:
+        """v4.5 面试官 Agent：对单薄回答生成针对性追问，再次挂起等作答。
+
+        追问**不推进 turn_count**（主问题轮次口径不变，报告 transcript 仍全量含追问轮）；
+        预算由 route_after_score 按 settings.interview_max_follow_ups 把关，本节点只管生成。
+        生成失败不挂死面试：路由已进入本节点，兜底追问语保证行为一致。
+        """
+        started = time.monotonic()
+        system = build_follow_up_system_prompt(
+            deps.resume_text,
+            state.get("last_question") or "",
+            state.get("user_answer") or "",
+            str((state.get("last_score") or {}).get("comment") or ""),
+        )
+        result: AnalysisResult | None = None
+        try:
+            result = chat_json(
+                system, _FOLLOW_UP_INSTRUCTION, settings, NextQuestion.model_validate
+            )
+            follow = (result.report.get("question") or "").strip()[:2000]
+        except AIError:
+            logger.warning(
+                "面试图追问生成失败 session=%s，使用兜底追问", session.id, exc_info=True
+            )
+            follow = ""
+        if not follow:
+            follow = FALLBACK_FOLLOW_UP
+        db.add(
+            InterviewMessage(
+                session_id=session.id,
+                role="interviewer",
+                content=follow,
+                tokens=result.tokens_completion if result else None,
+            )
+        )
+        deps._record(
+            "follow_up",
+            state.get("turn_count") or 0,
+            result,
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+        db.commit()
+        return {
+            "last_question": follow,
+            "follow_up_count": (state.get("follow_up_count") or 0) + 1,
+            # 清空上一答：追问轮是新作答，score_answer 评分的是追问的回答
+            "user_answer": None,
+            "finish_requested": False,
+        }
+
     def generate_report(state: InterviewState) -> dict:
         """结束评价：全量对话 → 分维度评分 JSON，session 置 finished。"""
         history = list(
@@ -307,14 +369,18 @@ def _make_nodes(deps: _Deps) -> dict:
         "ask_question": ask_question,
         "wait_answer": wait_answer,
         "score_answer": score_answer,
+        "follow_up": follow_up,
         "generate_report": generate_report,
     }
 
 
 def route_after_score(state: InterviewState) -> str:
-    """评分后路由：用户要结束 / 达到轮次上限 / 进入收尾阶段 → 出报告，否则继续出题。
+    """评分后路由：结束/轮次上限/收尾阶段 → 出报告；回答单薄且追问预算未尽 → 智能追问；
+    否则继续出下一题。
 
     ⚠️ 返回值必须与 build_interview_graph 条件边映射的键严格一致（坑 #2）。
+    追问不占主问题轮次（turn_count 不变），总量由 max_interview_turns 与
+    interview_max_follow_ups 两个预算共同约束。
     """
     if state.get("finish_requested"):
         return "generate_report"
@@ -322,17 +388,31 @@ def route_after_score(state: InterviewState) -> str:
         return "generate_report"
     if state.get("stage") == "wrapup":
         return "generate_report"
+    if not state.get("user_answer"):
+        # 无作答（空 resume 值）：没内容可追问，直接下一题
+        return "ask_question"
+    score = state.get("last_score") or {}
+    weak = score.get("depth_signal") == "weak" or (
+        isinstance(score.get("score"), int) and score["score"] <= 4
+    )
+    if weak and (state.get("follow_up_count") or 0) < settings.interview_max_follow_ups:
+        return "follow_up"
     return "ask_question"
 
 
 def build_interview_graph(checkpointer, deps: _Deps):
-    """编译面试图。interrupt/resume 经 PostgresSaver 支持（checkpoint 落 langgraph schema）。"""
+    """编译面试图。interrupt/resume 经 PostgresSaver 支持（checkpoint 落 langgraph schema）。
+
+    v4.5 拓扑：score_answer 后条件路由可进 follow_up（面试官 Agent 智能追问），
+    follow_up → wait_answer 再次挂起——同一主问题的追问链在 checkpoint 上闭环。
+    """
     builder = StateGraph(InterviewState)
     for name in (
         "intro",
         "ask_question",
         "wait_answer",
         "score_answer",
+        "follow_up",
         "generate_report",
     ):
         builder.add_node(name, deps.nodes[name])
@@ -343,8 +423,13 @@ def build_interview_graph(checkpointer, deps: _Deps):
     builder.add_conditional_edges(
         "score_answer",
         route_after_score,
-        {"ask_question": "ask_question", "generate_report": "generate_report"},
+        {
+            "ask_question": "ask_question",
+            "follow_up": "follow_up",
+            "generate_report": "generate_report",
+        },
     )
+    builder.add_edge("follow_up", "wait_answer")
     builder.add_edge("generate_report", END)
     return builder.compile(checkpointer=checkpointer)
 
@@ -392,6 +477,7 @@ def graph_start(
                 "stage": "intro",
                 "bank_questions": bank_questions or [],
                 "bank_index": 0,
+                "follow_up_count": 0,
             },
             _thread(session.id),
         )

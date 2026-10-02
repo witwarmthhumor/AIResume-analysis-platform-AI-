@@ -34,10 +34,15 @@ _EMAIL_PREFIX = "eval-ig-"
 
 
 class _StubLLM:
-    """确定性替身：按 validator 分发，问题带序号便于断言续跑顺序。"""
+    """确定性替身：按 validator 分发，问题带序号便于断言续跑顺序。
+
+    score_responses（v4.5）：按序消费的评分脚本——供"弱回答触发追问"场景驱动
+    follow_up 路由；队列耗尽后回落默认 medium。
+    """
 
     def __init__(self):
         self.n = 0
+        self.score_responses: list[dict] = []
 
     def _result(self, report: dict) -> AnalysisResult:
         return AnalysisResult(
@@ -55,7 +60,12 @@ class _StubLLM:
             self.n += 1
             return self._result({"question": f"stub-question-{self.n}"})
         if owner is interview_graph.graph.AnswerScore:
-            return self._result({"score": 7, "depth_signal": "medium", "comment": "ok"})
+            report = (
+                self.score_responses.pop(0)
+                if self.score_responses
+                else {"score": 7, "depth_signal": "medium", "comment": "ok"}
+            )
+            return self._result(report)
         if owner is InterviewReport:
             return self._result(
                 {
@@ -96,9 +106,13 @@ def _run_scenario(case: dict, stub: _StubLLM) -> tuple[bool, list[str]]:
     """按 actions 驱动场景，返回 (是否通过, 失败明细)。任何异常都折算成失败明细，
     不让单个场景炸掉整个评测。"""
     failures: list[str] = []
+    stub.score_responses = list(case.get("score_responses") or [])
     old_max = settings.max_interview_turns
+    old_follow = settings.interview_max_follow_ups
     if case.get("max_turns"):
         settings.max_interview_turns = case["max_turns"]
+    if "max_follow_ups" in case:
+        settings.interview_max_follow_ups = case["max_follow_ups"]
     try:
         return _drive(case, failures)
     except AssertionError as exc:
@@ -106,6 +120,7 @@ def _run_scenario(case: dict, stub: _StubLLM) -> tuple[bool, list[str]]:
         return False, failures
     finally:
         settings.max_interview_turns = old_max
+        settings.interview_max_follow_ups = old_follow
         _cleanup()
 
 
