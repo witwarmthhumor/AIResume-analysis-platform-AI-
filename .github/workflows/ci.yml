@@ -60,7 +60,7 @@ jobs:
       - name: 数据库迁移到 head
         run: python -m alembic upgrade head
 
-      - name: pytest 全量（388 用例 + 覆盖率门槛 85%，v4.4.1 起）
+      - name: pytest 全量（401 用例 + 覆盖率门槛 85%，v4.4.1 起）
         run: |
           python -m pytest -q --cov=app --cov-report=term --cov-fail-under=85 --junitxml=pytest-result.xml | tee pytest.log
           exit ${PIPESTATUS[0]}

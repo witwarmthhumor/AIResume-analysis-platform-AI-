@@ -15,6 +15,7 @@ from app.services.agent.tools.common import (
     _TOOL_CONV_LIMIT,
     _TOOL_SNIPPET_WIDTH,
     ToolContext,
+    _escape_like,
     _owner_filter,
     _snippet,
 )
@@ -69,7 +70,7 @@ def build_conversation_search(
                     .where(
                         owner,
                         ChatSession.deleted_at.is_(None),
-                        ChatMessage.content.ilike(f"%{keyword_kw}%"),
+                        ChatMessage.content.ilike(f"%{_escape_like(keyword_kw)}%"),
                     )
                     .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
                     .limit(count)
@@ -130,7 +131,8 @@ def build_usage_stats(
         留空表示统计全部动作。action 合法取值（英文枚举）：parse（简历解析）、
         analysis（AI 简历分析）、interview_message（模拟面试对话）、kb_upload（知识库上传）、
         playground（在线对话问答）、chat_create（新建对话）、agent（AI 客服问答）、
-        agent_create（新建客服会话）、agent_tool_llm（工具内 AI 调用）。"""
+        agent_create（新建客服会话）、agent_tool_llm（工具内 AI 调用）、
+        question_bank（面试题生成）、audio_transcribe（录音转写）、audio_review（录音审核）。"""
         owner = _owner_filter(UsageLog, user_id, anonymous_id)
         if owner is None:
             return (

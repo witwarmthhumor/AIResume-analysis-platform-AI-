@@ -90,6 +90,12 @@ async def upload_audio(
     )
 
     data = await file.read()
+    # 读后大小兜底（v6 审计 S6-1）：file.size 为 None 时（无 Content-Length 的请求）
+    # 预检被跳过，真实大小以读到的字节为准——与 resumes.py / admin_kb.py 同口径
+    if len(data) > settings.audio_upload_max_size:
+        raise HTTPException(
+            413, f"音频超过 {settings.audio_upload_max_size // (1024 * 1024)}MB 限制"
+        )
     # v4.4.1 安全件：扩展名之外再校验文件头，伪装文件在此 415，不进任务队列
     if not _magic_ok(filename, data):
         raise HTTPException(415, "音频内容与扩展名不符（或为空文件），请提供真实录音")

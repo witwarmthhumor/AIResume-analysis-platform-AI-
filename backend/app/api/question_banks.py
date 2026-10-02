@@ -42,7 +42,11 @@ def generate_bank(
         bank, result = question_bank_service.generate_question_bank(
             db, user, body.resume_id
         )
+    except question_bank_service.ResumeNotParsedError as exc:
+        # 本人可纠正状态：400 + 明确指引（v6 审计 G6-4 语义分拆）
+        raise HTTPException(400, exc.message) from None
     except ValueError as exc:
+        # 不存在/非本人：404 统一口径，不泄露「资源存在但无权」
         raise HTTPException(404, str(exc)) from None
     # 记账：生成成功后写 usage_logs（question_bank 动作），与题库落库同一事务
     db.add(

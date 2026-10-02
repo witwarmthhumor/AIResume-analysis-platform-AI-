@@ -12,6 +12,7 @@ from app.services.agent.tools.common import (
     _TOOL_REPORT_ITEMS,
     _TOOL_REPORT_QUESTIONS,
     ToolContext,
+    _escape_like,
     _owner_filter,
     _snippet,
 )
@@ -59,10 +60,11 @@ def build_resume_lookup(
 
         if query_kw:
             # 关键词在 SQL 端过滤，且不限 _TOOL_LIST_LIMIT：原先"先取 5 份再在正文里
-            # 匹配"会漏掉第 5 份之后的简历命中，误导模型答复"正文中未找到"
+            # 匹配"会漏掉第 5 份之后的简历命中，误导模型答复"正文中未找到"。
+            # %/_ 先转义（v6 审计 S6-3）：用户关键词按字面匹配，避免 "%" 全量命中
             try:
                 rows = db.scalars(
-                    base.where(Resume.raw_text.ilike(f"%{query_kw}%"))
+                    base.where(Resume.raw_text.ilike(f"%{_escape_like(query_kw)}%"))
                 ).all()
             except Exception:
                 logger.exception("agent resume_lookup 关键词查询失败")
@@ -73,7 +75,6 @@ def build_resume_lookup(
                     "可提示用户确认关键词，或用空 query 先列出简历清单。"
                 )
 
-        keyword = (query or "").strip()
         parts = []
         for resume in rows:
             uploaded = (
@@ -83,12 +84,12 @@ def build_resume_lookup(
                 f"【简历】{resume.filename}"
                 f"（{resume.page_count or '?'} 页，解析状态 {resume.parse_status}，上传于 {uploaded}）"
             )
-            if keyword:
-                snippet = _snippet(resume.raw_text or "", keyword)
+            if query_kw:
+                snippet = _snippet(resume.raw_text or "", query_kw)
                 head += (
                     f"\n  命中片段：{snippet}"
                     if snippet
-                    else f"\n  正文中未找到与「{keyword}」相关的内容"
+                    else f"\n  正文中未找到与「{query_kw}」相关的内容"
                 )
             parts.append(head)
         return "以下是该用户自己的简历信息（仅本人可见）：\n" + "\n".join(parts)
