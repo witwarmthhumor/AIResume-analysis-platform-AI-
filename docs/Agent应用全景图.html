@@ -138,7 +138,7 @@
             <span>创建 run · stream（SSE）· approve · retry-node · abort · admin 运维</span></div>
           <div class="varrow">▼</div>
           <div class="node"><b>引擎：services/agent_v2/graph.py</b>
-            <span>StateGraph 9 节点 + PostgresSaver 断点续跑 + interrupt 人工审批（TTL 30 分钟）</span></div>
+            <span>StateGraph 多节点编排 + PostgresSaver 断点续跑 + interrupt 人工审批（TTL 30 分钟）</span></div>
           <div class="lane-foot"><b>开关：</b>agent_v2_enabled（默认开）→ 关闭后 v2 全部 503，客服回归 v1</div>
         </div>
       </div>
@@ -162,7 +162,7 @@
     <div class="foundation">
       <h3>共用底座（三个场景共享）</h3>
       <span class="chip"><b>13 个工具</b> tools.py（kb_search 恒居首位）</span>
-      <span class="chip"><b>能力层</b> agent_capabilities.py：job_match / question_gen / analyze_resume（v1 工具与 v2 节点共用）</span>
+      <span class="chip"><b>能力层</b> agent_capabilities.py：run_job_match / run_question_generation / kb_retrieve / find_latest_resume / run_tool_llm（v1 工具与 v2 节点共用）</span>
       <span class="chip"><b>三层限额</b> 主循环 30/日 · 工具内 AI 20/日 · v2 run 10/日</span>
       <span class="chip"><b>LLM</b> DeepSeek deepseek-chat（OpenAI 兼容协议）</span>
       <span class="chip"><b>存储</b> Postgres 16 + pgvector 混合检索 · Redis（队列 / 登录锁定）</span>

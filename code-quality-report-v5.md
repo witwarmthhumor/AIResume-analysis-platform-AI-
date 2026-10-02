@@ -167,7 +167,7 @@ const body = await post(`/api/audio/analyses/${current.value.id}/interview-revie
 
 **G-2 [P2] `backend/app/worker/tasks.py:142` 转写任务读文件在 try 块之外，文件缺失会让记录永久卡在 transcribing**
 ```python
-data = Path(audio.storage_path).read_bytes()   # 在 try 外
+data = Path(audio.storage_path).read_bytes()  # 在 try 外
 try:
     result = transcribe(data, audio.filename)
 except Exception as exc:
@@ -203,10 +203,11 @@ activeTab.value = current.value?.transcript ? 'transcribe' : 'transcribe'
 ```python
 import json
 import time
+
 ...
 from app.core.logging import get_logger
 
-logger = get_logger(__name__)      # 语句夹在 import 中间
+logger = get_logger(__name__)  # 语句夹在 import 中间
 from datetime import datetime, timezone
 ```
 ruff 未开 E402 所以没拦，但阅读时 import 依赖关系被打断。修复：`logger = ...` 挪到全部 import 之后。

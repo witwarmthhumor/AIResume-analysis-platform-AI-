@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 架构与协作图 — AI 简历分析 + AI 模拟面试</title>
+<style>
+  :root{
+    --ink:#111827; --muted:#6b7280; --line:#e5e7eb; --bg:#f5f6f8;
+    --v1:#4f46e5; --v1-bg:#eef2ff;
+    --v2:#0f766e; --v2-bg:#f0fdfa;
+    --vi:#b45309; --vi-bg:#fffbeb;
+    --dark:#1f2937; --ok:#047857;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+    line-height:1.55; -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1120px; margin:0 auto; padding:32px 20px 64px;}
+  h1{font-size:23px; margin:0; letter-spacing:.5px;}
+  .meta{color:var(--muted); font-size:13px; margin-top:6px;}
+  .meta code, code{font-family:ui-monospace,Consolas,monospace; font-size:.92em;
+    background:#eceef1; padding:1px 6px; border-radius:4px;}
+  section.card{background:#fff; border:1px solid var(--line); border-radius:12px;
+    padding:20px 22px; margin-top:18px;}
+  h2{font-size:16px; margin:0;}
+  p.sub{color:var(--muted); font-size:13px; margin:4px 0 0;}
+
+  /* ===== 分层架构 ===== */
+  .layer{display:flex; border:1px solid var(--line); border-radius:10px;
+    background:#fff; overflow:hidden; margin-top:8px;}
+  .layer:first-of-type{margin-top:14px;}
+  .layer .lt{width:168px; flex-shrink:0; padding:11px 14px; font-weight:600;
+    font-size:13px; background:#f3f4f6; border-right:1px solid var(--line);}
+  .layer .lt small{display:block; color:var(--muted); font-weight:400; font-size:11px; margin-top:2px;}
+  .layer .lc{padding:10px 14px; display:flex; flex-wrap:wrap; gap:6px; align-items:center;}
+  .lchip{background:#f8f9fb; border:1px solid var(--line); border-radius:6px;
+    padding:4px 10px; font-size:12px;}
+  .lchip code{background:transparent; padding:0; font-size:11px;}
+  .layer.hl{border:2px solid var(--v1);}
+  .layer.hl .lt{background:var(--v1-bg); color:var(--v1);}
+  .layer.hl .lchip{background:#fff; border-color:#c7d2fe; font-weight:600;}
+  .layer.hl .lchip i{display:block; font-style:normal; font-weight:400; font-size:11px; color:var(--muted);}
+  .larr{display:flex; justify-content:center; padding:3px 0;}
+  .larr span{font-size:11px; color:#475569; background:#fff;
+    border:1px dashed var(--line); border-radius:999px; padding:2px 12px;}
+  .larr b{color:var(--ink);}
+
+  /* ===== Agent 类型卡片 ===== */
+  .agrid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:14px;}
+  @media (max-width:920px){ .agrid{grid-template-columns:1fr;} }
+  .acard{border:1px solid var(--line); border-radius:10px; overflow:hidden;
+    display:flex; flex-direction:column; background:#fff;}
+  .ahead{padding:9px 13px; font-weight:600; font-size:13.5px;
+    display:flex; justify-content:space-between; align-items:center; gap:8px;
+    border-bottom:1px solid var(--line);}
+  .badge{font-size:11px; padding:2px 8px; border-radius:999px; background:#fff;
+    border:1px solid currentColor; font-family:ui-monospace,Consolas,monospace; white-space:nowrap;}
+  .acard.v1 .ahead{background:var(--v1-bg); color:var(--v1);}
+  .acard.v2 .ahead{background:var(--v2-bg); color:var(--v2);}
+  .acard.vi .ahead{background:var(--vi-bg); color:var(--vi);}
+  .abody{padding:10px 13px; display:flex; flex-direction:column; gap:7px; flex:1;}
+  .arow{font-size:12px;}
+  .arow b.k{display:block; font-size:11px; color:var(--muted);
+    letter-spacing:1px; margin-bottom:1px;}
+
+  .boundary{margin-top:14px; border:1px dashed var(--line); border-radius:10px;
+    background:#f9fafb; padding:10px 14px; font-size:12.5px; color:#374151;}
+  .boundary b{color:var(--ink);}
+
+  /* ===== 调用协作 ===== */
+  .call{font-size:11.5px; background:#fafafa; border:1px solid var(--line);
+    border-radius:7px; padding:5px 9px; line-height:1.6;}
+  .call code{background:transparent; padding:0; font-size:11px;}
+  .call .ar{color:#9ca3af; margin:0 3px;}
+  .call .mut{color:var(--muted);}
+  .call.cross{border-style:dashed; background:#fff;}
+  .sband{margin-top:14px; border-radius:10px; padding:11px 15px;}
+  .sband h4{margin:0; font-size:12.5px;}
+  .sband.light{border:1px solid #c7d2fe; background:var(--v1-bg);}
+  .sband.light h4{color:var(--v1);}
+  .sband.gray{border:1px solid var(--line); background:#f3f4f6;}
+  .sband.gray h4{color:#374151;}
+  .sband .cwrap{margin-top:8px; display:flex; flex-wrap:wrap; gap:6px;}
+  .schip{background:#fff; border:1px solid var(--line); border-radius:6px;
+    padding:3px 9px; font-size:11.5px; font-family:ui-monospace,Consolas,monospace;}
+
+  .notes{margin-top:13px; display:flex; flex-direction:column; gap:6px;}
+  .note{font-size:12.5px; color:#374151; background:#f9fafb;
+    border:1px dashed var(--line); border-radius:8px; padding:7px 11px;}
+  .note code{background:transparent; padding:0;}
+
+  /* ===== 对照表 ===== */
+  .tblwrap{overflow-x:auto; margin-top:14px;}
+  table.tbl{width:100%; border-collapse:collapse; font-size:12.5px; min-width:760px;}
+  .tbl th,.tbl td{border:1px solid var(--line); padding:7px 10px;
+    text-align:left; vertical-align:top;}
+  .tbl th{background:#f3f4f6; font-size:12px;}
+  .tbl th.c1{color:var(--v1);} .tbl th.c2{color:var(--v2);} .tbl th.c3{color:var(--vi);}
+  .tbl td:first-child{background:#fafafa; font-weight:600; white-space:nowrap; width:88px;}
+  .tbl td code{font-size:11px;}
+
+  .src{margin-top:18px; font-size:12px; color:var(--muted); line-height:1.9;}
+  .src b{color:var(--ink);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Agent 架构与协作图</h1>
+  <div class="meta">项目：AI 简历分析 + AI 模拟面试 · <code>v4.2.1</code> · 生成于 2026-10-01 · 关系视角，配合场景视角的 <code>docs/Agent应用全景图.html</code> 阅读 · 所有调用关系均经源码核实</div>
+
+  <!-- ============ 一、分层架构 ============ -->
+  <section class="card">
+    <h2>一、分层架构：Agent 在整体架构中的位置</h2>
+    <p class="sub">Agent 只占第 3 层——向上被 API 路由驱动，向下把「怎么做」交给共享能力层；所有 LLM 调用最终收敛到 ai_client 一处。</p>
+
+    <div class="layer">
+      <div class="lt">① 用户入口层<small>frontend/src · Vue 3</small></div>
+      <div class="lc">
+        <span class="lchip">AI 客服对话 <code>AgentChatCore / AgentWidget</code></span>
+        <span class="lchip">一键求职准备 <code>AgentRunView</code></span>
+        <span class="lchip">模拟面试流程页</span>
+        <span class="lchip">简历分析</span>
+        <span class="lchip">Playground</span>
+      </div>
+    </div>
+    <div class="larr">▼ 经 Vite 代理 / Nginx，<b>/api/** 全部经 ASGI 登录闸门（auth_gate）</b></div>
+    <div class="layer">
+      <div class="lt">② API 层<small>backend/app/api/*</small></div>
+      <div class="lc">
+        <span class="lchip"><code>POST /api/agent/ask</code>（SSE）</span>
+        <span class="lchip"><code>/api/agent-v2/*</code>（run/stream/approve）</span>
+        <span class="lchip"><code>/api/interviews/*</code></span>
+        <span class="lchip"><code>/api/analyses</code></span>
+        <span class="lchip"><code>/api/question-banks</code></span>
+      </div>
+    </div>
+    <div class="larr">▼ 路由只做装配与限流，<b>不做业务编排</b></div>
+    <div class="layer hl">
+      <div class="lt">③ Agent 编排层<small>本图主角 · 决定「何时调什么」</small></div>
+      <div class="lc">
+        <span class="lchip">v1 AI 客服<i>LangChain ReAct · 工具循环 ≤6 步</i></span>
+        <span class="lchip">v2 一键求职准备<i>LangGraph StateGraph + 人工审批</i></span>
+        <span class="lchip">面试图（S1）<i>LangGraph 面试流程状态机</i></span>
+      </div>
+    </div>
+    <div class="larr">▼ v1 三工具 + v2 三节点收敛到能力层；<b>面试图例外：直调 ai_client（见三·注③）</b></div>
+    <div class="layer">
+      <div class="lt">④ 共享能力层<small>负责「怎么做」+ 限额记账</small></div>
+      <div class="lc">
+        <span class="lchip"><code>agent_capabilities</code>：kb_retrieve · run_job_match · run_question_generation · find_latest_resume · run_tool_llm</span>
+        <span class="lchip"><code>kb_service</code> 混合检索（向量+BM25）</span>
+        <span class="lchip"><code>interview_service</code></span>
+        <span class="lchip"><code>question_bank_service</code></span>
+      </div>
+    </div>
+    <div class="larr">▼ 非 Agent 的 LLM 调用唯一封装 <b>ai_client</b>（chat_json / analyze_resume / stream_chat）</div>
+    <div class="layer">
+      <div class="lt">⑤ 模型与存储层<small>基础底座</small></div>
+      <div class="lc">
+        <span class="lchip"><code>DeepSeek deepseek-chat</code>（OpenAI 兼容）</span>
+        <span class="lchip"><code>Ollama nomic-embed-text</code>（仅 RAG 链路）</span>
+        <span class="lchip"><code>Postgres 16 + pgvector</code>（业务表 · LangGraph checkpoint · 审批单）</span>
+        <span class="lchip"><code>Redis</code>（Celery 队列 · 登录锁定）</span>
+        <span class="lchip"><code>Celery</code>（KB 入库 · 录音转写）</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 二、类型与职责 ============ -->
+  <section class="card">
+    <h2>二、三类 Agent：类型与职责</h2>
+    <p class="sub">判据：有「自主决策 + 工具/流程循环」的才算 Agent；单次 LLM 调用链不算（见底部边界澄清）。</p>
+
+    <div class="agrid">
+      <div class="acard v1">
+        <div class="ahead">v1 · AI 客服 <span class="badge">对话式 ReAct</span></div>
+        <div class="abody">
+          <div class="arow"><b class="k">职责</b>即时问答与个人数据查询：13 个工具覆盖知识库检索、简历 / 面试记录 / 分数趋势 / 用量读取、JD 匹配、出题、回答点评</div>
+          <div class="arow"><b class="k">运行特征</b>单会话内多步工具循环（≤6 次迭代）；SSE 流式（action / observation / delta）；会话 session_type='agent' 与在线对话隔离</div>
+          <div class="arow"><b class="k">治理</b>主循环 30 次/日 · 工具内 AI 20 次/日 · 路由评测 40/40</div>
+          <div class="arow"><b class="k">落点</b><code>services/agent/executor.py</code></div>
+        </div>
+      </div>
+      <div class="acard v2">
+        <div class="ahead">v2 · 一键求职准备 <span class="badge">编排式 + HITL</span></div>
+        <div class="abody">
+          <div class="arow"><b class="k">职责</b>长任务编排：读简历 → AI 分析 → 岗位匹配 → 模拟出题 → <b>人工审批后创建面试场</b></div>
+          <div class="arow"><b class="k">运行特征</b>verifier 回环（每节点 ≤2 次）· interrupt 审批（TTL 30 分钟）· PostgresSaver 断点续跑 · 单 run token 熔断 30000</div>
+          <div class="arow"><b class="k">治理</b>agent_v2_enabled（关 → 全部 503 回 v1）· 10 run/日 · e2e 评测 11/11</div>
+          <div class="arow"><b class="k">落点</b><code>services/agent_v2/graph.py</code></div>
+        </div>
+      </div>
+      <div class="acard vi">
+        <div class="ahead">面试图 · S1 <span class="badge">流程状态机</span></div>
+        <div class="abody">
+          <div class="arow"><b class="k">职责</b>驱动整场模拟面试：出题（题库优先、题尽才调模型）→ 评分 → 生成最终报告</div>
+          <div class="arow"><b class="k">运行特征</b>wait_answer 纯 interrupt 零副作用 · checkpoint 存独立 langgraph schema · 每轮 trace 从 session.trace_json 续接</div>
+          <div class="arow"><b class="k">治理</b>interview_graph_enabled（无 checkpoint 自动回退 legacy 单轮）· token 记 interview_message · 6 场景评测</div>
+          <div class="arow"><b class="k">落点</b><code>services/interview_graph/graph.py</code></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="boundary"><b>边界澄清——不算 Agent 的 AI 链路：</b>① 简历分析 <code>analyze_resume</code>：单次结构化 LLM 调用（同步执行），被 v2 analyzer 节点复用；② 题库生成 <code>question_bank_service</code>：独立 chat_json 链路，与两套 Agent 无关；③ 录音点评 / 转写：service 直调。共同点：无工具循环、无图编排、无自主决策。</div>
+  </section>
+
+  <!-- ============ 三、调用与协作 ============ -->
+  <section class="card">
+    <h2>三、调用与协作关系：谁调用谁</h2>
+    <p class="sub">同一能力只实现一次：v1 工具与 v2 节点从上向下收敛到能力层；跨 Agent 之间没有函数调用，只有数据交接与开关隔离。</p>
+
+    <div class="agrid">
+      <div class="acard v1">
+        <div class="ahead">v1 AI 客服发出 <span class="badge">经 ReAct 循环选择工具</span></div>
+        <div class="abody">
+          <div class="call"><code>kb_search</code> 工具<span class="ar">→</span><code>kb_retrieve</code><span class="mut">（混合检索）</span></div>
+          <div class="call"><code>job_match</code> 工具<span class="ar">→</span><code>run_job_match</code></div>
+          <div class="call"><code>question_gen</code> 工具<span class="ar">→</span><code>run_question_generation</code></div>
+          <div class="call"><code>answer_review</code> 工具<span class="ar">→</span><code>run_tool_llm</code><span class="mut">（限额+记账）</span><span class="ar">+</span><code>chat_json</code></div>
+          <div class="call cross">interview_history / score_trend / interview_transcript<span class="ar">→</span><span class="mut">只读面试数据表（SQL，无函数调用）</span></div>
+        </div>
+      </div>
+      <div class="acard v2">
+        <div class="ahead">v2 图节点发出 <span class="badge">按 state 确定性流转</span></div>
+        <div class="abody">
+          <div class="call"><code>load_resume</code> 节点<span class="ar">→</span><code>find_latest_resume</code></div>
+          <div class="call"><code>analyzer</code> 节点<span class="ar">→</span><code>ai_client.analyze_resume</code><span class="mut">（复用简历分析能力）</span></div>
+          <div class="call"><code>matcher</code> 节点<span class="ar">→</span><code>run_job_match</code></div>
+          <div class="call"><code>questioner</code> 节点<span class="ar">→</span><code>run_question_generation</code><span class="mut">（内含 kb_retrieve）</span></div>
+          <div class="call cross"><code>deliver</code> 节点<span class="ar">→</span><code>interview_service.create_session</code><span class="mut">（审批通过后建面试场，仅写数据 · 注①）</span></div>
+        </div>
+      </div>
+      <div class="acard vi">
+        <div class="ahead">面试图节点发出 <span class="badge">绕过能力层</span></div>
+        <div class="abody">
+          <div class="call"><code>ask_question</code><span class="ar">→</span><code>chat_json</code><span class="mut">（题库有题先查题库，零 LLM）</span></div>
+          <div class="call"><code>score_answer</code><span class="ar">→</span><code>chat_json</code></div>
+          <div class="call"><code>generate_report</code><span class="ar">→</span><code>chat_json</code></div>
+          <div class="call cross"><span class="mut">三节点直调 ai_client：不经能力层、不受工具内 20 次/日限额；token 由 API 层记 interview_message 账（注③）</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sband light">
+      <h4>共享能力层 agent_capabilities（v1 工具与 v2 节点收敛于此）</h4>
+      <div class="cwrap">
+        <span class="schip">kb_retrieve</span>
+        <span class="schip">run_job_match</span>
+        <span class="schip">run_question_generation</span>
+        <span class="schip">find_latest_resume</span>
+        <span class="schip">run_tool_llm（限额→执行→记账）</span>
+      </div>
+    </div>
+    <div class="sband gray">
+      <h4>底座：ai_client（全项目唯一 LLM 封装）与 kb_service（混合检索）</h4>
+      <div class="cwrap">
+        <span class="schip">ai_client.chat_json / analyze_resume / stream_chat → DeepSeek</span>
+        <span class="schip">kb_service.search_chunks →（kb_hybrid_enabled）→ 向量 + BM25 RRF → pgvector / Ollama</span>
+        <span class="schip">例外：v1 主循环走 llm_factory（LangChain ChatOpenAI），读同一份 settings</span>
+      </div>
+    </div>
+
+    <div class="notes">
+      <div class="note">注① <b>v2 → 面试体系是数据交接、不是运行时交接：</b>approve 后 resume 图继续跑，deliver 节点仅调用 create_session 写入会话行 + 开场白（不建 checkpoint）；用户随后进入该会话答题时因无 checkpoint 走 legacy 单轮路径，只有显式「开始模拟面试」新建的会话才由面试图接管。</div>
+      <div class="note">注② <b>v1 与 v2 / 面试图零函数调用：</b>v1 executor 不 import agent_v2 与 interview_graph；客服读面试记录是对 InterviewSession / InterviewMessage 的只读查询。故障域靠开关隔离（agent_v2_enabled 关闭 → v2 接口 503，客服照常）。</div>
+      <div class="note">注③ <b>面试图不走能力层：</b>三个 LLM 节点直调 ai_client.chat_json，因此不受工具内每日限额约束，token 按 interview_message 口径在 API 层记账——这是刻意设计：面试是主产品流程，不应被客服工具限额「腰斩」。</div>
+      <div class="note">注④ <b>LLM 双构造路径、同一配置：</b>全项目收敛 ai_client（OpenAI SDK），唯一例外是 v1 主循环用 llm_factory 构造 LangChain ChatOpenAI（需要 streaming 回调），base_url / key / model 读同一份 settings。</div>
+    </div>
+  </section>
+
+  <!-- ============ 四、对照表 ============ -->
+  <section class="card">
+    <h2>四、三 Agent 职责对照表</h2>
+    <div class="tblwrap">
+      <table class="tbl">
+        <tr><th style="width:88px"></th><th class="c1">v1 AI 客服</th><th class="c2">v2 一键求职准备</th><th class="c3">面试图（S1）</th></tr>
+        <tr><td>Agent 类型</td><td>对话式工具循环（ReAct）</td><td>编排式长任务（StateGraph + HITL）</td><td>流程状态机（面试官流程）</td></tr>
+        <tr><td>引擎</td><td>LangChain 0.3 AgentExecutor（锁 &lt;0.4）</td><td>LangGraph 0.2.76 + checkpoint-postgres</td><td>LangGraph 0.2.76 + checkpoint-postgres</td></tr>
+        <tr><td>核心职责</td><td>即时问答 · 查本人数据 · 轻能力调用（匹配/出题/点评）</td><td>跨步骤任务编排 · 高风险动作审批门禁</td><td>逐题驱动面试 · 评分 · 报告产出</td></tr>
+        <tr><td>入口</td><td><code>POST /api/agent/ask</code>（SSE）</td><td><code>/api/agent-v2/*</code>（run/stream/approve）</td><td><code>/api/interviews/*</code></td></tr>
+        <tr><td>状态载体</td><td>chat_sessions（session_type='agent'）</td><td>agent_runs + checkpoint（thread_id=run-*）</td><td>checkpoint（thread_id=interview-*）+ interview_messages</td></tr>
+        <tr><td>人工干预</td><td>无（自主多步）</td><td>hitl_gate interrupt 审批（TTL 30 分钟）</td><td>wait_answer 每轮等待作答</td></tr>
+        <tr><td>限额 / 熔断</td><td>主循环 30/日 · 工具内 AI 20/日</td><td>10 run/日 · 单 run token 熔断 30000</td><td>API 层记 interview_message（不占工具限额）</td></tr>
+        <tr><td>开关与降级</td><td>默认轨（兜底）</td><td>agent_v2_enabled → 关闭 503 回 v1</td><td>interview_graph_enabled → 无 checkpoint 回 legacy 单轮</td></tr>
+        <tr><td>评测基线</td><td>工具路由 40/40</td><td>端到端 11/11</td><td>eval_interview_graph 6 场景</td></tr>
+        <tr><td>前端载体</td><td>AgentChatCore / AgentWidget</td><td>AgentRunView（步骤条 + 审批卡）</td><td>面试流程页</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <div class="src">
+    <b>关键源码：</b>services/agent/executor.py · services/agent_v2/graph.py · services/interview_graph/graph.py · services/agent_capabilities.py · services/ai_client.py · agent/llm_factory.py · services/agent/tools.py<br>
+    <b>延伸阅读：</b>docs/Agent应用全景图.html（场景视角）· docs/Agent工具设计.md（§六 限额记账）· docs/后续开发规划.md（下一批：面试官 Agent——独立人格场景，明确不拆多 Agent）
+  </div>
+
+</div>
+</body>
+</html>
