@@ -136,7 +136,7 @@ def test_bank_owner_isolation() -> None:
 
 
 def test_generate_requires_parsed_own_resume() -> None:
-    """他人简历 / 未解析成功的简历 → 404/400 语义（ValueError 统一转 404 防枚举）。"""
+    """语义分拆（v6 审计 G6-4）：他人/不存在 → 404 防枚举；本人的未解析简历 → 400 可纠正。"""
     c_a, resume_id = _register_and_upload()
     c_b = TestClient(app)
     c_b.post(
@@ -146,7 +146,7 @@ def test_generate_requires_parsed_own_resume() -> None:
             "password": "correct-horse-123",
         },
     )
-    # B 拿 A 的简历生成 → 404
+    # B 拿 A 的简历生成 → 404（不泄露存在性）
     assert (
         c_b.post("/api/question-banks", json={"resume_id": resume_id}).status_code
         == 404
@@ -155,3 +155,16 @@ def test_generate_requires_parsed_own_resume() -> None:
     assert (
         c_a.post("/api/question-banks", json={"resume_id": 999999}).status_code == 404
     )
+    # A 自己未解析成功的简历 → 400 + 可纠正指引（G6-4 分拆的新语义）
+    # 直接置 pending 且清空正文（不重新上传，避免额外解析等待）
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE resumes SET parse_status = 'pending', raw_text = NULL "
+                "WHERE id = :i"
+            ),
+            {"i": resume_id},
+        )
+    body = c_a.post("/api/question-banks", json={"resume_id": resume_id})
+    assert body.status_code == 400
+    assert "未成功解析" in body.json()["message"]

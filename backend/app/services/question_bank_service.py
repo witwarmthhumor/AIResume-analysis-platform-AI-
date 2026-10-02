@@ -54,11 +54,26 @@ JSON 结构：
 }}"""
 
 
+class ResumeNotParsedError(ValueError):
+    """简历属于本人但未解析出可用文本（v6 审计 G6-4：400 可纠正语义）。
+
+    与「简历不存在/非本人」（ValueError → 404 防枚举）分属两类：前者是
+    调用方可纠正的状态，转 400 并给出明确指引；后者保持 404 不泄露存在性。
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
 def generate_question_bank(
     db: Session, user: User, resume_id: int
 ) -> tuple[QuestionBank, AnalysisResult]:
-    """基于本人简历生成题库并落库；简历不存在/未解析成功/非本人 → ValueError
-    （路由统一转 404——不向调用方泄露"资源存在但无权"的信息）。
+    """基于本人简历生成题库并落库。
+
+    异常语义（v6 审计 G6-4 分拆）：简历不存在/非本人 → ValueError（路由 404，
+    不向调用方泄露「资源存在但无权」）；已归属但未解析出文本 →
+    ResumeNotParsedError（路由 400，可纠正状态）。
 
     返回 (题库, LLM 结果)——tokens 供路由层写 usage_logs 记账。
     """
@@ -66,7 +81,7 @@ def generate_question_bank(
     if resume is None or resume.deleted_at is not None or resume.user_id != user.id:
         raise ValueError("简历记录不存在或已删除")
     if resume.parse_status != "success" or not resume.raw_text:
-        raise ValueError("该简历未成功解析出文本，无法生成面试题")
+        raise ResumeNotParsedError("该简历未成功解析出文本，无法生成面试题")
 
     result = chat_json(
         build_question_bank_system_prompt(resume.raw_text),

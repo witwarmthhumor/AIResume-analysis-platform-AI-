@@ -2063,3 +2063,38 @@ def test_answer_review_report_requires_two_to_four_suggestions() -> None:
                 "suggestions": ["a", "b"],
             }
         )
+
+
+# —— v6 审计 S6-3：ilike 通配符按字面匹配 ——
+
+
+def test_resume_lookup_percent_literal_not_wildcard(db_session) -> None:
+    """关键词里的 % 被当字面量：不再全量命中（转义前 "%" 会匹配所有简历）。"""
+    db = db_session
+    _add_resume(db, _OWNER, "wild-card-a.pdf", "Django ORM 深度实践")
+    _add_resume(db, _OWNER, "wild-card-b.pdf", "MySQL 索引优化")
+
+    tool = _tool(db, "resume_lookup")
+    out = tool.invoke({"query": "%"})
+
+    assert "未找到" in out  # 正文里没有字面 % —— 转义生效
+    assert "wild-card-a" not in out and "wild-card-b" not in out
+
+    sanity = tool.invoke({"query": "Django"})
+    assert "wild-card-a" in sanity  # 正常关键词不受转义影响
+
+
+def test_conversation_search_percent_literal_not_wildcard(db_session) -> None:
+    """历史对话检索同样按字面匹配 %（v6 审计 S6-3 同款转义）。"""
+    db = db_session
+    sid = _add_chat_session(db, _OWNER, f"{_CONV_PREFIX}通配测试", "chat")
+    _add_chat_message(db, sid.id, "讲讲 RAG 的原理")
+
+    tool = _tool(db, "conversation_search")
+    out = tool.invoke({"keyword": "%"})
+
+    assert "没有搜到" in out or "未找到" in out
+    assert "RAG 的原理" not in out
+
+    sanity = tool.invoke({"keyword": "RAG"})
+    assert "RAG 的原理" in sanity

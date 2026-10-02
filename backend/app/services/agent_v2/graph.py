@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, graph_dsn
 from app.models.agent_v2 import AgentApproval, AgentRun, AgentSpan
 from app.models.analysis import Analysis
 from app.models.resume import Resume
@@ -613,8 +613,9 @@ def _make_deps(db, run_id: int, trace_id: str, user_id, anonymous_id) -> _Deps:
 
 
 def _dsn() -> str:
-    base = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
-    return f"{base}?options=-csearch_path%3Dlanggraph%2Cpublic"
+    # v6 审计 S6-2 收口：连接串构造收敛到 db/session.graph_dsn（两图模块共用，
+    # 且防御 DATABASE_URL 已带 query 的场景）
+    return graph_dsn()
 
 
 def run_job_prep(

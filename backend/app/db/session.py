@@ -24,6 +24,22 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
+def graph_dsn() -> str:
+    """LangGraph checkpoint 专用连接串（v6 审计 S6-2 收口：两图模块共用一处）。
+
+    强制 search_path=langgraph,public（checkpoint 表隔离在专属 schema）；
+    DATABASE_URL 已带 query（如 ?sslmode=）时用 & 追加——直接 f-string 拼 `?`
+    会产出双问号的非法 DSN（v5 S-5 遗留缺陷在此一并防御）。
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    base = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
+    scheme, netloc, path, query, _frag = urlsplit(base)
+    extra = "options=-csearch_path%3Dlanggraph%2Cpublic"
+    query = f"{query}&{extra}" if query else extra
+    return urlunsplit((scheme, netloc, path, query, _frag))
+
+
 def get_db() -> Generator[Session, None, None]:
     """FastAPI 依赖：给每个请求发一个会话，用完自动归还。"""
     db = SessionLocal()

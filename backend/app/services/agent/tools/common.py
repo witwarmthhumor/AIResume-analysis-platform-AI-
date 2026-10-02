@@ -18,7 +18,6 @@ class ToolContext:
     citations: list[dict] = field(default_factory=list)
 
 
-# 单块内容回灌给 LLM 的最大字符数（5 块 × 约 300 字，控制 Agent 上下文体积）
 # 列表类工具单次返回条数上限与片段宽度
 _TOOL_LIST_LIMIT = 5
 _TOOL_SNIPPET_WIDTH = 80
@@ -59,7 +58,8 @@ _INTERVIEW_STATUS_LABELS = {
 }
 # 面试消息角色的中文名（对应 interview_messages.role）
 _INTERVIEW_ROLE_LABELS = {"interviewer": "面试官", "candidate": "我", "system": "系统"}
-_POSITION_DEFAULT = "通用"
+# 注：岗位类型缺省名 _POSITION_DEFAULT 的权威定义在 agent_capabilities.py
+# （v4.0 M1 下沉的共享层）——此处不再复制（v6 审计 G6-1 清理拆包残留）
 
 # 用量动作的中文名（与前端使用日志的徽章映射保持一致）
 _ACTION_LABELS = {
@@ -116,3 +116,13 @@ def _snippet(text: str, keyword: str, width: int = _TOOL_SNIPPET_WIDTH) -> str |
         suffix = "…" if end < len(haystack) else ""
         return f"{prefix}{haystack[start:end].replace(chr(10), ' ')}{suffix}"
     return None
+
+
+def _escape_like(keyword: str) -> str:
+    r"""转义 ILIKE 通配符（v6 审计 S6-3）：关键词里的 % 与 _ 按字面匹配。
+
+    不转义的话 "%" 会被当通配符命中全部行（语义失真：模型以为关键词无处不在）。
+    反斜杠本身先转义，避免用户输入的 \ 破坏转义序列；PG 的 LIKE 默认以反斜杠
+    为转义符，无需显式 ESCAPE 子句。
+    """
+    return keyword.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")

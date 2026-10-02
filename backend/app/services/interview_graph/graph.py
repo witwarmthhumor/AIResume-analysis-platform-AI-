@@ -31,7 +31,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, graph_dsn
 from app.models.interview import InterviewMessage, InterviewSession
 from app.schemas.interview import InterviewReport
 from app.services.ai_client import AIError, AnalysisResult, chat_json
@@ -435,8 +435,8 @@ def build_interview_graph(checkpointer, deps: _Deps):
 
 
 def _dsn() -> str:
-    base = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
-    return f"{base}?options=-csearch_path%3Dlanggraph%2Cpublic"
+    # v6 审计 S6-2 收口：连接串构造收敛到 db/session.graph_dsn（两图模块共用）
+    return graph_dsn()
 
 
 def _thread(session_id: int) -> dict:

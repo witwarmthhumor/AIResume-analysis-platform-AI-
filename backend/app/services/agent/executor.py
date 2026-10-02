@@ -14,10 +14,10 @@ on_tool_start→reset+action、on_tool_end→observation，前端 SSE 协议零�
 - action：开始调工具 {tool,input}
 - reset：工具决策轮开始前的提示 {无字段}——模型可能在决策轮同时吐出文本 token（已被
   当作 delta 下发），这些文字属于中间过程而非最终回答，前端应清空累计的回答内容
-- observation：工具返回 {tool,preview}
+- observation：工具返回 {preview}（工具名以紧邻其前的 action 事件为准）
 - delta：最终回答的逐字片段 {content}
 - error：可恢复错误（单次工具失败）{content}
-- final：正常结束 {output,steps,tokens_total}
+- final：正常结束 {output,steps,tokens_total,tokens_prompt,tokens_completion}
 - fatal：执行器整体异常 {content}
 """
 
