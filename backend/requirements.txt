@@ -9,7 +9,7 @@ ruff>=0.4                     # 代码格式化/检查
 
 # 阶段1：简历上传与解析
 python-multipart>=0.0.9       # FastAPI 接收 multipart 文件上传的必装件
-pypdf>=4.0                    # 文本型 PDF 逐页提取文字（纯 Python，无系统依赖）
+pypdf>=6.19                   # 文本型 PDF 逐页提取（纯 Python）；v4.3 安全升级 PYSEC-2026-415x
 
 # 阶段2：AI 分析（OpenAI 兼容协议，DeepSeek/通义换模型只改 .env）
 openai>=1.40
@@ -31,7 +31,7 @@ langgraph-checkpoint-postgres>=2.0.21,<3
 
 # 阶段4：用户认证与异步任务
 pwdlib[argon2]>=0.3
-PyJWT>=2.8
+PyJWT>=2.15      # v4.3 安全升级：pip-audit PYSEC-2026-414x 一批（2.13 全中）
 email-validator>=2.1
 celery[redis]>=5.4
 
