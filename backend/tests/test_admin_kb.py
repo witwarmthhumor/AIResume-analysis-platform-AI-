@@ -169,6 +169,38 @@ def test_admin_can_delete_preset_document() -> None:
     assert not any(d["id"] == doc_id for d in listing)
 
 
+def test_admin_delete_writes_audit_log() -> None:
+    """删除落 audit_logs（v4.4.1 安全件）：谁、什么动作、删了哪篇，元信息进快照。"""
+    from sqlalchemy import text as _text
+
+    from app.db.session import engine as _engine
+
+    admin = TestClient(app)
+    _make_admin(admin)
+    marker = f"adminkb-audit-{uuid.uuid4().hex[:8]}"
+    resp = admin.post(
+        "/api/admin/kb/documents",
+        files={"file": (f"{marker}.txt", "审计删除用内容".encode() * 3, "text/plain")},
+    )
+    doc_id = resp.json()["id"]
+
+    resp = admin.delete(f"/api/admin/kb/documents/{doc_id}")
+    assert resp.status_code == 204
+
+    with _engine.begin() as conn:
+        row = conn.execute(
+            _text(
+                "SELECT action, target_type, target_id FROM audit_logs "
+                "WHERE target_id = :tid AND action = 'kb_document_delete'"
+            ),
+            {"tid": str(doc_id)},
+        ).first()
+    assert row is not None
+    assert row[0] == "kb_document_delete"
+    assert row[1] == "kb_document"
+    assert row[2] == str(doc_id)
+
+
 def test_admin_delete_nonexistent_404() -> None:
     admin = TestClient(app)
     _make_admin(admin)

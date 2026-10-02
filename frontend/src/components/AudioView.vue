@@ -8,6 +8,7 @@ import Icon from './Icon.vue'
 
 const activeTab = ref('transcribe') // transcribe / role / interview
 const uploading = ref(false)
+const fastMode = ref(false) // v4.4.1 快速转写档：base 小模型换速度（准确率略降）
 const uploadError = ref('')
 const current = ref(null) // 当前录音详情（GET /api/audio/analyses/{id}）
 const pollTimer = ref(null)
@@ -78,6 +79,7 @@ async function onFilePicked(event) {
   try {
     const form = new FormData()
     form.append('file', file)
+    if (fastMode.value) form.append('fast', 'true')
     const body = await post('/api/audio/analyses', form)
     await loadAudio(body.id)
     await loadHistory()
@@ -213,6 +215,10 @@ onBeforeUnmount(stopPolling)
         <span class="dz-icon"><Icon name="mic" :size="30" /></span>
         <p class="dz-title">{{ uploading ? '上传中…' : '点击上传录音文件' }}</p>
         <p class="dz-sub">支持 wav / mp3 / m4a / webm · 50MB 内 · 本地 whisper 转写（约 1~3 分钟）</p>
+      </label>
+      <label class="fast-toggle">
+        <input v-model="fastMode" type="checkbox" :disabled="uploading" />
+        快速转写（base 小模型，约快一倍，准确率略降）
       </label>
 
       <template v-if="current">
@@ -392,6 +398,18 @@ onBeforeUnmount(stopPolling)
   font-size: 14px;
   font-weight: 700;
   margin: 0;
+}
+.fast-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--c-text-2, #4b5563);
+  cursor: pointer;
+}
+.fast-toggle input {
+  accent-color: var(--c-primary, #059669);
 }
 .dz-sub {
   font-size: 12px;

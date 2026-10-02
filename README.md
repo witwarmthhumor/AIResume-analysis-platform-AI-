@@ -86,6 +86,8 @@ docker compose -f docker-compose.prod.yml up -d --build
 访问 `http://localhost`（或设置 `APP_PORT=8080` 后访问 `http://localhost:8080`）。
 
 > **v4.1 起登录防爆破已迁 Redis 集中计数**（`login:fail:*` 键，INCR+EXPIRE 续窗），多 worker 部署语义正确；Redis 故障时 fail-open 放行登录并记告警日志，不把缓存变成登录单点。
+>
+> **单 worker 限定（v4.4.1 注记）**：Agent v2 / 求职准备的 SSE 事件总线是进程内实现（`services/agent_v2/event_bus.py`），uvicorn 必须单 worker 启动（现状即如此）；未来多副本 / 多 worker 部署前需先把事件总线换成 Redis Pub/Sub（订阅/补发接口已抽象，替换面可控）。
 
 查看状态和日志：
 
@@ -187,7 +189,7 @@ npm run build
 - `docs/后续开发规划.md`：v3.4 之后的方向、优先级与推进顺序
 
 
-## 技术亮点（真实代码支撑 · v4.4.0）
+## 技术亮点（真实代码支撑 · v4.4.1）
 
 ### 架构与工程
 - **Router → Service → Model 三层**：API 路由不堆业务逻辑，限流/记账/分析落库全下沉到 `services/`（`usage_service.py`、`analysis_service.py`），`RouterRegistry` 自动注册路由，`main.py` 仅保留两行注册调用
@@ -225,12 +227,13 @@ npm run build
 - **AI 客服两形态复用**（v3.4）：`AgentChatCore`（核心：SSE 打字机 + 工具过程折叠 + 引用来源）被整页视图 `AgentChatView` 与右下角 400px 浮层 `AgentWidget` 共用，`props.compact` 切换密度
 - **纯手写数据可视化**（v3.2 / v3.3 / v3.5）：零图表库——CSS 渐变柱状图（近 7 日用量）+ 手写日期范围选择器 `DateRangePicker.vue`（6×7 日历网格 + 时间输入 + 点击外部关闭）+ **面试评分雷达图**（四维度、支持叠加历史场次对比）
 - **数据看板**（v3.2）：五卡悬浮（用户/简历/分析/面试/今日 Token）+ 用户列表前端分页 + 双卡片等比布局，窄屏自动堆叠
+- **安全与流程收尾批次**（v4.4.1）：音频上传补 **magic bytes 文件头校验**（防改扩展名伪装，whisper 解码前 415）；prod 启动断言 `validate_prod_settings`（Secure Cookie / 登录闸门 / 首用户提权三项自相矛盾配置直接拒启）；管理端删除语料落 `audit_logs`（谁/何时/IP/删了哪篇）；录音转写新增**快速档**（每请求 `fast=true` 用 base 小模型换速度，前端勾选透传）；pre-commit 提交钩子**真启用**（装依赖 + git hook，仓库级 ruff 双道）；CI pytest 步骤加**覆盖率门槛 85%**（实测 90.22%）；run-app 技能修复数据库容器名冲突（已存在改走 `docker start`）
 - **依赖链解冻**（v4.4.0）：LangChain 0.3/LangGraph 0.2 整体切 1.x（langchain 1.4.3 / langgraph 1.2.12 / checkpoint-postgres 3.1.2）——v1 executor 重写为 `create_agent` + `astream_events` 桥（SSE 协议零变化），v2/interview 图仅修一处节点 `config: RunnableConfig` 注解即兼容；pip-audit 漏洞 **14 → 0**，CI 的 12 个版本锁死豁免全部删除；升级窗口清场在途 run（旧 checkpoint 能读不能续跑，见 docs/依赖链解冻调研报告.md）
 - **工程质量门禁批次**（v4.3.0）：列表接口分页收口（admin/users 服务端 envelope 分页，其余列表 limit/offset 安全上限）；Agent 工具层拆包 `services/agent/tools/`（六域模块 + registry 单一数据源，`GET /api/agent/tools` 下发工具中文名，前端不再手写映射）；前端接入 **vue-router（hash）+ vitest（SSE 状态机 19 例）+ eslint**；CI 新增 **pip-audit / npm audit 依赖审计**（12 个被 langchain/langgraph 版本锁死的漏洞 ID 显式豁免并注明解冻条件）与 Dependabot 周检；`scripts/release_check.py` 收口闸门机器核对文档口径（pytest 数/工具数/迁移数/版本号/git tag）——文档口径失真 #23/#26/#27 三次复发的根治
 - **报告版本对比**（v3.5）：简历分析报告可取历次 `prompt_version` 两版并排，逐条标出「仅本版有」——改提示词后能直观看出结论变化
 
 ### 测试
-- **388 个 pytest 全量覆盖**：上传校验（含 docx）、分析、面试（SSE/状态机/图编排/题库驱动）、认证（用户名/手机号注册登录/改密全端下线/锁定 fail-open/**登录闸门真身/跨用户越权 sweep**）、个人信息（头像/身份证/手机号一次绑定）、**面试题库（生成/归属隔离/题库驱动面试）**、**录音分析（转写 stub/角色审核/面试审核/记账）**、任务、隔离、软删除、知识库（切块器/检索/owner 隔离/Playground SSE）、**混合检索（BM25 分词/排序/阈值回退）**、在线对话（多会话 CRUD/隔离/标题自动生成）、管理端语料库、使用日志筛选分页、Agent（工具命中/未命中兜底/回调事件/SSE 编排/归属校验/限额/503）、**Agent 个人数据工具（归属隔离/无身份拒绝/聚合口径）**、**面试评分列表与分析版本列表**、**LangGraph v2 编排（图节点/审批超时与并发乐观锁/事件总线多订阅者/断点重连快照/孤儿 run 回收/SQL 分页聚合）**；全部 mock AI/embedding/whisper 不烧额度
+- **397 个 pytest 全量覆盖**：上传校验（含 docx）、分析、面试（SSE/状态机/图编排/题库驱动）、认证（用户名/手机号注册登录/改密全端下线/锁定 fail-open/**登录闸门真身/跨用户越权 sweep**）、个人信息（头像/身份证/手机号一次绑定）、**面试题库（生成/归属隔离/题库驱动面试）**、**录音分析（转写 stub/角色审核/面试审核/记账）**、任务、隔离、软删除、知识库（切块器/检索/owner 隔离/Playground SSE）、**混合检索（BM25 分词/排序/阈值回退）**、在线对话（多会话 CRUD/隔离/标题自动生成）、管理端语料库、使用日志筛选分页、Agent（工具命中/未命中兜底/回调事件/SSE 编排/归属校验/限额/503）、**Agent 个人数据工具（归属隔离/无身份拒绝/聚合口径）**、**面试评分列表与分析版本列表**、**LangGraph v2 编排（图节点/审批超时与并发乐观锁/事件总线多订阅者/断点重连快照/孤儿 run 回收/SQL 分页聚合）**；全部 mock AI/embedding/whisper 不烧额度
 - ruff check + ruff format --check 全绿（CI 两道都跑）、npm build 通过
 - **RAG 有量化基线**：`scripts/eval_rag.py` 跑 49 题黄金问答集并排对比「纯向量 / 混合」，改检索逻辑必须对比 `data/kb_eval/report.md`
 - **工具路由有量化基线**：`scripts/eval_agent_routing.py` 40 题 40/40 = 100%（`data/agent_eval/report.md`），改工具描述/增删工具必须对比

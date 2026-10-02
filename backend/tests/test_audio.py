@@ -15,6 +15,9 @@ from app.main import app
 client = TestClient(app)
 
 _AUD_PREFIX = "aud-"
+_DELAY_FAST: dict = {
+    "fast": None
+}  # 记录最近一次 delay 收到的 fast 实参（快速档透传断言用）
 
 _FAKE_TRANSCRIBE = {
     "text": "面试官：请自我介绍。候选人：我有三年 Django 经验。",
@@ -50,15 +53,19 @@ def _stub_audio_llm(monkeypatch):
     from app.api import audio as audio_api
     from app.worker import tasks as worker_tasks
 
+    _DELAY_FAST["fast"] = None
     monkeypatch.setattr(
-        worker_tasks, "transcribe", lambda data, filename: dict(_FAKE_TRANSCRIBE)
+        worker_tasks,
+        "transcribe",
+        lambda data, filename, model_name=None: dict(_FAKE_TRANSCRIBE),
     )
 
     # delay → 同步执行真任务（测试进程内完成转写，不依赖 worker/Redis 消费）
-    def _sync_delay(audio_id: int):
+    def _sync_delay(audio_id: int, fast: bool = False):
+        _DELAY_FAST["fast"] = fast
         return (
             type("R", (), {"id": f"sync-{audio_id}"})()
-            if (worker_tasks.transcribe_audio(audio_id) or True)
+            if (worker_tasks.transcribe_audio(audio_id, fast) or True)
             else None
         )
 
@@ -249,3 +256,36 @@ def test_interview_review_uses_edited_text() -> None:
         audio_review_service.interview_review = import_tests_orig
     assert resp.status_code == 200, resp.text
     assert captured["text"] == "【面试官】 edited 问。"
+
+
+# —— v4.4.1 安全件：音频文件头（magic bytes）校验 ——
+
+
+def test_upload_rejects_fake_wav_content() -> None:
+    """.wav 扩展名但内容不是 RIFF：415 拦下，不落记录、不进转写队列。"""
+    c = _register()
+    resp = c.post(
+        "/api/audio/analyses",
+        files={"file": ("aud-fake.wav", b"this is not a real wav", "audio/wav")},
+    )
+    assert resp.status_code == 415
+    assert "不符" in resp.json()["message"]
+
+
+def test_upload_fast_mode_reaches_task() -> None:
+    """fast=true 透传到 Celery 任务（快速档用 base 模型）。"""
+    c = _register()
+    resp = c.post(
+        "/api/audio/analyses",
+        files={"file": ("aud-fast.wav", b"RIFF fake wav bytes", "audio/wav")},
+        data={"fast": "true"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert _DELAY_FAST["fast"] is True
+
+
+def test_upload_default_is_slow_tier() -> None:
+    """不传 fast：默认走标准档（False），行为与 v4.2 完全一致。"""
+    c = _register()
+    _upload_wav(c)
+    assert _DELAY_FAST["fast"] is False

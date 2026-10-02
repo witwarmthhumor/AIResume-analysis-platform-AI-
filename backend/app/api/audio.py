@@ -6,7 +6,7 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,6 +25,32 @@ router = APIRouter(prefix="/api/audio", tags=["audio"])
 
 # 音频扩展名白名单（faster-whisper 经 PyAV 解码，容器格式不限于此六种但收紧面）
 _AUDIO_EXTENSIONS = (".wav", ".mp3", ".m4a", ".webm", ".flac", ".ogg")
+
+# 各扩展名的文件头签名（v4.4.1 安全件）：mp3 允许 ID3 头或 MPEG 帧同步（0xFF Ex），
+# m4a 的 ftyp 固定在偏移 4，其余为定长魔数。防改扩展名伪装上传。
+_AUDIO_MAGIC: dict[str, bytes] = {
+    ".wav": b"RIFF",
+    ".webm": b"\x1a\x45\xdf\xa3",
+    ".flac": b"fLaC",
+    ".ogg": b"OggS",
+}
+
+
+def _magic_ok(filename: str, data: bytes) -> bool:
+    """音频文件头与扩展名一致性校验：whisper 解码层之前先拦伪装文件。"""
+    if not data:
+        return False
+    suffix = Path(filename).suffix.lower()
+    if suffix == ".mp3":
+        return data[:3] == b"ID3" or (
+            len(data) > 1 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0
+        )
+    if suffix == ".m4a":
+        return len(data) >= 8 and data[4:8] == b"ftyp"
+    expected = _AUDIO_MAGIC.get(suffix)
+    return expected is not None and data.startswith(expected)
+
+
 AUDIO_UPLOAD_DIR = Path(settings.upload_dir) / "audio"
 AUDIO_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -41,6 +67,7 @@ def _owned_audio(db: Session, user: User, audio_id: int) -> AudioAnalysis:
 async def upload_audio(
     file: UploadFile,
     request: Request,
+    fast: bool = Form(False),  # v4.4.1 快速档：base 小模型换转写速度
     db: Session = Depends(get_db),  # noqa: B008
     anonymous_id: str = Depends(get_anonymous_id),
     user: User = Depends(get_current_user),  # noqa: B008
@@ -63,6 +90,9 @@ async def upload_audio(
     )
 
     data = await file.read()
+    # v4.4.1 安全件：扩展名之外再校验文件头，伪装文件在此 415，不进任务队列
+    if not _magic_ok(filename, data):
+        raise HTTPException(415, "音频内容与扩展名不符（或为空文件），请提供真实录音")
     import hashlib
 
     file_hash = hashlib.sha256(data).hexdigest()
@@ -95,7 +125,9 @@ async def upload_audio(
         )
     )
     db.commit()
-    task = transcribe_audio.delay(audio.id)  # Celery 异步：CPU 转写分钟级，不挂请求
+    task = transcribe_audio.delay(
+        audio.id, fast
+    )  # Celery 异步：CPU 转写分钟级，不挂请求
     return {
         "id": audio.id,
         "filename": audio.filename,
