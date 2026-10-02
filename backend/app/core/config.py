@@ -48,6 +48,9 @@ class Settings(BaseSettings):
 
     # 阶段3：文字模拟面试
     max_interview_turns: int = 10  # 单场面试最大轮次，防无限聊（PROJECT-PLAN §2）
+    interview_max_follow_ups: int = (
+        1  # v4.5 面试官 Agent：每个主问题的追问预算（0=关闭追问）
+    )
     daily_interview_message_limit: int = (
         100  # 每人每日 AI 回复条数上限（按匿名 cookie 统计）
     )
