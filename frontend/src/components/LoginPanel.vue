@@ -1,6 +1,6 @@
 <script setup>
 /* LoginPanel —— 登录/注册双模式表单（模态内使用）。
-   v4.1 A4 认证改造：登录用「用户名或邮箱」标识（发送 username 字段，后端含 @ 自动按邮箱查）；
+   v4.2.1 起登录标识=用户名（手机号兼容；v6 审计 C6-6 口径补注：存量邮箱账号仍可用邮箱登录，后端三态识别）。
    注册必填用户名（3~64 位小写字母/数字/下划线）。成功后 emit logged-in 交由 App 写入全局用户态。 */
 import { ref } from 'vue'
 import { post } from '../api.js'

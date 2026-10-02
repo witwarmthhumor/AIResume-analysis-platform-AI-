@@ -98,7 +98,6 @@ async function goUsagePage(p) {
   if (usageTableRef.value) usageTableRef.value.scrollTop = 0
 }
 
-// 页码数组（超过 7 页用省略号折叠）
 // —— 柱状图（纯 CSS，全量 7 天） ——
 const maxTokens = computed(() => Math.max(1, ...usage.value.map((d) => d.tokens || 0)))
 function barHeight(tokens) {
