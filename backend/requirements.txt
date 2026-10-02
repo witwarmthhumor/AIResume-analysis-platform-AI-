@@ -25,7 +25,7 @@ jieba>=0.42
 # （docs/依赖链解冻调研报告.md），整体切换 1.x——v1 AgentExecutor 重写为
 # langchain.agents.create_agent + astream_events 桥，v2/interview 图 API 兼容零改动。
 # 铁律：langgraph 1.x 硬性要求 langchain-core>=1.4.7，与 langchain 0.3 互斥，禁止回混版本。
-langchain>=1.4,<2
+langchain>=1.4.3,<2
 langchain-openai>=1.6,<2      # ChatOpenAI（OpenAI 兼容协议，通义/DeepSeek 可用；连带 openai SDK 3.x）
 langgraph>=1.2,<1.3           # StateGraph/Command/interrupt 语义不变；checkpoint-postgres 同批升级
 langgraph-checkpoint-postgres>=3.1,<4  # 3.x 只声明 psycopg 不带 binary——psycopg[binary] 不可精简
