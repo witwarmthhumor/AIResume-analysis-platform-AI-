@@ -1,28 +1,24 @@
 <script setup>
-import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { get, post } from './api.js'
-import ChatView from './components/ChatView.vue'
+import { router } from './router.js'
 import LoginView from './components/LoginView.vue'
 import Icon from './components/Icon.vue'
-import HistoryView from './components/HistoryView.vue'
-// 管理端三视图仅 admin 可达：异步分包，普通用户首屏不下载这部分代码
-const AdminPanel = defineAsyncComponent(() => import('./components/AdminPanel.vue'))
-const KbAdminView = defineAsyncComponent(() => import('./components/KbAdminView.vue'))
-import AgentChatView from './components/agent/AgentChatView.vue'
-import ResumeView from './components/ResumeView.vue'
-import InterviewView from './components/InterviewView.vue'
-import QuestionGenView from './components/QuestionGenView.vue'
-import AudioView from './components/AudioView.vue'
 import ProfileDialog from './components/ProfileDialog.vue'
 import { avatarPreset } from './utils.js'
 
-// —— 布局与视图 ——
-const activeView = ref('resume') // resume / interview / audio / question-gen / chat / history / admin / kb-admin / agent
+// —— 视图切换（v4.3 P1-5c 起 hash 路由驱动）：深链/刷新/后退不再丢视图；
+// 组件分包与映射关系全部移到 router.js，本文件只管布局、登录态与导航交互。——
+const route = useRoute()
+const activeView = computed(() => route.meta.key || 'resume')
 const collapsed = ref(false)
-const viewRef = ref(null) // 动态组件实例引用，用于调用 ResumeView.refreshList
-const viewEpoch = ref(0) // 登录/登出时 +1：重挂载全部视图，清空 KeepAlive 里的跨账号缓存
-const pendingResumeId = ref(null) // ResumeView → InterviewView 的「拿这份简历去面试」交接
-const pendingBankId = ref(null) // QuestionGenView → InterviewView 的「拿这套题去面试」交接
+const viewRef = ref(null) // 当前视图实例引用，用于调用 ResumeView.refreshList
+const viewEpoch = ref(0) // 登录/登出时 +1：重挂载全部视图，清空跨账号缓存
+// ResumeView/QuestionGenView → InterviewView 的「拿这份简历/这套题去面试」交接：
+// 放进 query（/interview?resume=1&bank=2），刷新后交接参数不丢，消费后清 URL
+const pendingResumeId = computed(() => (route.query.resume ? Number(route.query.resume) : null))
+const pendingBankId = computed(() => (route.query.bank ? Number(route.query.bank) : null))
 
 // —— 用户与登录 ——
 const currentUser = ref(null)
@@ -38,50 +34,38 @@ const avatarLetter = computed(() => {
 })
 const avatarColor = computed(() => avatarPresetInfo.value?.color || null)
 
-// —— 视图组件映射（v4.1 A4：首页落地化，简历评估/模拟面试独立成视图）——
-// chat/history/agent 仍保留在映射里：管理端在线对话/使用日志、admin 悬浮客服继续使用，
-// 用户端导航已收起（方案 §2.2，代码不删）。
-const viewComponents = {
-  resume: ResumeView,
-  interview: InterviewView,
-  'question-gen': QuestionGenView,
-  audio: AudioView,
-  chat: ChatView,
-  history: HistoryView,
-  admin: AdminPanel,
-  'kb-admin': KbAdminView,
-  agent: AgentChatView,
-}
-const currentViewComponent = computed(() => viewComponents[activeView.value] || ResumeView)
-
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
 
 // —— 侧边栏导航项：全角色统一（v4.2.1）——
 // 四业务模块 + 使用日志（本人口径）+ 数据看板（管理员全站 / 普通用户本人，AdminPanel 内按角色分叉）；
-// 在线对话 / 语料库管理 / AI 客服 / 首页落地页 / 个人中心导航按指示先去掉（代码保留）
-const navItems = computed(() => {
-  return [
-    { key: 'resume', label: '简历评估', icon: 'file' },
-    { key: 'audio', label: '录音分析', icon: 'mic' },
-    { key: 'question-gen', label: '面试题生成', icon: 'pen' },
-    { key: 'interview', label: '模拟面试', icon: 'chat' },
-    { key: 'history', label: '使用日志', icon: 'list' },
-    { key: 'admin', label: '数据看板', icon: 'chart' },
-  ]
-})
+// 在线对话 / 语料库管理 / AI 客服不在导航露出但路由可达（代码保留，方案 §2.2）
+const navItems = [
+  { key: 'resume', label: '简历评估', icon: 'file' },
+  { key: 'audio', label: '录音分析', icon: 'mic' },
+  { key: 'question-gen', label: '面试题生成', icon: 'pen' },
+  { key: 'interview', label: '模拟面试', icon: 'chat' },
+  { key: 'history', label: '使用日志', icon: 'list' },
+  { key: 'admin', label: '数据看板', icon: 'chart' },
+]
 
 function selectView(item) {
-  // 登录后才进系统（v4.2.1 独立登录首屏），导航点击不再需要 requireAuth 拦截分支
+  // 登录后才进系统（v4.2.1 独立登录首屏）；push 不带 query，跨模块切换天然丢弃交接参数
   showUserMenu.value = false
-  pendingResumeId.value = null
-  activeView.value = item.key
+  router.push(`/${item.key}`)
 }
 
-// 业务视图内部跳转（首页入口卡 / 简历评估「去模拟面试」/ 面试空态引导）
+// 业务视图内部跳转（简历评估「去模拟面试」/ 面试题生成「拿这套题去面试」/ 空态引导）
 function gotoView(key, resumeId = null, bankId = null) {
-  pendingResumeId.value = resumeId
-  pendingBankId.value = bankId
-  activeView.value = key
+  const query = {}
+  if (resumeId != null) query.resume = String(resumeId)
+  if (bankId != null) query.bank = String(bankId)
+  router.push({ path: `/${key}`, query })
+}
+
+// InterviewView 消费完交接参数后清 URL（防止刷新页面时重复消费）
+function onPendingConsumed() {
+  const { resume, bank, ...rest } = route.query
+  router.replace({ query: rest })
 }
 
 async function loadUser() {
@@ -98,16 +82,16 @@ async function logout() {
   } finally {
     currentUser.value = null // 回到独立登录首屏（v4.2.1）
     showUserMenu.value = false
-    pendingResumeId.value = null
-    viewEpoch.value += 1 // 重挂载全部视图：KeepAlive 里缓存的上一账号状态必须清空
+    viewEpoch.value += 1 // 重挂载全部视图：上一账号状态必须清空
     viewRef.value?.refreshList?.()
   }
 }
 
 function onLoggedIn(user) {
-  currentUser.value = user // 登录成功 → 直落简历评估（第一个业务模块）
-  activeView.value = 'resume'
+  currentUser.value = user
   viewEpoch.value += 1 // 换账号登录同样重挂载，避免读到上个账号的会话缓存
+  // 落地路由：默认访问 / 会被 redirect 到 /resume（登录后直落简历评估）；
+  // 未登录深链（如 /#/interview?resume=1）登录后原地进入，交接参数不丢
   viewRef.value?.refreshList?.()
 }
 
@@ -185,38 +169,23 @@ onMounted(loadUser)
       </aside>
 
       <main class="content">
-        <div class="page" :class="{ wide: ['admin', 'agent'].includes(activeView) }">
-          <!-- 视图切换：不用 KeepAlive —— 实测 KeepAlive+动态组件在本项目下
-               切换时 patch 崩溃（deactivate is not a function），主区停在旧视图；
-               移除后恢复。代价是切视图丢组件内状态，各视图 onMounted 自行刷新。 -->
-          <ResumeView
-            v-if="activeView === 'resume'"
-            :key="viewEpoch"
-            ref="viewRef"
-            @navigate="gotoView"
-          />
-          <InterviewView
-            v-else-if="activeView === 'interview'"
-            :key="viewEpoch"
-            :pending-resume-id="pendingResumeId"
-            :pending-bank-id="pendingBankId"
-            @navigate="gotoView"
-            @pending-consumed="pendingResumeId = null; pendingBankId = null"
-          />
-          <QuestionGenView
-            v-else-if="activeView === 'question-gen'"
-            :key="viewEpoch"
-            @navigate="gotoView"
-          />
-          <AudioView v-else-if="activeView === 'audio'" :key="viewEpoch" />
-          <AdminPanel
-            v-else-if="activeView === 'admin'"
-            :key="viewEpoch"
-            ref="viewRef"
-            :user="currentUser"
-            @logout="logout"
-          />
-          <component :is="currentViewComponent" v-else :key="viewEpoch" ref="viewRef" @logout="logout" />
+        <div class="page" :class="{ wide: route.meta.wide }">
+          <!-- 视图切换（v4.3 起 router-view 驱动）：不用 KeepAlive —— 实测 KeepAlive+动态组件
+               在本项目下切换时 patch 崩溃（deactivate is not a function），移除后恢复；
+               代价是切视图丢组件内状态，各视图 onMounted 自行刷新。 -->
+          <router-view v-slot="{ Component }">
+            <component
+              :is="Component"
+              :key="viewEpoch"
+              ref="viewRef"
+              :user="activeView === 'admin' ? currentUser : undefined"
+              :pending-resume-id="activeView === 'interview' ? pendingResumeId : undefined"
+              :pending-bank-id="activeView === 'interview' ? pendingBankId : undefined"
+              @navigate="gotoView"
+              @logout="logout"
+              @pending-consumed="onPendingConsumed"
+            />
+          </router-view>
         </div>
       </main>
     </div>
