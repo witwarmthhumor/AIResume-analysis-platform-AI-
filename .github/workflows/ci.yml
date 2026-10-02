@@ -64,13 +64,10 @@ jobs:
         run: |
           python -m pytest -q --junitxml=pytest-result.xml | tee pytest.log
           exit ${PIPESTATUS[0]}
-      - name: 依赖漏洞审计（pip-audit，v4.3 起）
+      - name: 依赖漏洞审计（pip-audit，v4.3 起；v4.4 依赖链解冻后 12 个豁免已全部删除）
         run: |
           python -m pip install pip-audit
-          # 以下 12 个 ID 全部是 langchain<0.4 / langgraph<0.3 上限锁住的家族，
-          # 修复版本都在 1.x / 0.3+ 线——依赖链解冻（docs/依赖链解冻调研报告.md）
-          # 落地后必须删除这些豁免，不得续期
-          python -m pip_audit -r requirements.lock --progress-spinner off             --ignore-vuln PYSEC-2026-76             --ignore-vuln PYSEC-2026-77             --ignore-vuln PYSEC-2026-83             --ignore-vuln PYSEC-2026-1527             --ignore-vuln PYSEC-2026-2192             --ignore-vuln PYSEC-2026-2193             --ignore-vuln PYSEC-2026-2194             --ignore-vuln PYSEC-2026-2562             --ignore-vuln PYSEC-2026-2573             --ignore-vuln PYSEC-2026-2574             --ignore-vuln PYSEC-2026-2575             --ignore-vuln PYSEC-2026-3635
+          python -m pip_audit -r requirements.lock --progress-spinner off
       - name: 失败用例转 annotation（无需 gh 即可从 API 读取失败明细）
         if: failure()
         run: |

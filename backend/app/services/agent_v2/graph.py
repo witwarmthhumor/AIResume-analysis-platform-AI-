@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import TypedDict
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
@@ -495,7 +496,7 @@ def _wrap_node(name: str):
     此前每次节点执行都重建全部闭包，纯浪费（质量审计 P3）。
     """
 
-    def _inner(state: JobPrepState, config: dict) -> dict:
+    def _inner(state: JobPrepState, config: RunnableConfig) -> dict:
         deps = deps_from_config(config)
         t0 = time.monotonic()
         deps.publish({"type": "node_start", "node": name})

@@ -20,14 +20,15 @@ pgvector>=0.3        # SQLAlchemy 的 vector 类型映射；embedding 由 Ollama
 # v3.5：混合检索（向量 + BM25 词法，RRF 融合）——中文分词用 jieba，纯 Python 无系统依赖
 jieba>=0.42
 
-# v3.4：AI 客服 Agent（LangChain 局部引入，仅 Agent 层使用，现有手写 RAG 不改）
-# 锁定 0.3 线：1.x 移除了 AgentExecutor/create_openai_tools_agent（改走 langgraph），
-# 本项目 Agent 流式基于 0.3 的 AgentExecutor + BaseCallbackHandler，故上限 <0.4
-langchain>=0.3,<0.4
-langchain-openai>=0.2,<0.4    # ChatOpenAI（OpenAI 兼容协议，通义/DeepSeek 可用）
-# v4.0：Agent v2 编排层（LangGraph 0.2.x，实测与 langchain-core 0.3.86 零冲突；1.x 会强升 core→1.6 破坏 v1，禁升）
-langgraph>=0.2.76,<0.3
-langgraph-checkpoint-postgres>=2.0.21,<3
+# v3.4 起：AI 客服 Agent（LangChain 局部引入，仅 Agent 层使用，手写 RAG 链路不依赖它）
+# v4.4（2026-10-02）依赖链解冻：0.3/0.2 线已停更且 46 个漏洞中 12 个被上限锁死
+# （docs/依赖链解冻调研报告.md），整体切换 1.x——v1 AgentExecutor 重写为
+# langchain.agents.create_agent + astream_events 桥，v2/interview 图 API 兼容零改动。
+# 铁律：langgraph 1.x 硬性要求 langchain-core>=1.4.7，与 langchain 0.3 互斥，禁止回混版本。
+langchain>=1.4,<2
+langchain-openai>=1.6,<2      # ChatOpenAI（OpenAI 兼容协议，通义/DeepSeek 可用；连带 openai SDK 3.x）
+langgraph>=1.2,<1.3           # StateGraph/Command/interrupt 语义不变；checkpoint-postgres 同批升级
+langgraph-checkpoint-postgres>=3.1,<4  # 3.x 只声明 psycopg 不带 binary——psycopg[binary] 不可精简
 
 # 阶段4：用户认证与异步任务
 pwdlib[argon2]>=0.3
