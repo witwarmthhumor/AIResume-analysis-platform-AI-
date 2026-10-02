@@ -129,7 +129,7 @@ def ingest_kb(document_id: int) -> dict[str, int | str]:
 
 
 @celery_app.task(name="app.worker.tasks.transcribe_audio")
-def transcribe_audio(audio_id: int) -> dict[str, int | str]:
+def transcribe_audio(audio_id: int, fast: bool = False) -> dict[str, int | str]:
     """录音转写（v4.2 B5）：whisper 本地模型，CPU 分钟级——只在 worker 进程跑。
 
     成功：transcript/duration 落库，status=transcribed（前端轮询 /api/audio/analyses/{id}）；
@@ -143,7 +143,8 @@ def transcribe_audio(audio_id: int) -> dict[str, int | str]:
             # 读文件也在 try 内（G-2）：存储文件缺失（并发删除/磁盘清理）时
             # 与转写失败同口径置 failed，避免记录永久卡在 transcribing
             data = Path(audio.storage_path).read_bytes()
-            result = transcribe(data, audio.filename)
+            model_name = settings.asr_whisper_fast_model if fast else None
+            result = transcribe(data, audio.filename, model_name)
         except Exception as exc:
             logger.exception("录音转写失败 audio_id=%s", audio_id)
             audio.status = "failed"
@@ -158,7 +159,7 @@ def transcribe_audio(audio_id: int) -> dict[str, int | str]:
             }
         audio.transcript = result["text"]
         audio.duration_seconds = result["duration_seconds"]
-        audio.asr_model = settings.asr_whisper_model
+        audio.asr_model = model_name or settings.asr_whisper_model  # 记实际用的模型
         audio.status = "transcribed"
         db.commit()
         return {

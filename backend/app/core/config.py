@@ -140,6 +140,9 @@ class Settings(BaseSettings):
 
     # v4.2 录音分析：whisper 模型名（small 中文效果好；B0 已预下载到 HF 缓存）
     asr_whisper_model: str = "small"
+    asr_whisper_fast_model: str = (
+        "base"  # v4.4.1 快速档：上传时传 fast=true 用小模型换速度
+    )
     audio_upload_max_size: int = 50 * 1024 * 1024  # 50MB 音频上限
     daily_audio_transcribe_limit: int = 20  # 每日转写次数上限
     daily_audio_review_limit: int = 30  # 每日审核（角色/面试）次数上限

@@ -1,0 +1,4 @@
+# 仓库级 ruff 配置（v4.4.1）：pre-commit 从根目录跑、日常从 backend/ 跑，两边必须同口径。
+# 不写 known-first-party 时 ruff 按运行目录猜 app 是不是本地包，isort 结果随 cwd 漂移。
+[lint.isort]
+known-first-party = ["app"]

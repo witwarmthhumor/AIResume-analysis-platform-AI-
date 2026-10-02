@@ -1,9 +1,9 @@
-# -*- coding: utf-8 -*-
 """生成 AIResume 项目简历板块 Word 文档（无模板创建）。"""
+
 from docx import Document
-from docx.shared import Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml.ns import qn
+from docx.shared import Cm, Pt, RGBColor
 
 TASK_DIR = r"E:\AIDevelop\AIProject\AIResume\tasks\resume-template-20260921"
 OUT = TASK_DIR + r"\AIResume项目经历-简历模板.docx"
@@ -40,8 +40,14 @@ def set_run_font(run, cn="宋体", en="Arial", size=12, bold=False, color=None):
         run.font.color.rgb = RGBColor(*color)
 
 
-def add_para(text_runs, align=WD_ALIGN_PARAGRAPH.JUSTIFY, indent_chars=2,
-             space_before=0, space_after=0, line15=True):
+def add_para(
+    text_runs,
+    align=WD_ALIGN_PARAGRAPH.JUSTIFY,
+    indent_chars=2,
+    space_before=0,
+    space_after=0,
+    line15=True,
+):
     """text_runs: list of (text, dict(font args))"""
     p = doc.add_paragraph()
     pf = p.paragraph_format
@@ -80,17 +86,29 @@ set_run_font(r, cn="黑体", size=13, bold=True, color=(0, 0, 0))
 
 # ---------- 3. 技术栈 ----------
 add_para(
-    [("技术栈：", dict(cn="宋体", size=12, bold=True)),
-     ("FastAPI、PostgreSQL 16（pgvector）、Redis、SQLAlchemy 2、Celery、Vue 3、Vite、LangChain 0.3、Ollama（nomic-embed-text）",
-      dict(cn="宋体", size=12))],
-    indent_chars=0, space_after=6)
+    [
+        ("技术栈：", {"cn": "宋体", "size": 12, "bold": True}),
+        (
+            "FastAPI、PostgreSQL 16（pgvector）、Redis、SQLAlchemy 2、Celery、Vue 3、Vite、LangChain 0.3、Ollama（nomic-embed-text）",
+            {"cn": "宋体", "size": 12},
+        ),
+    ],
+    indent_chars=0,
+    space_after=6,
+)
 
 # ---------- 4. 项目简介 ----------
 add_para(
-    [("项目简介：", dict(cn="宋体", size=12, bold=True)),
-     ("一个集成用户注册登录、PDF 简历上传解析、AI 智能分析报告与多轮文字模拟面试的全链路 AI 应用平台。针对 AI 输出不可控、简历解析易翻车与长耗时任务阻塞三大痛点，采用“统一 AI 封装层 + JSON 结构化校验 + 异步任务化 + RAG 混合检索”的整体架构，实现从简历上传到智能评估、模拟面试与知识库问答的一体化服务。",
-      dict(cn="宋体", size=12))],
-    indent_chars=0, space_after=6)
+    [
+        ("项目简介：", {"cn": "宋体", "size": 12, "bold": True}),
+        (
+            "一个集成用户注册登录、PDF 简历上传解析、AI 智能分析报告与多轮文字模拟面试的全链路 AI 应用平台。针对 AI 输出不可控、简历解析易翻车与长耗时任务阻塞三大痛点，采用“统一 AI 封装层 + JSON 结构化校验 + 异步任务化 + RAG 混合检索”的整体架构，实现从简历上传到智能评估、模拟面试与知识库问答的一体化服务。",
+            {"cn": "宋体", "size": 12},
+        ),
+    ],
+    indent_chars=0,
+    space_after=6,
+)
 
 # ---------- 5. 分点 x7（Word 内置 List Bullet 自动项目符号） ----------
 bullets = [

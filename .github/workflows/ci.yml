@@ -60,9 +60,9 @@ jobs:
       - name: 数据库迁移到 head
         run: python -m alembic upgrade head
 
-      - name: pytest 全量（370+ 用例）
+      - name: pytest 全量（388 用例 + 覆盖率门槛 85%，v4.4.1 起）
         run: |
-          python -m pytest -q --junitxml=pytest-result.xml | tee pytest.log
+          python -m pytest -q --cov=app --cov-report=term --cov-fail-under=85 --junitxml=pytest-result.xml | tee pytest.log
           exit ${PIPESTATUS[0]}
       - name: 依赖漏洞审计（pip-audit，v4.3 起；v4.4 依赖链解冻后 12 个豁免已全部删除）
         run: |

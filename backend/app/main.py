@@ -13,7 +13,7 @@ from sqlalchemy.exc import InterfaceError, OperationalError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.gate import auth_gate_middleware
-from app.core.config import settings
+from app.core.config import Settings, settings
 from app.core.errors import (
     AppError,
     app_error_handler,
@@ -42,9 +42,31 @@ if settings.jwt_secret_key == "change-me-in-backend-env":
     )
 
 
+def validate_prod_settings(s: Settings) -> None:
+    """prod 启动断言（v4.4.1 安全件）：安全关键配置自相矛盾时拒绝启动。
+
+    宁可服务起不来，也不能带着"HTTPS 下不设 Secure Cookie / 关登录闸门 /
+    首用户自动提权"这类裸奔配置上线。仅 app_env=prod 生效（dev 本地 HTTP 是正常态）。
+    """
+    if s.app_env != "prod":
+        return
+    problems: list[str] = []
+    if not s.jwt_secure_cookie:
+        problems.append("jwt_secure_cookie 必须为 True（生产 HTTPS）")
+    if not s.auth_gate_enabled:
+        problems.append("auth_gate_enabled 必须为 True（/api/** 默认拒绝）")
+    if s.auto_promote_first_user:
+        problems.append(
+            "auto_promote_first_user 必须关闭（管理员唯一来源 scripts/seed_admin.py）"
+        )
+    if problems:
+        raise RuntimeError("prod 配置校验失败：" + "；".join(problems))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """启动钩子：回收上个进程遗留的孤儿 agent run（图线程随进程消亡，无法续跑）。"""
+    """启动钩子：prod 配置断言 + 回收上个进程遗留的孤儿 agent run。"""
+    validate_prod_settings(settings)
     from app.services.agent_v2.graph import reap_orphan_runs
 
     try:

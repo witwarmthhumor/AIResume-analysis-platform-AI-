@@ -7,14 +7,16 @@
 """
 
 import hashlib
+import json
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.admin import _admin_only
 from app.core.config import settings
 from app.db.session import get_db
+from app.models.agent_v2 import AuditLog
 from app.models.kb import KBChunk, KBDocument
 from app.models.user import User
 from app.services.kb_service import create_document, soft_delete_document
@@ -93,14 +95,33 @@ def list_all_documents(
 @router.delete("/documents/{document_id}", status_code=204)
 def delete_any_document(
     document_id: int,
+    request: Request,
     db: Session = Depends(get_db),  # noqa: B008
     user: User = Depends(_admin_only),  # noqa: B008
 ) -> None:
-    """删除任意文档（含预置、他人上传），软删除可审计。绕过普通接口的 preset 不可删限制。"""
+    """删除任意文档（含预置、他人上传），软删除 + 审计留痕。
+
+    v4.4.1 安全件：删除是管理端唯一的破坏性写操作，落 audit_logs
+    （谁、何时、哪个 IP、删了哪篇），正文不进快照只记元信息。
+    """
     doc = db.get(KBDocument, document_id)
     if doc is None or doc.deleted_at is not None:
         raise HTTPException(404, "知识库文档不存在或已删除")
     soft_delete_document(db, doc)
+    db.add(
+        AuditLog(
+            actor_user_id=user.id,
+            actor_anonymous_id=None,
+            ip=request.client.host if request.client else None,
+            action="kb_document_delete",
+            target_type="kb_document",
+            target_id=str(doc.id),
+            after_snapshot=json.dumps(
+                {"title": doc.title, "scope": doc.scope}, ensure_ascii=False
+            )[:500],
+        )
+    )
+    db.commit()
 
 
 @router.post("/documents", status_code=201)

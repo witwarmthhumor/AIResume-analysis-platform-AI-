@@ -12,6 +12,7 @@ CacheControl==0.14.4
 celery==5.6.3
 certifi==2026.7.22
 cffi==2.1.1
+cfgv==3.5.0
 charset-normalizer==3.5.1
 click==8.5.0
 click-didyoumean==0.3.1
@@ -22,6 +23,7 @@ coverage==7.16.1
 ctranslate2==4.8.2
 cyclonedx-python-lib==11.12.0
 defusedxml==0.7.1
+distlib==0.4.3
 distro==1.9.0
 dnspython==2.8.0
 email-validator==2.3.0
@@ -41,6 +43,7 @@ httptools==0.8.0
 httpx==0.28.1
 httpx2==2.12.0
 huggingface_hub==1.33.0
+identify==2.6.20
 idna==3.19
 iniconfig==2.3.0
 jieba==0.42.1
@@ -65,6 +68,7 @@ markdown-it-py==4.2.0
 MarkupSafe==3.0.3
 mdurl==0.1.2
 msgpack==1.2.3
+nodeenv==1.11.0
 numpy==2.5.3
 onnxruntime==1.30.0
 openai==2.54.0
@@ -79,6 +83,7 @@ pip_api==0.0.35
 pip_audit==2.10.1
 platformdirs==4.12.2
 pluggy==1.6.0
+pre_commit==4.6.2
 prompt_toolkit==3.0.53
 protobuf==7.36.2
 psycopg==3.3.4
@@ -97,6 +102,7 @@ pypdf==6.19.0
 pytest==9.1.1
 pytest-cov==7.1.0
 python-dateutil==2.9.0.post0
+python-discovery==1.6.1
 python-docx==1.2.0
 python-dotenv==1.2.3
 python-multipart==0.0.32
@@ -127,6 +133,7 @@ urllib3==2.8.0
 uuid_utils==0.17.0
 uvicorn==0.52.4
 vine==5.1.0
+virtualenv==21.14.4
 watchfiles==1.2.0
 wcwidth==0.8.3
 websockets==16.1.1

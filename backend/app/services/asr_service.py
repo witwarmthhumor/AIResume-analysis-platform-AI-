@@ -13,30 +13,28 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 _MODEL_LOCK = threading.Lock()
-_model = None  # WhisperModel 单例（worker 进程内共享）
+_models: dict[str, object] = {}  # 按模型名缓存（v4.4.1：small 常驻 + fast 档按需加载）
 
 
-def _get_model():
-    """懒加载 faster-whisper 模型（线程安全的单例）。"""
-    global _model
-    if _model is None:
-        from faster_whisper import WhisperModel
+def _get_model(model_name: str | None = None):
+    """懒加载 faster-whisper 模型（线程安全；按模型名各存一份，换档不互相挤掉）。"""
+    name = model_name or settings.asr_whisper_model
+    if name in _models:
+        return _models[name]
+    from faster_whisper import WhisperModel
 
-        with _MODEL_LOCK:
-            if _model is None:
-                logger.info(
-                    "加载 whisper 模型：%s（首次可能需要下载数百 MB）",
-                    settings.asr_whisper_model,
-                )
-                _model = WhisperModel(
-                    settings.asr_whisper_model,
-                    device="cpu",
-                    compute_type="int8",  # CPU 上 int8 比 float16 快且省内存
-                )
-    return _model
+    with _MODEL_LOCK:
+        if name not in _models:
+            logger.info("加载 whisper 模型：%s（首次可能需要下载数百 MB）", name)
+            _models[name] = WhisperModel(
+                name,
+                device="cpu",
+                compute_type="int8",  # CPU 上 int8 比 float16 快且省内存
+            )
+    return _models[name]
 
 
-def transcribe(data: bytes, filename: str) -> dict:
+def transcribe(data: bytes, filename: str, model_name: str | None = None) -> dict:
     """转写音频字节流：返回 {text, segments, duration_seconds}。
 
     segments 为 [{start, end, text}]（供角色审核对齐说话人）；任何异常向上抛，
@@ -45,7 +43,7 @@ def transcribe(data: bytes, filename: str) -> dict:
     import tempfile
     from pathlib import Path
 
-    model = _get_model()
+    model = _get_model(model_name)
     # faster-whisper 接收文件路径：落临时文件（按扩展名保留后缀供 PyAV 识别容器格式）
     suffix = Path(filename).suffix or ".wav"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
