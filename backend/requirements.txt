@@ -15,7 +15,7 @@ pypdf>=6.19                   # 文本型 PDF 逐页提取（纯 Python）；v4.
 openai>=1.40
 
 # 阶段6：Playground 知识库 RAG（v3.0）
-pgvector>=0.3        # SQLAlchemy 的 vector 类型映射；embedding 由 Ollama 提供，无本地模型依赖
+pgvector>=0.5.0        # SQLAlchemy 的 vector 类型映射；embedding 由 Ollama 提供，无本地模型依赖
 
 # v3.5：混合检索（向量 + BM25 词法，RRF 融合）——中文分词用 jieba，纯 Python 无系统依赖
 jieba>=0.42
