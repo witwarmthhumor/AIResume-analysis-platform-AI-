@@ -36,7 +36,7 @@ def graph_dsn() -> str:
     base = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
     scheme, netloc, path, query, _frag = urlsplit(base)
     extra = "options=-csearch_path%3Dlanggraph%2Cpublic"
-    query = f"{query}&{extra}" if query else extra
+    query = f"{query.rstrip('&')}&{extra}" if query else extra  # 尾 & 剥掉，防 "&&"
     return urlunsplit((scheme, netloc, path, query, _frag))
 
 
