@@ -73,9 +73,7 @@ def _clean_pgpage_data():
     yield
     with engine.begin() as conn:
         conn.execute(
-            text(
-                "DELETE FROM resumes WHERE filename LIKE :p OR storage_path LIKE :p"
-            ),
+            text("DELETE FROM resumes WHERE filename LIKE :p OR storage_path LIKE :p"),
             {"p": f"{_PREFIX}%"},
         )
         conn.execute(

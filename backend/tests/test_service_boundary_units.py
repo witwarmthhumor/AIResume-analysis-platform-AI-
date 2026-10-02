@@ -13,14 +13,13 @@ import pytest
 
 from app.core.config import settings
 
-
 # —— task_service.task_status ——
 
 
 class _FakeAsyncResult:
     """按 (status, successful, failed, result) 预设行为的 AsyncResult 替身。"""
 
-    _preset: dict = {}
+    _preset: dict = {}  # noqa: RUF012  测试替身的共享预设，由 fixture 安装
 
     def __init__(self, task_id: str, app=None) -> None:
         self.task_id = task_id
@@ -49,16 +48,21 @@ class _FakeAsyncResult:
 def fake_async_result(monkeypatch):
     def _install(presets: dict):
         _FakeAsyncResult._preset = presets
-        monkeypatch.setattr(
-            "app.services.task_service.AsyncResult", _FakeAsyncResult
-        )
+        monkeypatch.setattr("app.services.task_service.AsyncResult", _FakeAsyncResult)
 
     return _install
 
 
 def test_task_status_success_carries_result(fake_async_result, monkeypatch):
     fake_async_result(
-        {"t1": {"status": "SUCCESS", "successful": True, "failed": False, "result": {"n": 1}}}
+        {
+            "t1": {
+                "status": "SUCCESS",
+                "successful": True,
+                "failed": False,
+                "result": {"n": 1},
+            }
+        }
     )
     from app.services import task_service
 
@@ -73,14 +77,24 @@ def test_task_status_failure_maps_to_user_facing_error(fake_async_result):
     from app.services import task_service
 
     payload = task_service.task_status("t2")
-    assert payload == {"task_id": "t2", "status": "failure", "error": "异步任务执行失败"}
+    assert payload == {
+        "task_id": "t2",
+        "status": "failure",
+        "error": "异步任务执行失败",
+    }
 
 
 @pytest.mark.parametrize("raw_status", ["PENDING", "STARTED", "RETRY"])
 def test_task_status_in_flight_has_no_result_nor_error(fake_async_result, raw_status):
     """进行中的任务不携带 result/error 两个键（路由层按缺失判断未完成）。"""
     fake_async_result(
-        {f"t-{raw_status}": {"status": raw_status, "successful": False, "failed": False}}
+        {
+            f"t-{raw_status}": {
+                "status": raw_status,
+                "successful": False,
+                "failed": False,
+            }
+        }
     )
     from app.services import task_service
 
@@ -173,7 +187,10 @@ def test_embed_texts_passes_model_and_input(embedding_module, monkeypatch):
             captured["model"] = model
             captured["input"] = input
             return SimpleNamespace(
-                data=[SimpleNamespace(embedding=[0.1, 0.2]), SimpleNamespace(embedding=[0.3, 0.4])]
+                data=[
+                    SimpleNamespace(embedding=[0.1, 0.2]),
+                    SimpleNamespace(embedding=[0.3, 0.4]),
+                ]
             )
 
     monkeypatch.setattr(
@@ -216,7 +233,9 @@ def test_get_client_is_singleton_with_settings(embedding_module, monkeypatch):
 
     class _FakeOpenAI:
         def __init__(self, base_url, api_key, timeout):
-            created.append({"base_url": base_url, "api_key": api_key, "timeout": timeout})
+            created.append(
+                {"base_url": base_url, "api_key": api_key, "timeout": timeout}
+            )
 
     monkeypatch.setattr(embedding_module, "OpenAI", _FakeOpenAI)
     c1 = embedding_module._get_client()

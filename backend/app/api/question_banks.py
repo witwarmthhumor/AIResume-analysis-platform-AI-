@@ -73,7 +73,9 @@ def list_banks(
     db: Session = Depends(get_db),  # noqa: B008
     user: User = Depends(get_current_user),  # noqa: B008
 ) -> list[dict]:
-    banks = question_bank_service.list_question_banks(db, user, limit=limit, offset=offset)
+    banks = question_bank_service.list_question_banks(
+        db, user, limit=limit, offset=offset
+    )
     return [
         {
             "id": b.id,
