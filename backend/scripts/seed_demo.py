@@ -6,9 +6,10 @@
 而不是随机塞行。
 
 造什么：
-- 两个账号（覆盖双端导航）：
-  - `admin@airesume-demo.com`（管理员，演示「管理端五项 + 右下角 AI 客服悬浮」）
-  - `user@airesume-demo.com`（普通用户，演示「首页 / AI 客服 / 个人中心」）——业务数据挂在这个号名下
+- 两个演示账号（**均为普通用户** —— 全站约定「有且只能有一个 admin」，唯一管理员由
+  `scripts/seed_admin.py` 播种，本脚本刻意不再造第二个 admin）：
+  - `admin@airesume-demo.com`（用户名 `demo_admin`，普通用户）
+  - `user@airesume-demo.com`（用户名 `demo_user`，普通用户）——业务数据挂在这个号名下
 - 1 份简历（从 `test-resumes/` 取 PDF，走真实解析器拿正文，落真实 uploads 文件）
 - 1 份已完成分析报告（结构与 AI 实际返回一致：7 个字段全给）
 - 1 场已结束的模拟面试（四维评分 + 6 条对话消息）
@@ -208,13 +209,16 @@ def _seed(db: Session) -> dict[str, object]:
     pwd = hash_password(DEMO_PASSWORD)
 
     # v4.1 起 users.username 非空：演示账号给可读的固定用户名（与 email 前缀无关联，
-    # 避免 admin@ 前缀撞保留字被回填规则改写）；幂等由 _ensure_user 兜底
+    # 避免 admin@ 前缀撞保留字被回填规则改写）；幂等由 _ensure_user 兜底。
+    # ⚠️ 2026-10-11：role 由 admin 改为 user —— 全站约定「有且只能有一个 admin」，
+    # 唯一管理员由 scripts/seed_admin.py 播种（admin / 123456）；本账号只是第二个
+    # 演示账号（变量名沿用 admin 仅为指代它，角色已不是管理员，勿改回）。
     admin = User(
         email=ADMIN_EMAIL,
         username=DEMO_ADMIN_USERNAME,
         password_hash=pwd,
         is_active=True,
-        role="admin",
+        role="user",
     )
     demo = User(
         email=USER_EMAIL,
