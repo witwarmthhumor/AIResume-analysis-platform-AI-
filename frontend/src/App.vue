@@ -6,7 +6,7 @@ import { router } from './router.js'
 import LoginView from './components/LoginView.vue'
 import Icon from './components/Icon.vue'
 import ProfileDialog from './components/ProfileDialog.vue'
-import { avatarPreset } from './utils.js'
+import { avatarPreset, fmtDateTime } from './utils.js'
 
 // —— 视图切换（v4.3 P1-5c 起 hash 路由驱动）：深链/刷新/后退不再丢视图；
 // 组件分包与映射关系全部移到 router.js，本文件只管布局、登录态与导航交互。——
@@ -29,7 +29,8 @@ const showProfile = ref(false) // v4.2 个人信息弹窗
 const avatarPresetInfo = computed(() => avatarPreset(currentUser.value))
 const avatarLetter = computed(() => {
   if (avatarPresetInfo.value) return avatarPresetInfo.value.emoji
-  const ch = currentUser.value?.email?.trim()?.[0]
+  // 回落顺序：邮箱首字符 → 用户名首字符（v4.2.1 注册无邮箱字段，避免头像显示 ?）
+  const ch = currentUser.value?.email?.trim()?.[0] || currentUser.value?.username?.trim()?.[0]
   return ch ? ch.toUpperCase() : '?'
 })
 const avatarColor = computed(() => avatarPresetInfo.value?.color || null)
@@ -132,7 +133,7 @@ onMounted(loadUser)
                   <div class="dp-row"><span class="dp-label">用户名</span><span class="dp-value">{{ currentUser.username }}</span></div>
                   <div class="dp-row"><span class="dp-label">手机号</span><span class="dp-value">{{ currentUser.phone || '-' }}</span></div>
                   <div v-if="currentUser.email" class="dp-row"><span class="dp-label">邮箱</span><span class="dp-value dp-ellipsis">{{ currentUser.email }}</span></div>
-                  <div class="dp-row"><span class="dp-label">注册时间</span><span class="dp-value">{{ new Date(currentUser.created_at).toLocaleString() }}</span></div>
+                  <div class="dp-row"><span class="dp-label">注册时间</span><span class="dp-value">{{ fmtDateTime(currentUser.created_at) }}</span></div>
                 </div>
                 <button class="dropdown-item" @click="showProfile = true; showUserMenu = false"><Icon name="id" :size="14" /> 查看个人信息</button>
                 <button class="dropdown-item" @click="showProfile = true; showUserMenu = false"><Icon name="key" :size="14" /> 修改密码</button>
@@ -163,7 +164,7 @@ onMounted(loadUser)
           </button>
         </nav>
         <button class="collapse-btn" :title="collapsed ? '展开侧边栏' : '折叠侧边栏'" @click="collapsed = !collapsed">
-          <span class="collapse-icon">{{ collapsed ? '»' : '«' }}</span>
+          <Icon :name="collapsed ? 'chevrons-right' : 'chevrons-left'" :size="15" />
           <span class="nav-label">{{ collapsed ? '展开' : '折叠' }}</span>
         </button>
       </aside>
@@ -208,12 +209,7 @@ onMounted(loadUser)
   height: 100vh;
   display: flex;
   flex-direction: column;
-  font-family: var(--font, system-ui, 'Microsoft YaHei', sans-serif);
-  color: var(--c-text);
-  background:
-    radial-gradient(1200px 400px at 80% -10%, rgb(16 185 129 / 10%), transparent 60%),
-    radial-gradient(900px 300px at 10% 0%, rgb(59 130 246 / 5%), transparent 55%),
-    #f6f9f7;
+  background: var(--c-bg);
 }
 
 /* —— 顶栏（吸顶毛玻璃）—— */
@@ -247,7 +243,6 @@ onMounted(loadUser)
   width: 30px;
   height: 30px;
   flex-shrink: 0;
-  filter: drop-shadow(0 2px 6px rgb(16 185 129 / 30%));
 }
 .plus {
   color: var(--c-primary);
@@ -280,12 +275,11 @@ onMounted(loadUser)
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--c-primary), var(--c-primary-dark));
-  color: #fff;
-  font-size: 14px;
-  font-weight: 700;
-  box-shadow: 0 2px 8px rgb(16 185 129 / 30%);
-  transition: transform 0.15s ease;
+  background: var(--c-primary-light);
+  color: var(--c-primary-dark);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  transition: transform var(--dur-fast) var(--ease);
 }
 .avatar-btn:hover .avatar {
   transform: scale(1.06);
@@ -297,10 +291,10 @@ onMounted(loadUser)
   min-width: 200px;
   background: #fff;
   border: 1px solid var(--c-border);
-  border-radius: 12px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
-  padding: 10px;
-  z-index: 30;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  padding: var(--sp-2);
+  z-index: var(--z-pop);
   animation: fade-in-up 0.18s ease both;
 }
 .dropdown-profile {
@@ -311,9 +305,9 @@ onMounted(loadUser)
 .dp-row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  font-size: 12px;
-  padding: 3px 0;
+  gap: var(--sp-3);
+  font-size: var(--fs-xs);
+  padding: var(--sp-1) 0;
 }
 .dp-label {
   color: var(--c-faint);
@@ -321,7 +315,7 @@ onMounted(loadUser)
 }
 .dp-value {
   color: var(--c-text);
-  font-weight: 600;
+  font-weight: 500;
   text-align: right;
 }
 .dp-ellipsis {
@@ -331,27 +325,31 @@ onMounted(loadUser)
   max-width: 150px;
 }
 .dropdown-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
   width: 100%;
   text-align: left;
   border: 0;
   background: transparent;
-  padding: 8px;
-  border-radius: 8px;
-  font-size: 13px;
+  padding: var(--sp-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
   font-family: inherit;
   color: var(--c-text-2);
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
 }
 .dropdown-item:hover {
-  background: rgb(16 185 129 / 8%);
-  color: var(--c-primary-dark);
+  background: var(--c-hover);
+  color: var(--c-text);
 }
 .dropdown-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 25;
+  z-index: calc(var(--z-pop) - 5);
   background: transparent;
 }
 
@@ -371,39 +369,41 @@ onMounted(loadUser)
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 16px 10px;
-  transition: width 0.25s ease;
+  padding: var(--sp-4) var(--sp-2);
+  transition: width 0.25s var(--ease);
   overflow: hidden;
 }
 .sidebar.collapsed {
   width: 64px;
-  padding: 16px 8px;
+  padding: var(--sp-4) var(--sp-2);
 }
 .side-nav {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 .nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 12px;
+  padding: 8px var(--sp-3);
   border: 0;
   background: transparent;
-  border-radius: 10px;
-  font-size: 13.5px;
+  border-radius: var(--radius-md);
+  font-size: var(--fs-sm);
   font-family: inherit;
   color: var(--c-ink-muted);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
   white-space: nowrap;
   text-align: left;
   width: 100%;
 }
 .nav-item:hover {
-  background: rgb(16 185 129 / 8%);
-  color: var(--c-primary-dark);
+  background: rgb(255 255 255 / 6%);
+  color: var(--c-ink-text);
 }
 .nav-item.active {
   background: var(--c-ink-2);
@@ -412,10 +412,8 @@ onMounted(loadUser)
   box-shadow: inset 2px 0 0 var(--c-primary);
 }
 .nav-icon {
-  font-size: 15px;
   flex-shrink: 0;
   width: 20px;
-  text-align: center;
 }
 .nav-label {
   overflow: hidden;
@@ -434,46 +432,41 @@ onMounted(loadUser)
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 12px;
+  padding: 8px var(--sp-3);
   border: 0;
   background: transparent;
-  border-radius: 10px;
-  font-size: 12.5px;
+  border-radius: var(--radius-md);
+  font-size: var(--fs-xs);
   font-family: inherit;
   color: var(--c-ink-muted);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
   white-space: nowrap;
-  margin-top: 8px;
+  margin-top: var(--sp-2);
 }
 .collapse-btn:hover {
   background: rgb(255 255 255 / 8%);
   color: var(--c-ink-text);
 }
-.collapse-icon {
-  font-size: 16px;
-  font-weight: 700;
-  width: 20px;
-  text-align: center;
-  flex-shrink: 0;
-}
 .sidebar.collapsed .collapse-btn {
   justify-content: center;
-  padding: 9px 0;
+  padding: 8px 0;
 }
 
 /* —— 内容区 —— */
 .content {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 28px;
+  padding: var(--sp-5) var(--sp-6);
 }
 .page {
   max-width: 960px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--sp-4);
 }
 .page.wide {
   max-width: 1100px;
@@ -483,7 +476,7 @@ onMounted(loadUser)
 @media (max-width: 900px) {
   .sidebar {
     width: 64px !important;
-    padding: 16px 8px !important;
+    padding: var(--sp-4) var(--sp-2) !important;
   }
   .sidebar .nav-label,
   .sidebar .collapse-btn {
@@ -491,10 +484,10 @@ onMounted(loadUser)
   }
   .sidebar .nav-item {
     justify-content: center;
-    padding: 9px 0;
+    padding: 8px 0;
   }
   .content {
-    padding: 16px 14px;
+    padding: var(--sp-4) var(--sp-3);
   }
   .brand-text {
     display: none;

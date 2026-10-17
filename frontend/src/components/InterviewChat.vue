@@ -3,6 +3,7 @@
    由 HomeView 按 resume 挂载；简历未解析成功时不可进入。 */
 import { nextTick, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import { parseSseBlock, post, streamChat } from '../api.js'
+import Icon from './Icon.vue'
 import InterviewReport from './InterviewReport.vue'
 
 const props = defineProps({
@@ -128,7 +129,7 @@ onDeactivated(() => activeAbort?.())
 
 <template>
   <section class="card interview">
-    <div class="head">
+    <div class="page-head">
       <div>
         <h2>文字模拟面试</h2>
         <p v-if="session" class="progress">
@@ -136,14 +137,16 @@ onDeactivated(() => activeAbort?.())
           <span class="turn">已完成 {{ session.turn_count }}/{{ session.max_turns }} 轮</span>
         </p>
       </div>
-      <button class="btn btn-ghost" @click="emit('close')">返回简历</button>
+      <div class="ph-actions">
+        <button class="btn btn-ghost" @click="emit('close')">返回简历</button>
+      </div>
     </div>
     <p v-if="error" class="msg error">
       {{ error }}
       <button v-if="!session && !loading" class="btn btn-ghost" @click="startOrResume">重试</button>
     </p>
     <div v-if="loading" class="setup">
-      <p class="loading">正在恢复面试会话…</p>
+      <div class="loading-row"><span class="spinner"></span>正在恢复面试会话…</div>
     </div>
     <template v-else-if="session?.status === 'finished'">
       <InterviewReport :report="session.final_report" :session-id="session.id || null" />
@@ -172,9 +175,10 @@ onDeactivated(() => activeAbort?.())
           :class="message.role"
         >
           <span class="avatar" :class="message.role">
-            {{ message.role === 'candidate' ? '我' : '🤖' }}
+            <template v-if="message.role === 'candidate'">我</template>
+            <Icon v-else name="bot" :size="18" />
           </span>
-          <div class="bubble" :class="message.role">
+          <div class="bubble" :class="message.role === 'interviewer' ? 'bubble-ai' : 'bubble-me'">
             <template v-if="isStreamingNow(message) && !message.content">
               <span class="typing"><i></i><i></i><i></i></span>
             </template>
@@ -187,6 +191,7 @@ onDeactivated(() => activeAbort?.())
       <div class="input-row">
         <textarea
           v-model="input"
+          class="input"
           :disabled="streaming"
           rows="2"
           placeholder="输入你的回答…"
@@ -199,65 +204,57 @@ onDeactivated(() => activeAbort?.())
       <button
         class="btn finish"
         :disabled="finishing || streaming || session.turn_count < 1"
+        title="结束面试并查看评价"
         @click="finish"
       >
-        {{ finishing ? '生成评价中…' : '🏁 结束面试并查看评价' }}
+        <Icon name="flag" :size="14" /> 结束面试并查看评价
       </button>
     </template>
   </section>
 </template>
 
 <style scoped>
-.head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-.head h2 {
-  font-size: 16px;
-}
 .progress {
-  margin: 4px 0 14px;
+  margin: var(--sp-1) 0 var(--sp-3);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 .stage-pill {
   background: var(--c-primary-light);
   color: var(--c-primary-dark);
-  border-radius: 999px;
-  padding: 3px 12px;
-  font-size: 12px;
+  border-radius: var(--radius-full);
+  padding: 2px 10px;
+  font-size: var(--fs-xs);
   font-weight: 600;
 }
 .turn {
   color: var(--c-faint);
-  font-size: 12.5px;
-}
-.loading {
-  color: var(--c-muted);
-  font-size: 13px;
-  margin: 0;
+  font-size: var(--fs-xs);
 }
 .setup-hint {
   color: var(--c-muted);
-  font-size: 13px;
-  margin: 0 0 12px;
+  font-size: var(--fs-sm);
+  margin: 0 0 var(--sp-3);
 }
 .pos-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  gap: var(--sp-2);
 }
 .pos-btn {
-  border: 1.5px solid var(--c-border);
+  border: 1px solid var(--c-border);
   border-radius: var(--radius-md);
   background: #fff;
   color: var(--c-muted);
-  padding: 12px 8px;
-  font-size: 13px;
+  padding: var(--sp-3) var(--sp-2);
+  font-size: var(--fs-sm);
+  font-family: inherit;
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
 }
 .pos-btn:hover {
   border-color: var(--c-primary-border);
@@ -275,69 +272,51 @@ onDeactivated(() => activeAbort?.())
   }
 }
 
-/* —— 聊天气泡区 —— */
+/* —— 聊天气泡区（气泡视觉统一走全局 .bubble/.bubble-ai/.bubble-me）—— */
 .chat-box {
   height: 380px;
   overflow-y: auto;
   background: var(--c-bg-soft);
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: var(--radius-md);
+  padding: var(--sp-4);
 }
 .msg-line {
   display: flex;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
   align-items: flex-start;
 }
 .msg-line.candidate {
   flex-direction: row-reverse;
 }
 .avatar {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 600;
-  color: #fff;
 }
 .avatar.interviewer {
-  background: linear-gradient(135deg, var(--c-primary), var(--c-primary-dark));
-  box-shadow: 0 2px 8px rgb(16 185 129 / 30%);
+  background: var(--c-primary-light);
+  color: var(--c-primary-dark);
 }
 .avatar.candidate {
-  background: #e0f2fe;
-  border: 1px solid #bae6fd;
-  color: #0369a1;
-}
-.bubble {
-  max-width: 78%;
-  padding: 10px 14px;
-  font-size: 13.5px;
-  line-height: 1.75;
-  white-space: pre-wrap;
-  word-break: break-word;
-  border-radius: 14px;
-}
-.bubble.interviewer {
-  background: #fff;
+  background: var(--c-info-bg);
   border: 1px solid var(--c-border);
-  border-top-left-radius: 4px;
-  color: var(--c-text-2);
+  color: var(--c-info);
 }
-.bubble.candidate {
-  background: linear-gradient(135deg, var(--c-primary), var(--c-primary-dark));
-  color: #fff;
-  border-top-right-radius: 4px;
-  box-shadow: 0 2px 10px rgb(16 185 129 / 25%);
+/* 全局 .bubble 没有声明换行习惯，这里补多行回答的 pre-wrap */
+.bubble {
+  white-space: pre-wrap;
 }
 .typing {
   display: inline-flex;
-  gap: 4px;
-  padding: 4px 2px;
+  gap: var(--sp-1);
+  padding: var(--sp-1) 2px;
 }
 .typing i {
   width: 6px;
@@ -360,37 +339,25 @@ onDeactivated(() => activeAbort?.())
 /* —— 输入区 —— */
 .input-row {
   display: flex;
-  gap: 10px;
-  margin-top: 12px;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
 }
 .input-row textarea {
   flex: 1;
-  resize: vertical;
-  border: 1.5px solid var(--c-border);
-  border-radius: var(--radius-md);
-  padding: 10px 12px;
-  font: inherit;
-  font-size: 13.5px;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.input-row textarea:focus {
-  border-color: #6ee7b7;
-  box-shadow: 0 0 0 3px rgb(16 185 129 / 12%);
 }
 .send {
   align-self: flex-end;
-  padding: 10px 22px;
+  padding: 10px 20px;
 }
 .finish {
-  display: block;
-  margin: 12px auto 0;
+  display: flex;
+  margin: var(--sp-3) auto 0;
   background: var(--c-text);
   color: #fff;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 .finish:hover:not(:disabled) {
-  background: #374151;
+  background: var(--c-text-2);
 }
 
 @media (max-width: 520px) {

@@ -1,51 +1,117 @@
 /* ============================================================
-   全局设计系统 · 青绿清新风（v1.1 UI polish）
-   设计变量 + 通用类 + 动效。组件内只写差异样式，公共视觉走这里。
+   全局设计系统 v2 · 企业级精修（v4.2.1 去 AI 味的第二轮）
+   分层：① 令牌 → ② 基础重置 → ③ 通用组件类 → ④ 动效 → ⑤ 打印
+   三条使用纪律（新增样式前先看这里）：
+   1. 字号/间距/圆角/阴影/动效/z-index 一律引用令牌，禁止半像素值（12.5px）与魔法数；
+   2. 颜色一律走令牌——语义色一义一值（ok/warn/bad/info），淡色洗底用 --wash-*；
+   3. 同一视觉出现第二次，就收编成下面的通用类，不要在视图里再写一份。
    ============================================================ */
 
 :root {
-  /* 主色（emerald 系） */
-  --c-primary: #10b981;
-  --c-primary-dark: #059669;
+  /* —— 主色（emerald 系）：只用于主按钮、激活态、焦点环、品牌点缀。
+     --c-primary 是工作色（实色按钮/文字强调），--c-primary-bright 仅保留给
+     呼吸点等极少数需要亮度的场合，禁止再拿它做按钮底和渐变。 —— */
+  --c-primary: #059669;
+  --c-primary-dark: #047857;
+  --c-primary-bright: #10b981;
   --c-primary-light: #ecfdf5;
   --c-primary-border: #a7f3d0;
 
-  /* 文字 */
+  /* —— 文字四阶 —— */
   --c-text: #1f2937;
   --c-text-2: #4b5563;
   --c-muted: #6b7280;
   --c-faint: #9ca3af;
 
-  /* 面 */
+  /* —— 语义色（一义一值：前景 / 实底）—— */
+  --c-ok: #047857;
+  --c-ok-bg: #d1fae5;
+  --c-warn: #92400e;
+  --c-warn-bg: #fef3c7;
+  --c-bad: #b91c1c;
+  --c-bad-bg: #fee2e2;
+  --c-info: #1d4ed8;
+  --c-info-bg: #dbeafe;
+
+  /* —— 语义淡洗底（8~10% 透明度，用于行高亮、浅色提示块）—— */
+  --wash-primary: rgb(5 150 105 / 9%);
+  --wash-ok: rgb(4 120 87 / 8%);
+  --wash-warn: rgb(217 119 6 / 10%);
+  --wash-bad: rgb(220 38 38 / 8%);
+  --wash-info: rgb(37 99 235 / 8%);
+
+  /* —— 面与边框 —— */
   --c-border: #e5e7eb;
-  --c-bg-soft: #f8fafc;
+  --c-border-strong: #d1d5db;
+  --c-bg: #f5f6f8; /* 页面底 */
+  --c-bg-soft: #f8fafc; /* 次级面（表头/代码底/浅块） */
+  --c-hover: #f3f4f6; /* 悬浮洗底 */
 
-  /* 形状与阴影 */
-  --radius-lg: 14px;
-  --radius-md: 11px;
-  --radius-sm: 8px;
-  /* 形状与阴影（中性色，去掉绿色糖霜——v4.2.1 去 AI 味） */
-  --shadow:
-    0 1px 2px rgba(15, 23, 32, 0.05),
-    0 6px 20px rgba(15, 23, 32, 0.06);
-  --shadow-hover:
-    0 4px 12px rgba(15, 23, 32, 0.09),
-    0 14px 34px rgba(15, 23, 32, 0.08);
-
-  /* 暗色侧边栏（深墨绿灰，替代模板脸清新风） */
+  /* —— 暗色侧边栏（深墨绿灰）—— */
   --c-ink: #14201d;
   --c-ink-2: #1c2b27;
   --c-ink-border: #24352f;
   --c-ink-text: #e7efec;
   --c-ink-muted: #93a59e;
 
+  /* —— 字号刻度（7 档，全站唯一取值处；禁半像素）——
+     xs 徽标/时间 · sm 次要正文/表格/按钮 · md 正文 · lg 卡片标题
+     xl 页标题 · num 统计数字 · hero 大数字 */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 18px;
+  --fs-num: 22px;
+  --fs-hero: 30px;
+
+  /* —— 间距刻度（4px 基准；禁 3/5/7/9/11/13/14 等孤值）—— */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+
+  /* —— 圆角（4 档）—— */
+  --radius-sm: 6px; /* 输入框/小按钮/图标钮 */
+  --radius-md: 10px; /* 气泡/表格壳/卡内元素 */
+  --radius-lg: 12px; /* 卡片/弹层 */
+  --radius-full: 999px; /* 胶囊/圆 */
+
+  /* —— 阴影（仅两档，中性色；彩色光晕一律禁止）—— */
+  --shadow: 0 1px 2px rgb(15 23 32 / 5%), 0 1px 3px rgb(15 23 32 / 6%);
+  --shadow-pop: 0 4px 12px rgb(15 23 32 / 10%), 0 12px 32px rgb(15 23 32 / 12%);
+
+  /* —— 动效（两档时长 + 统一缓动）—— */
+  --dur-fast: 0.15s;
+  --dur: 0.2s;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* —— z-index 刻度 —— */
+  --z-nav: 10;
+  --z-pop: 30;
+  --z-modal: 40;
+  --z-toast: 50;
+
   --font:
     'Segoe UI', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei',
     system-ui, -apple-system, sans-serif;
 }
 
+/* ---------- ② 基础 ---------- */
 * {
   box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  color: var(--c-text);
+  background: var(--c-bg);
+  -webkit-font-smoothing: antialiased;
 }
 
 .num,
@@ -55,51 +121,429 @@
 }
 
 ::selection {
-  background: #a7f3d0;
+  background: var(--c-primary-border);
   color: #064e3b;
 }
 
-/* 柔和滚动条 */
+/* 键盘导航的统一焦点环：只给非输入元素（输入框有自己的边框+柔光聚焦态） */
+:focus {
+  outline: none;
+}
+:focus-visible:not(input):not(textarea):not(select) {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* 柔和滚动条；深色容器加 .on-dark 换暗色滑轨 */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
   background: #d1d5db;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #a7f3d0;
+  background: var(--c-faint);
+}
+.on-dark::-webkit-scrollbar-thumb {
+  background: #3a4a44;
+}
+.on-dark::-webkit-scrollbar-thumb:hover {
+  background: #4b5f57;
 }
 
-/* ---------- 卡片 ---------- */
+/* ---------- ③ 通用组件类 ---------- */
+
+/* —— 卡片 —— */
 .card {
   background: #fff;
   border: 1px solid var(--c-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
-  padding: 22px 24px;
+  padding: 20px 24px;
   width: 100%;
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  transition: border-color var(--dur) var(--ease);
 }
 .card:hover {
-  border-color: #d6ded9;
+  border-color: var(--c-border-strong);
 }
-
 .card h2 {
   margin: 0 0 4px;
-  font-size: 16px;
+  font-size: var(--fs-lg);
+  font-weight: 600;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
+}
+.card .sub {
+  font-size: var(--fs-sm);
+  color: var(--c-muted);
+  margin: 0 0 var(--sp-4);
+  line-height: 1.6;
 }
 
-.card .sub {
-  font-size: 12.5px;
-  color: var(--c-faint);
-  margin: 0 0 14px;
+/* —— 页头（全站统一标题区；视图里不再自造 .page-title）——
+   <div class="page-head">
+     <div><h2>标题</h2><p class="ph-sub">说明（可选）</p></div>
+     <div class="ph-actions">…按钮</div>
+   </div> */
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+.page-head h2 {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.2px;
+}
+.page-head .ph-sub {
+  margin: 2px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--c-muted);
+}
+.page-head .ph-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+}
 
-/* ---------- 统一空态（v4.2.1 视觉优化：四页空态同一模式） ---------- */
+/* —— 按钮 —— */
+.btn {
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 8px 16px;
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--c-primary);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--c-primary-dark);
+}
+.btn-primary:active:not(:disabled) {
+  background: #065f46;
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--c-text-2);
+  border: 1px solid var(--c-border);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--c-hover);
+  color: var(--c-text);
+  border-color: var(--c-border-strong);
+}
+.btn-danger {
+  background: var(--c-bad);
+  color: #fff;
+}
+.btn-danger:hover:not(:disabled) {
+  background: #991b1b;
+}
+.btn-sm {
+  padding: 5px 10px;
+  font-size: var(--fs-xs);
+}
+
+/* —— 图标按钮（删除/折叠等纯图标操作；危险操作加 .danger）—— */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--c-faint);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.icon-btn:hover {
+  background: var(--c-hover);
+  color: var(--c-text-2);
+}
+.icon-btn.danger:hover {
+  background: var(--wash-bad);
+  color: var(--c-bad);
+}
+
+/* —— 徽标（状态用 .ok/.warn/.bad/.info，中性态不加修饰类）—— */
+.badge {
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: var(--c-hover);
+  color: var(--c-text-2);
+}
+.badge.ok {
+  background: var(--c-ok-bg);
+  color: var(--c-ok);
+}
+.badge.warn {
+  background: var(--c-warn-bg);
+  color: var(--c-warn);
+}
+.badge.bad {
+  background: var(--c-bad-bg);
+  color: var(--c-bad);
+}
+.badge.info {
+  background: var(--c-info-bg);
+  color: var(--c-info);
+}
+
+/* —— 提示条 —— */
+.msg {
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+.msg.error {
+  background: var(--c-bad-bg);
+  color: var(--c-bad);
+}
+.msg.info {
+  background: var(--c-info-bg);
+  color: var(--c-info);
+}
+.msg.ok {
+  background: var(--c-ok-bg);
+  color: var(--c-ok);
+}
+.msg.warn {
+  background: var(--c-warn-bg);
+  color: var(--c-warn);
+}
+
+/* —— chips 与胶囊（chip 中性化：绿色只留给状态徽标）—— */
+.chip {
+  background: var(--c-bg-soft);
+  border: 1px solid var(--c-border);
+  color: var(--c-text-2);
+  border-radius: var(--radius-full);
+  padding: 3px 11px;
+  font-size: var(--fs-xs);
+}
+.pill {
+  background: var(--c-bg-soft);
+  border: 1px solid var(--c-border);
+  color: var(--c-muted);
+  border-radius: var(--radius-full);
+  padding: 3px 10px;
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+/* —— 分节标题（左侧色条，实色）—— */
+.sec-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  margin: var(--sp-4) 0 var(--sp-2);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.sec-title::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--c-primary);
+}
+
+/* —— 表格（统一此前三套写法；外层套 .tbl-wrap 出圆角与滚动）—— */
+.tbl-wrap {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  overflow: auto;
+  background: #fff;
+}
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.tbl th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--c-bg-soft);
+  color: var(--c-muted);
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--c-border);
+  white-space: nowrap;
+}
+.tbl td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--c-border);
+  vertical-align: middle;
+}
+.tbl tbody tr:last-child td {
+  border-bottom: 0;
+}
+.tbl tbody tr {
+  transition: background var(--dur-fast) var(--ease);
+}
+.tbl tbody tr:hover {
+  background: var(--c-bg-soft);
+}
+
+/* —— 聊天气泡（统一 ChatView/InterviewChat/AgentChatCore 三套）—— */
+.bubble {
+  max-width: 78%;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  word-break: break-word;
+}
+.bubble-ai {
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-top-left-radius: 4px;
+  color: var(--c-text);
+}
+.bubble-me {
+  background: var(--c-primary);
+  color: #fff;
+  border-top-right-radius: 4px;
+}
+
+/* —— 弹层壳（下拉/弹窗/日期面板统一圆角阴影）—— */
+.popup {
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+}
+
+/* —— 分页 —— */
+.pager {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+.pager button {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--c-border);
+  background: #fff;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  font-family: inherit;
+  color: var(--c-text-2);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+.pager button:hover:not(:disabled):not(.on) {
+  border-color: var(--c-primary-border);
+  color: var(--c-primary);
+}
+.pager button.on {
+  background: var(--c-primary);
+  border-color: var(--c-primary);
+  color: #fff;
+  font-weight: 600;
+}
+.pager button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.pager .pager-info {
+  font-size: var(--fs-xs);
+  color: var(--c-muted);
+  margin-left: var(--sp-2);
+}
+
+/* —— 加载中（全站唯一形态：转圈 + 文案）—— */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--c-primary-border);
+  border-top-color: var(--c-primary);
+  animation: spin 0.7s linear infinite;
+  vertical-align: -3px;
+  flex-shrink: 0;
+}
+.loading-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  color: var(--c-muted);
+  font-size: var(--fs-sm);
+  padding: var(--sp-5) 0;
+}
+
+/* —— 表单输入（统一边框/聚焦态/禁用态）—— */
+.input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  color: var(--c-text);
+  background: #fff;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+.input::placeholder {
+  color: var(--c-faint);
+}
+.input:focus {
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 3px var(--wash-primary);
+}
+.input:disabled {
+  background: var(--c-bg-soft);
+  cursor: not-allowed;
+}
+textarea.input {
+  resize: vertical;
+  line-height: 1.6;
+}
+
+/* —— 统一空态（图标圆底 + 文案；配合 Icon 组件使用）—— */
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -116,138 +560,47 @@
   height: 52px;
   border-radius: 50%;
   background: var(--c-bg-soft);
-  color: var(--c-muted);
+  color: var(--c-faint);
 }
 .empty-state .es-text {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--c-muted);
   line-height: 1.7;
-}
-}
-
-/* ---------- 按钮 ---------- */
-.btn {
-  border: 0;
-  border-radius: var(--radius-sm);
-  padding: 8px 16px;
-  font-size: 13.5px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.18s ease;
-}
-.btn:disabled {
-  opacity: 0.55;
-  cursor: wait;
-}
-.btn-primary {
-  background: var(--c-primary-dark);
-  color: #fff;
-  box-shadow: 0 1px 4px rgba(15, 23, 32, 0.14);
-}
-.btn-primary:hover:not(:disabled) {
-  background: #047857;
-  box-shadow: 0 3px 10px rgba(15, 23, 32, 0.16);
-}
-.btn-ghost {
-  background: transparent;
-  color: var(--c-muted);
-  border: 1px solid var(--c-border);
-}
-.btn-ghost:hover:not(:disabled) {
-  background: #fff;
-  color: var(--c-primary-dark);
-  border-color: var(--c-primary-border);
+  max-width: 360px;
 }
 
-/* ---------- 徽标 ---------- */
-.badge {
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 11.5px;
-  white-space: nowrap;
-  flex-shrink: 0;
-  background: #f3f4f6;
-  color: var(--c-muted);
-}
-.badge.ok {
-  background: #d1fae5;
-  color: #047857;
-}
-.badge.warn {
-  background: #fef3c7;
-  color: #92400e;
-}
-.badge.bad {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-/* ---------- 提示条 ---------- */
-.msg {
-  border-radius: var(--radius-sm);
-  padding: 8px 12px;
-  font-size: 13px;
-}
-.msg.error {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-.msg.info,
-.msg.ok {
-  background: #d1fae5;
-  color: #047857;
-}
-.msg.warn {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-/* ---------- chips 与胶囊 ---------- */
-.chip {
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  color: #047857;
-  border-radius: 999px;
-  padding: 3px 11px;
-  font-size: 12px;
-}
-.pill {
-  background: #f9fafb;
-  border: 1px solid var(--c-border);
-  color: var(--c-muted);
-  border-radius: 999px;
-  padding: 3px 10px;
-  font-size: 11.5px;
-  white-space: nowrap;
-}
-
-/* ---------- 分节标题（左侧色条） ---------- */
-.sec-title {
-  font-size: 14px;
-  margin: 16px 0 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.sec-title::before {
-  content: '';
-  width: 4px;
-  height: 14px;
-  border-radius: 2px;
-  background: linear-gradient(var(--c-primary), #34d399);
-}
-
-/* ---------- 空状态 ---------- */
+/* —— 行内空态（表格/小容器的轻量版）—— */
 .empty {
   color: var(--c-faint);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   margin: 0;
   text-align: center;
   padding: 18px 0;
 }
 
-/* ---------- 动效 ---------- */
+.muted {
+  color: var(--c-muted);
+}
+
+/* —— 间距工具类（消灭模板内联 margin 的规范出口）—— */
+.mt-1 {
+  margin-top: var(--sp-1);
+}
+.mt-2 {
+  margin-top: var(--sp-2);
+}
+.mt-3 {
+  margin-top: var(--sp-3);
+}
+.mt-4 {
+  margin-top: var(--sp-4);
+}
+.w-full {
+  width: 100%;
+}
+
+/* ---------- ④ 动效 ---------- */
 @keyframes fade-in-up {
   from {
     opacity: 0;
@@ -261,13 +614,13 @@
 
 @keyframes pulse-dot {
   0% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+    box-shadow: 0 0 0 0 rgb(5 150 105 / 35%);
   }
   70% {
-    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 6px rgb(5 150 105 / 0%);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 0 rgb(5 150 105 / 0%);
   }
 }
 

@@ -32,14 +32,14 @@ const activeFilters = computed(() => {
   return n
 })
 
-// 动作类型中文映射 + 配色
+// 动作类型中文映射 + 配色（纯展示配置，一律走设计令牌；原紫色 chat_create 按规范中性化）
 const actionMap = {
-  parse: { label: '简历解析', color: '#6B7280', bg: '#F3F4F6' },
-  analysis: { label: 'AI分析', color: '#1D4ED8', bg: '#DBEAFE' },
-  interview_message: { label: '模拟面试', color: '#92400E', bg: '#FEF3C7' },
-  kb_upload: { label: '知识库上传', color: '#0E7490', bg: '#CFFAFE' },
-  playground: { label: '知识库问答', color: '#065F46', bg: '#D1FAE5' },
-  chat_create: { label: '新建对话', color: '#7C3AED', bg: '#EDE9FE' },
+  parse: { label: '简历解析', color: 'var(--c-muted)', bg: 'var(--c-bg-soft)' },
+  analysis: { label: 'AI分析', color: 'var(--c-info)', bg: 'var(--c-info-bg)' },
+  interview_message: { label: '模拟面试', color: 'var(--c-warn)', bg: 'var(--c-warn-bg)' },
+  kb_upload: { label: '知识库上传', color: 'var(--c-info)', bg: 'var(--c-info-bg)' },
+  playground: { label: '知识库问答', color: 'var(--c-ok)', bg: 'var(--c-ok-bg)' },
+  chat_create: { label: '新建对话', color: 'var(--c-text-2)', bg: 'var(--c-bg-soft)' },
 }
 
 async function loadLogs() {
@@ -131,14 +131,16 @@ onMounted(loadLogs)
   <section class="usage-log-page">
     <!-- —— 筛选条件卡片 —— -->
     <div class="filter-card">
-      <div class="filter-header">
-        <h3>
-          筛选条件
-          <span v-if="activeFilters" class="filter-badge">{{ activeFilters }}</span>
-        </h3>
-        <div class="filter-actions">
-          <button class="btn-ghost" @click="reset">↩ 重置</button>
-          <button class="btn-primary" @click="search">🔍 搜索</button>
+      <div class="page-head filter-header">
+        <div>
+          <h3>
+            筛选条件
+            <span v-if="activeFilters" class="filter-badge">{{ activeFilters }}</span>
+          </h3>
+        </div>
+        <div class="ph-actions">
+          <button class="btn btn-ghost" @click="reset"><Icon name="refresh" :size="14" />重置</button>
+          <button class="btn btn-primary" @click="search"><Icon name="search" :size="14" />搜索</button>
         </div>
       </div>
 
@@ -153,12 +155,12 @@ onMounted(loadLogs)
       </div>
 
       <div class="filter-row">
-        <select v-model="actionType" class="filter-select">
+        <select v-model="actionType" class="input filter-select">
           <option value="">全部动作</option>
           <option v-for="(v, k) in actionMap" :key="k" :value="k">{{ v.label }}</option>
         </select>
-        <input v-model="modelName" class="filter-input" placeholder="模型，如 qwen-plus" />
-        <input v-model="ipAddress" class="filter-input" placeholder="IP，如 127.0.0.1" />
+        <input v-model="modelName" class="input filter-input" placeholder="模型，如 qwen-plus" />
+        <input v-model="ipAddress" class="input filter-input" placeholder="IP，如 127.0.0.1" />
       </div>
     </div>
 
@@ -167,19 +169,18 @@ onMounted(loadLogs)
       <h3>使用日志</h3>
       <!-- 错误横幅不顶掉表格：失败时保留旧数据，重试后恢复 -->
       <p v-if="error" class="msg error">{{ error }}</p>
-      <div v-if="loading && !logs.length" class="state-loading">加载中…</div>
+      <div v-if="loading && !logs.length" class="loading-row"><span class="spinner"></span>加载中…</div>
 
       <template v-else-if="!loading || logs.length">
         <!-- 空态 -->
         <div v-if="logs.length === 0" class="empty-state">
-          <div class="empty-icon">📭</div>
-          <div class="empty-title">暂无数据</div>
-          <div class="empty-desc">未找到使用记录</div>
+          <div class="es-icon"><Icon name="inbox" :size="24" /></div>
+          <p class="es-text">暂无数据 · 未找到使用记录</p>
         </div>
 
         <template v-else>
-          <div class="table-wrap">
-            <table class="log-tbl">
+          <div class="tbl-wrap">
+            <table class="tbl log-tbl">
               <thead>
                 <tr>
                   <th>时间</th>
@@ -194,10 +195,10 @@ onMounted(loadLogs)
                   <td class="time">{{ fmtDateTime(log.created_at) }}</td>
                   <td>
                     <span
-                      class="action-badge"
+                      class="badge"
                       :style="{
-                        background: actionMap[log.action_type]?.bg || '#F3F4F6',
-                        color: actionMap[log.action_type]?.color || '#6B7280',
+                        background: actionMap[log.action_type]?.bg || 'var(--c-bg-soft)',
+                        color: actionMap[log.action_type]?.color || 'var(--c-muted)',
                       }"
                     >{{ actionMap[log.action_type]?.label || log.action_type }}</span>
                   </td>
@@ -213,18 +214,18 @@ onMounted(loadLogs)
           <div class="pagination">
             <div class="page-size">
               每页
-              <select v-model="pageSize" @change="onPageSizeChange">
+              <select v-model="pageSize" class="input page-size-select" @change="onPageSizeChange">
                 <option :value="10">10</option>
                 <option :value="20">20</option>
                 <option :value="50">50</option>
               </select>
               条 · 共 {{ total }} 条
             </div>
-            <div class="page-btns">
+            <div class="pager">
               <button :disabled="page <= 1" @click="goPage(page - 1)">上一页</button>
               <template v-for="(p, i) in pageNumbers" :key="i">
                 <span v-if="p === '…'" class="page-ellipsis">…</span>
-                <button v-else :class="{ active: p === page }" @click="goPage(p)">{{ p }}</button>
+                <button v-else :class="{ on: p === page }" @click="goPage(p)">{{ p }}</button>
               </template>
               <button :disabled="page >= totalPages" @click="goPage(page + 1)">下一页</button>
             </div>
@@ -239,100 +240,59 @@ onMounted(loadLogs)
 .usage-log-page {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--sp-3);
 }
 
 /* —— 卡片通用 —— */
 .filter-card,
 .log-card {
   background: #fff;
-  border-radius: 18px;
-  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.06);
-  padding: 16px 20px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: var(--sp-4) var(--sp-5);
 }
+/* 布局骨架复用全局 .page-head，这里只留卡片内的下间距 */
 .filter-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: var(--sp-3);
 }
 .filter-header h3 {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--fs-lg);
+  font-weight: 600;
   margin: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 .filter-badge {
-  background: #10b981;
+  background: var(--c-primary);
   color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  border-radius: 999px;
-  padding: 1px 7px;
-}
-.filter-actions {
-  display: flex;
-  gap: 8px;
-}
-.btn-ghost,
-.btn-primary {
-  padding: 6px 14px;
-  border-radius: 8px;
-  font-size: 12.5px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.12s ease;
-}
-.btn-ghost {
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #6b7280;
-}
-.btn-ghost:hover {
-  background: #f9fafb;
-}
-.btn-primary {
-  border: 1px solid #10b981;
-  background: #10b981;
-  color: #fff;
+  font-size: var(--fs-xs);
   font-weight: 600;
-}
-.btn-primary:hover {
-  background: #059669;
+  border-radius: var(--radius-full);
+  padding: 2px var(--sp-2);
 }
 
 /* —— 筛选行 —— */
 .filter-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
-  margin-bottom: 12px;
+  margin-bottom: var(--sp-3);
 }
 .filter-row:last-child {
   margin-bottom: 0;
 }
 .row-label {
-  font-size: 12.5px;
-  color: #6b7280;
+  font-size: var(--fs-xs);
+  color: var(--c-muted);
   white-space: nowrap;
 }
+/* 边框/聚焦态走全局 .input，这里只放开行内布局宽度 */
 .filter-select,
 .filter-input {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 12.5px;
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.filter-select:focus,
-.filter-input:focus {
-  border-color: #10b981;
-  box-shadow: 0 0 0 3px rgb(16 185 129 / 10%);
+  width: auto;
 }
 .filter-input {
   min-width: 160px;
@@ -340,180 +300,87 @@ onMounted(loadLogs)
 
 .quick-btns {
   display: flex;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 .quick-btns button {
-  padding: 6px 14px;
+  padding: 6px var(--sp-3);
   border: 0;
-  border-left: 1px solid #e5e7eb;
+  border-left: 1px solid var(--c-border);
   background: #fff;
-  color: #6b7280;
-  font-size: 12px;
+  color: var(--c-muted);
+  font-size: var(--fs-sm);
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
 .quick-btns button:first-child {
   border-left: 0;
 }
 .quick-btns button:hover {
-  background: #f9fafb;
+  background: var(--c-hover);
 }
 .quick-btns button.active {
-  background: #10b981;
+  background: var(--c-primary);
   color: #fff;
   font-weight: 600;
 }
 
 /* —— 日志卡片 —— */
 .log-card h3 {
-  font-size: 15px;
-  font-weight: 700;
-  margin: 0 0 12px;
-}
-.state-loading {
-  color: #9ca3af;
-  font-size: 13px;
-  padding: 32px 0;
-  text-align: center;
-}
-.empty-state {
-  border: 2px dashed #e5e7eb;
-  border-radius: 14px;
-  padding: 40px 20px;
-  text-align: center;
-}
-.empty-icon {
-  font-size: 32px;
-  margin-bottom: 8px;
-}
-.empty-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: #374151;
-}
-.empty-desc {
-  font-size: 12px;
-  color: #9ca3af;
-  margin-top: 4px;
-}
-
-.table-wrap {
-  border: 1px solid #f3f4f6;
-  border-radius: 10px;
-  overflow-x: auto;
-}
-.log-tbl {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12.5px;
-}
-.log-tbl thead th {
-  background: #f9fafb;
-  text-align: left;
-  padding: 9px 12px;
-  font-size: 12px;
+  font-size: var(--fs-lg);
   font-weight: 600;
-  color: #9ca3af;
-  border-bottom: 2px solid #e5e7eb;
-  white-space: nowrap;
+  margin: 0 0 var(--sp-3);
 }
-.log-tbl tbody td {
-  padding: 9px 12px;
-  border-bottom: 1px solid #f3f4f6;
+/* 表格基础走全局 .tbl/.tbl-wrap，这里只留列级补充 */
+.log-tbl td {
   white-space: nowrap;
-}
-.log-tbl tbody tr:last-child td {
-  border-bottom: 0;
 }
 .log-tbl .right {
   text-align: right;
 }
 .log-tbl .time {
-  color: #6b7280;
-  font-size: 12px;
+  color: var(--c-muted);
+  font-size: var(--fs-xs);
 }
 .log-tbl .model {
-  color: #374151;
+  color: var(--c-text-2);
 }
 .log-tbl .token {
-  color: #059669;
+  color: var(--c-primary-dark);
   font-weight: 600;
 }
 .log-tbl .ip {
-  color: #6b7280;
-  font-size: 12px;
-}
-.action-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 600;
+  color: var(--c-muted);
+  font-size: var(--fs-xs);
 }
 
-/* —— 分页 —— */
+/* —— 分页（按钮走全局 .pager，这里只留布局与每页条数选择器） —— */
 .pagination {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 12px;
+  margin-top: var(--sp-3);
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 .page-size {
-  font-size: 12px;
-  color: #6b7280;
+  font-size: var(--fs-xs);
+  color: var(--c-muted);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 .page-size select {
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 3px 6px;
-  font-size: 12px;
-  font-family: inherit;
-  outline: none;
-}
-.page-btns {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.page-btns button {
-  min-width: 28px;
-  padding: 4px 8px;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  background: #fff;
-  color: #6b7280;
-  font-size: 12px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-.page-btns button:hover:not(:disabled):not(.active) {
-  background: #f9fafb;
-  border-color: #d1d5db;
-}
-.page-btns button.active {
-  background: #10b981;
-  border-color: #10b981;
-  color: #fff;
-  font-weight: 700;
-}
-.page-btns button:disabled {
-  background: #f3f4f6;
-  color: #d1d5db;
-  cursor: not-allowed;
+  width: auto;
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-xs);
 }
 .page-ellipsis {
-  padding: 4px 2px;
-  font-size: 12px;
-  color: #d1d5db;
+  padding: var(--sp-1) 2px;
+  font-size: var(--fs-xs);
+  color: var(--c-faint);
 }
 
 @media (max-width: 900px) {

@@ -125,11 +125,11 @@ onMounted(async () => {
     <div class="head">
       <h2>面试结束评价</h2>
       <button
-        class="btn btn-ghost no-print export-btn"
+        class="btn btn-ghost btn-sm no-print export-btn"
         title="用浏览器打印对话框导出为 PDF"
         @click="exportPdf"
       >
-        🖨 导出 PDF
+        <Icon name="printer" :size="14" /> 导出 PDF
       </button>
     </div>
 
@@ -177,7 +177,7 @@ onMounted(async () => {
         <div class="compare-bar">
           <label v-if="compareOptions.length" class="compare-pick">
             <span>对比场次</span>
-            <select v-model="compareId">
+            <select v-model="compareId" class="input">
               <option value="">不对比</option>
               <option v-for="item in compareOptions" :key="item.id" :value="String(item.id)">
                 {{ formatItem(item) }}
@@ -213,12 +213,12 @@ onMounted(async () => {
     <h3 class="sec-title">整体评价</h3>
     <p class="summary">{{ report.summary }}</p>
 
-    <h3 class="sec-title">✅ 表现亮点</h3>
+    <h3 class="sec-title"><Icon name="check" :size="14" /> 表现亮点</h3>
     <ul class="flist good">
       <li v-for="(item, i) in report.highlights || []" :key="i">{{ item }}</li>
     </ul>
 
-    <h3 class="sec-title">🚀 改进建议</h3>
+    <h3 class="sec-title"><Icon name="zap" :size="14" /> 改进建议</h3>
     <ul class="flist todo">
       <li v-for="(item, i) in report.improvements || []" :key="i">{{ item }}</li>
     </ul>
@@ -232,19 +232,17 @@ onMounted(async () => {
   justify-content: space-between;
 }
 .report h2 {
-  margin-bottom: 14px;
+  margin-bottom: var(--sp-3);
 }
 /* 导出按钮靠右，与 h2 基线对齐（h2 自带下边距，这里补掉视觉偏移） */
 .export-btn {
   margin: -8px 0 0 auto;
-  padding: 4px 10px;
-  font-size: 12px;
 }
 .report-body {
   display: flex;
-  gap: 24px;
+  gap: var(--sp-6);
   align-items: flex-start;
-  margin-bottom: 6px;
+  margin-bottom: var(--sp-1);
 }
 .radar-col {
   flex: 0 0 300px;
@@ -257,90 +255,84 @@ onMounted(async () => {
 }
 .grid {
   fill: none;
-  stroke: #e2e8f0;
+  stroke: var(--c-border);
   stroke-width: 1;
 }
 .axis {
-  stroke: #e2e8f0;
+  stroke: var(--c-border);
   stroke-width: 1;
 }
 .current-area {
-  fill: rgba(16, 185, 129, 0.18);
-  stroke: #059669;
+  fill: var(--wash-primary);
+  stroke: var(--c-primary);
   stroke-width: 2;
 }
 .current-dot {
-  fill: #059669;
+  fill: var(--c-primary);
 }
 .compare-area {
-  fill: rgba(100, 116, 139, 0.1);
-  stroke: #64748b;
+  fill: rgb(107 114 128 / 10%);
+  stroke: var(--c-muted);
   stroke-width: 1.5;
   stroke-dasharray: 5 4;
 }
 .axis-label {
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   fill: var(--c-muted);
 }
 .compare-bar {
-  margin-top: 8px;
+  margin-top: var(--sp-2);
 }
 .compare-pick {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
   color: var(--c-muted);
 }
 .compare-pick select {
   flex: 1;
   min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 12.5px;
-  color: var(--c-text-2);
-  background: #fff;
 }
 .compare-hint {
   margin: 0;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: var(--c-muted);
 }
 .legend {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 8px 0 0;
-  font-size: 12px;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-xs);
   color: var(--c-muted);
 }
 .swatch {
   display: inline-block;
   width: 14px;
   height: 3px;
-  border-radius: 2px;
-  margin-left: 4px;
+  border-radius: var(--radius-full);
+  margin-left: var(--sp-1);
 }
 .swatch.current {
-  background: #059669;
+  background: var(--c-primary);
 }
 .swatch.compare {
-  background: #64748b;
+  background: var(--c-muted);
 }
 .scores {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding-top: 6px;
+  gap: var(--sp-3);
+  padding-top: var(--sp-1);
 }
 .score-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 13px;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
 }
 .lab {
   width: 76px;
@@ -349,74 +341,82 @@ onMounted(async () => {
 }
 .bar {
   flex: 1;
-  height: 9px;
-  border-radius: 999px;
-  background: #f1f5f9;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--c-bg-soft);
   overflow: hidden;
 }
 .bar > i {
   display: block;
   height: 100%;
-  border-radius: 999px;
-  transition: width 0.6s ease;
+  border-radius: var(--radius-full);
+  transition: width var(--dur) var(--ease);
 }
+/* 评分条实色，按语义分段（tone() 在 script 里按 0~10 分档） */
 .bar.green > i {
-  background: linear-gradient(90deg, #34d399, #059669);
+  background: var(--c-ok);
 }
 .bar.amber > i {
-  background: linear-gradient(90deg, #fbbf24, #d97706);
+  background: var(--c-warn);
 }
 .bar.red > i {
-  background: linear-gradient(90deg, #f87171, #dc2626);
+  background: var(--c-bad);
 }
 .val {
   width: 46px;
   text-align: right;
-  font-weight: 700;
-  font-size: 13.5px;
+  font-weight: 600;
+  font-size: var(--fs-md);
+  font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
 .val.green {
-  color: #059669;
+  color: var(--c-ok);
 }
 .val.amber {
-  color: #b45309;
+  color: var(--c-warn);
 }
 .val.red {
-  color: #dc2626;
+  color: var(--c-bad);
 }
 .compare-scores {
-  margin: 2px 0 0;
-  font-size: 12.5px;
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-sm);
   color: var(--c-muted);
-  line-height: 1.8;
+  line-height: 1.6;
 }
 .summary {
   margin: 0;
   color: var(--c-text-2);
-  font-size: 13.5px;
-  line-height: 1.8;
+  font-size: var(--fs-md);
+  line-height: 1.6;
 }
 .flist {
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 13.5px;
+  font-size: var(--fs-md);
   color: var(--c-text-2);
-  line-height: 2;
+  line-height: 1.6;
 }
+.flist li {
+  margin-bottom: var(--sp-1);
+}
+/* 手画对勾/三角收编为语义色圆点 */
 .flist li::before {
-  margin-right: 8px;
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--sp-2);
+  border-radius: var(--radius-full);
+  vertical-align: 2px;
 }
 .flist.good li::before {
-  content: '✓';
-  color: var(--c-primary);
-  font-weight: 700;
+  background: var(--c-ok);
 }
 .flist.todo li::before {
-  content: '△';
-  color: #f59e0b;
-  font-weight: 700;
+  background: var(--c-warn);
 }
 
 @media (max-width: 900px) {

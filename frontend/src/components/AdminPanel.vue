@@ -170,21 +170,17 @@ async function toggleV2Spans(run) {
 
 <template>
   <section class="dashboard">
-    <h2 class="page-title">数据看板</h2>
+    <div class="page-head">
+      <div><h2>数据看板</h2></div>
+    </div>
     <p v-if="error" class="msg error">{{ error }}</p>
 
-    <!-- —— 五统计卡片行 —— -->
+    <!-- —— 五统计卡片行（同一中性模式：圆底图标 + 中性标签 + 深色数字） —— -->
     <div class="stat-row">
-      <div
-        v-for="card in cards"
-        :key="card.label"
-        class="stat-card"
-        :style="{ '--card-color': card.color }"
-      >
+      <div v-for="card in cards" :key="card.label" class="stat-card">
         <div class="stat-top">
-          <span class="stat-dot"></span>
           <span class="stat-label">{{ card.label }}</span>
-          <Icon class="stat-icon" :name="card.icon" :size="15" />
+          <span class="stat-icon"><Icon :name="card.icon" :size="16" /></span>
         </div>
         <div class="stat-num">{{ fmtNum(card.value) }}</div>
       </div>
@@ -194,9 +190,9 @@ async function toggleV2Spans(run) {
     <div v-if="isAdmin" class="panel-card">
       <div class="panel-head">
         <h3>用户列表</h3>
-        <span class="count-badge">共 {{ userTotal }} 人</span>
+        <span class="pill">共 {{ userTotal }} 人</span>
       </div>
-      <div ref="userTableRef" class="table-scroll">
+      <div ref="userTableRef" class="table-scroll tbl-wrap">
         <table class="tbl">
           <thead>
             <tr><th>ID</th><th>用户名</th><th>邮箱</th><th>角色</th><th>简历数</th><th>注册时间</th></tr>
@@ -207,7 +203,7 @@ async function toggleV2Spans(run) {
               <td>{{ u.username }}</td>
               <td class="email">{{ u.email || '-' }}</td>
               <td>
-                <span class="role-badge" :class="u.role === 'admin' ? 'admin' : 'user'">{{ u.role }}</span>
+                <span class="badge" :class="{ ok: u.role === 'admin' }">{{ u.role }}</span>
               </td>
               <td>{{ u.resume_count }}</td>
               <td class="muted">{{ fmtDateTime(u.created_at) }}</td>
@@ -217,11 +213,11 @@ async function toggleV2Spans(run) {
       </div>
       <div class="pagination">
         <span class="page-info">共 {{ userTotal }} 条 · 第 {{ userPage }}/{{ userTotalPages }} 页</span>
-        <div class="page-btns">
+        <div class="pager">
           <button :disabled="userPage <= 1" @click="goUserPage(userPage - 1)">上一页</button>
           <template v-for="(p, i) in pageNumbers(userPage, userTotalPages)" :key="i">
             <span v-if="p === '…'" class="page-ellipsis">…</span>
-            <button v-else :class="{ active: p === userPage }" @click="goUserPage(p)">{{ p }}</button>
+            <button v-else :class="{ on: p === userPage }" @click="goUserPage(p)">{{ p }}</button>
           </template>
           <button :disabled="userPage >= userTotalPages" @click="goUserPage(userPage + 1)">下一页</button>
         </div>
@@ -231,12 +227,12 @@ async function toggleV2Spans(run) {
     <!-- —— 近 7 日用量卡片 —— -->
     <div class="panel-card">
       <div class="panel-head">
-        <h3>📈 近 7 日用量</h3>
+        <h3><Icon name="chart" :size="16" />近 7 日用量</h3>
       </div>
       <div class="usage-body">
         <!-- 左侧：表格 + 分页 -->
         <div class="usage-left">
-          <div ref="usageTableRef" class="table-scroll">
+          <div ref="usageTableRef" class="table-scroll tbl-wrap">
             <table class="tbl">
               <thead>
                 <tr><th>日期</th><th>调用次数</th><th>Token</th></tr>
@@ -252,11 +248,11 @@ async function toggleV2Spans(run) {
           </div>
           <div class="pagination">
             <span class="page-info">共 {{ usage.length }} 条 · 第 {{ usagePage }}/{{ usageTotalPages }} 页</span>
-            <div class="page-btns">
+            <div class="pager">
               <button :disabled="usagePage <= 1" @click="goUsagePage(usagePage - 1)">上一页</button>
               <template v-for="(p, i) in pageNumbers(usagePage, usageTotalPages)" :key="i">
                 <span v-if="p === '…'" class="page-ellipsis">…</span>
-                <button v-else :class="{ active: p === usagePage }" @click="goUsagePage(p)">{{ p }}</button>
+                <button v-else :class="{ on: p === usagePage }" @click="goUsagePage(p)">{{ p }}</button>
               </template>
               <button :disabled="usagePage >= usageTotalPages" @click="goUsagePage(usagePage + 1)">下一页</button>
             </div>
@@ -328,7 +324,7 @@ async function toggleV2Spans(run) {
               </tr>
               <tr v-if="v2ExpandedId === r.id">
                 <td colspan="7" class="v2-span-cell">
-                  <div v-if="!v2Spans.length" class="v2-empty">加载中…</div>
+                  <div v-if="!v2Spans.length" class="loading-row"><span class="spinner"></span>加载中…</div>
                   <div v-for="(s, i) in v2Spans" :key="i" class="v2-span">
                     <span class="v2-span-name">{{ s.name }}</span>
                     <span class="v2-badge" :class="s.status">{{ s.status }}</span>
@@ -338,7 +334,7 @@ async function toggleV2Spans(run) {
                 </td>
               </tr>
             </template>
-            <tr v-if="!v2Runs.length"><td colspan="7" class="v2-empty">近 7 日暂无任务记录</td></tr>
+            <tr v-if="!v2Runs.length"><td colspan="7"><p class="empty">近 7 日暂无任务记录</p></td></tr>
           </tbody>
         </table>
       </div>
@@ -350,51 +346,37 @@ async function toggleV2Spans(run) {
 .dashboard {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--sp-3);
   width: 100%;
 }
-.page-title {
-  font-size: 18px;
-  font-weight: 700;
-  margin: 0;
-}
 
-/* —— 五统计卡片 —— */
+/* —— 五统计卡片（统一中性模式，不再按卡片变色） —— */
 .stat-row {
   display: flex;
-  gap: 12px;
+  gap: var(--sp-3);
 }
 .stat-card {
   flex: 1;
   min-width: 0;
   background: #fff;
-  border: 1px solid #f3f4f6;
-  border-radius: 14px;
-  padding: 14px 14px 12px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-4) var(--sp-4) var(--sp-3);
+  box-shadow: var(--shadow);
+  transition: border-color var(--dur) var(--ease);
   cursor: default;
 }
 .stat-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
-  border-color: var(--card-color);
+  border-color: var(--c-border-strong);
 }
 .stat-top {
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-.stat-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--card-color);
-  flex-shrink: 0;
+  gap: var(--sp-2);
 }
 .stat-label {
-  font-size: 12px;
-  color: #9ca3af;
+  font-size: var(--fs-xs);
+  color: var(--c-muted);
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
@@ -403,20 +385,20 @@ async function toggleV2Spans(run) {
 .stat-icon {
   width: 30px;
   height: 30px;
-  border-radius: 8px;
-  display: flex;
+  border-radius: var(--radius-full);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
-  background: color-mix(in srgb, var(--card-color) 12%, transparent);
+  background: var(--c-bg-soft);
+  color: var(--c-muted);
   flex-shrink: 0;
 }
 .stat-num {
-  font-size: 26px;
+  font-size: var(--fs-num);
   font-weight: 700;
-  color: var(--card-color);
-  margin-top: 8px;
-  line-height: 1.2;
+  color: var(--c-text);
+  margin-top: var(--sp-2);
+  line-height: 1.3;
 }
 
 /* —— 内容卡片 —— */
@@ -424,65 +406,36 @@ async function toggleV2Spans(run) {
   flex: 1;
   min-height: 270px;
   background: #fff;
-  border-radius: 18px;
-  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.06);
-  padding: 16px 20px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: var(--sp-4) var(--sp-5);
   display: flex;
   flex-direction: column;
 }
 .panel-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
 }
 .panel-head h3 {
-  font-size: 15px;
-  font-weight: 700;
-  margin: 0;
-}
-.count-badge {
-  background: #f3f4f6;
-  color: #6b7280;
-  font-size: 11px;
+  font-size: var(--fs-lg);
   font-weight: 600;
-  padding: 2px 10px;
-  border-radius: 999px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
 
-/* —— 表格 —— */
+/* —— 表格（基础样式走全局 .tbl/.tbl-wrap，这里只留列宽/布局补充） —— */
 .table-scroll {
   flex: 1;
   overflow-y: auto;
-  border: 1px solid #f3f4f6;
-  border-radius: 10px;
   min-height: 0;
 }
-.tbl {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.tbl thead th {
-  position: sticky;
-  top: 0;
-  background: #fff;
-  z-index: 1;
-  text-align: left;
-  padding: 9px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #9ca3af;
-  border-bottom: 2px solid #f3f4f6;
+.tbl td {
   white-space: nowrap;
-}
-.tbl tbody td {
-  padding: 9px 12px;
-  border-bottom: 1px solid #f3f4f6;
-  white-space: nowrap;
-}
-.tbl tbody tr:last-child td {
-  border-bottom: 0;
 }
 .tbl .email {
   max-width: 220px;
@@ -490,93 +443,45 @@ async function toggleV2Spans(run) {
   text-overflow: ellipsis;
 }
 .tbl .muted {
-  color: #9ca3af;
-  font-size: 12px;
-}
-.role-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 600;
-}
-.role-badge.admin {
-  background: #d1fae5;
-  color: #059669;
-}
-.role-badge.user {
-  background: #f3f4f6;
-  color: #6b7280;
+  font-size: var(--fs-xs);
 }
 
 /* 当日数据行高亮 */
 .tbl tbody tr.today {
-  background: #ecfdf5;
+  background: var(--c-ok-bg);
 }
 .tbl tbody tr.today td {
-  color: #059669;
+  color: var(--c-primary-dark);
   font-weight: 600;
 }
 .token-cell {
-  color: #059669;
+  color: var(--c-primary-dark);
   font-weight: 600;
 }
 
-/* —— 分页 —— */
+/* —— 分页（按钮走全局 .pager，这里只留布局） —— */
 .pagination {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 10px;
+  margin-top: var(--sp-2);
   flex-shrink: 0;
 }
 .page-info {
-  font-size: 12px;
-  color: #9ca3af;
-}
-.page-btns {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.page-btns button {
-  min-width: 28px;
-  padding: 4px 8px;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  background: #fff;
-  color: #6b7280;
-  font-size: 12px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-.page-btns button:hover:not(:disabled):not(.active) {
-  background: #f9fafb;
-  border-color: #d1d5db;
-}
-.page-btns button.active {
-  background: #10b981;
-  border-color: #10b981;
-  color: #fff;
-  font-weight: 700;
-}
-.page-btns button:disabled {
-  background: #f3f4f6;
-  color: #d1d5db;
-  cursor: not-allowed;
+  font-size: var(--fs-xs);
+  color: var(--c-faint);
 }
 .page-ellipsis {
-  padding: 4px 2px;
-  font-size: 12px;
-  color: #d1d5db;
+  padding: var(--sp-1) 2px;
+  font-size: var(--fs-xs);
+  color: var(--c-faint);
 }
 
 /* —— 用量双栏 —— */
 .usage-body {
   flex: 1;
   display: flex;
-  gap: 16px;
+  gap: var(--sp-4);
   min-height: 0;
 }
 .usage-left {
@@ -587,21 +492,21 @@ async function toggleV2Spans(run) {
 }
 .usage-right {
   flex: 1;
-  border-left: 1px dashed #e5e7eb;
-  padding-left: 16px;
+  border-left: 1px dashed var(--c-border);
+  padding-left: var(--sp-4);
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
 
-/* —— 柱状图 —— */
+/* —— 柱状图（实色柱，去渐变） —— */
 .chart {
   flex: 1;
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: var(--sp-2);
   min-height: 150px;
-  padding: 8px 4px 0;
+  padding: var(--sp-2) var(--sp-1) 0;
 }
 .bar-col {
   flex: 1;
@@ -621,25 +526,25 @@ async function toggleV2Spans(run) {
 .bar {
   width: 60%;
   max-width: 30px;
-  background: linear-gradient(180deg, #10b981, #059669);
-  border-radius: 4px 4px 0 0;
+  background: var(--c-primary);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   min-height: 3px;
-  transition: height 0.3s ease;
+  transition: height var(--dur) var(--ease);
 }
 .bar.zero {
-  background: #e5e7eb;
+  background: var(--c-border);
 }
 .bar-label {
-  font-size: 9px;
-  color: #9ca3af;
-  margin-top: 6px;
+  font-size: var(--fs-xs);
+  color: var(--c-faint);
+  margin-top: var(--sp-1);
   white-space: nowrap;
 }
 .chart-desc {
-  font-size: 11px;
-  color: #9ca3af;
+  font-size: var(--fs-xs);
+  color: var(--c-faint);
   text-align: center;
-  margin-top: 8px;
+  margin-top: var(--sp-2);
 }
 
 /* —— 窄屏 —— */
@@ -658,94 +563,86 @@ async function toggleV2Spans(run) {
   }
   .usage-right {
     border-left: 0;
-    border-top: 1px dashed #e5e7eb;
+    border-top: 1px dashed var(--c-border);
     padding-left: 0;
-    padding-top: 12px;
+    padding-top: var(--sp-3);
   }
 }
 
 /* —— Agent 任务追踪（v4.0） —— */
 .v2-stats-row {
   display: flex;
-  gap: 18px;
+  gap: var(--sp-4);
   flex-wrap: wrap;
-  font-size: 12.5px;
-  color: #6b7280;
-  margin-bottom: 10px;
+  font-size: var(--fs-sm);
+  color: var(--c-muted);
+  margin-bottom: var(--sp-2);
 }
 .v2-stats-row b {
-  color: #1f2937;
+  color: var(--c-text);
 }
 .v2-run-row {
   cursor: pointer;
 }
-.v2-run-row:hover {
-  background: rgb(59 130 246 / 5%);
-}
 .v2-badge {
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11.5px;
-  background: rgb(156 163 175 / 12%);
-  color: #6b7280;
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-full);
+  font-size: var(--fs-xs);
+  background: var(--c-hover);
+  color: var(--c-muted);
 }
 .v2-badge.completed {
-  background: rgb(16 185 129 / 12%);
-  color: #059669;
+  background: var(--wash-primary);
+  color: var(--c-primary);
 }
 .v2-badge.failed {
-  background: rgb(239 68 68 / 10%);
-  color: #dc2626;
+  background: var(--wash-bad);
+  color: var(--c-bad);
 }
 .v2-badge.waiting_approval,
 .v2-badge.pending {
-  background: rgb(245 158 11 / 14%);
-  color: #b45309;
+  background: var(--wash-warn);
+  color: var(--c-warn);
 }
 .v2-badge.running,
 .v2-badge.ok {
-  background: rgb(59 130 246 / 12%);
-  color: #2563eb;
+  background: var(--wash-info);
+  color: var(--c-info);
 }
 .v2-badge.retried,
 .v2-badge.expired {
-  background: rgb(245 158 11 / 14%);
-  color: #b45309;
+  background: var(--wash-warn);
+  color: var(--c-warn);
 }
 .v2-err {
   max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #dc2626;
-  font-size: 12px;
+  color: var(--c-bad);
+  font-size: var(--fs-xs);
 }
-.v2-span-cell {
-  background: rgb(249 250 251);
-  padding: 8px 16px !important;
+/* 提高优先级压过全局 .tbl td 的内边距，替代原 !important 补丁 */
+.tbl td.v2-span-cell {
+  background: var(--c-bg-soft);
+  padding: var(--sp-2) var(--sp-4);
 }
 .v2-span {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 4px 0;
-  font-size: 12px;
-  color: #374151;
+  gap: var(--sp-2);
+  padding: var(--sp-1) 0;
+  font-size: var(--fs-xs);
+  color: var(--c-text-2);
 }
 .v2-span-name {
   font-weight: 600;
   min-width: 140px;
 }
 .v2-span-meta {
-  color: #9ca3af;
+  color: var(--c-faint);
 }
 .v2-span-err {
-  color: #dc2626;
-}
-.v2-empty {
-  text-align: center;
-  color: #9ca3af;
-  font-size: 12.5px;
-  padding: 12px 0;
+  color: var(--c-bad);
 }
 </style>

@@ -5,6 +5,7 @@
 import { ref } from 'vue'
 import { del, get, post } from '../../api.js'
 import AgentChatCore from './AgentChatCore.vue'
+import Icon from '../Icon.vue'
 
 const open = ref(false)
 const sessions = ref([])
@@ -76,9 +77,9 @@ function onSessionCreated(s) {
     <button v-if="!open" class="aw-fab" title="AI 客服" @click="toggle">
       <svg viewBox="0 0 32 32" width="26" height="26" fill="none" aria-hidden="true">
         <path d="M5 9a4 4 0 0 1 4-4h14a4 4 0 0 1 4 4v9a4 4 0 0 1-4 4H13l-6 4.5V22a4 4 0 0 1-2-3.46V9z" fill="#fff" />
-        <circle cx="12" cy="13.5" r="1.7" fill="#10b981" />
-        <circle cx="16.5" cy="13.5" r="1.7" fill="#10b981" />
-        <circle cx="21" cy="13.5" r="1.7" fill="#10b981" />
+        <circle cx="12" cy="13.5" r="1.7" fill="var(--c-primary)" />
+        <circle cx="16.5" cy="13.5" r="1.7" fill="var(--c-primary)" />
+        <circle cx="21" cy="13.5" r="1.7" fill="var(--c-primary)" />
       </svg>
     </button>
 
@@ -86,19 +87,19 @@ function onSessionCreated(s) {
     <div v-if="open" class="aw-mask" @click="close"></div>
 
     <!-- 展开浮层 -->
-    <div v-if="open" class="aw-panel">
+    <div v-if="open" class="aw-panel popup">
       <div class="aw-head">
         <span class="aw-dot"></span>
         <div class="aw-title">
           <div class="aw-name">AI 客服</div>
           <div class="aw-sub">在线为您解答技术问题</div>
         </div>
-        <button class="aw-head-btn" title="历史对话" @click="showHistory = !showHistory">🕘 历史</button>
-        <button class="aw-head-btn" title="新建对话" @click="newSession">＋ 新建</button>
-        <button class="aw-close" @click="close">✕</button>
+        <button class="aw-head-btn" title="历史对话" @click="showHistory = !showHistory"><Icon name="clock" :size="13" /> 历史</button>
+        <button class="aw-head-btn" title="新建对话" @click="newSession"><Icon name="plus" :size="13" /> 新建</button>
+        <button class="icon-btn" aria-label="关闭" title="关闭" @click="close"><Icon name="x" :size="16" /></button>
 
         <!-- 历史下拉 -->
-        <div v-if="showHistory" class="aw-history">
+        <div v-if="showHistory" class="aw-history popup">
           <div v-if="!sessions.length" class="aw-h-empty">暂无历史对话</div>
           <div
             v-for="s in sessions"
@@ -107,13 +108,13 @@ function onSessionCreated(s) {
             :class="{ active: s.id === activeId }"
             @click="pick(s)"
           >
-            <span class="aw-h-title">💬 {{ s.title }}</span>
-            <button class="aw-h-del" @click="remove(s, $event)">🗑</button>
+            <span class="aw-h-title"><Icon name="chat" :size="13" /> {{ s.title }}</span>
+            <button class="icon-btn danger" aria-label="删除" title="删除" @click="remove(s, $event)"><Icon name="trash" :size="14" /></button>
           </div>
         </div>
       </div>
 
-      <p v-if="widgetError" class="aw-error">{{ widgetError }}</p>
+      <p v-if="widgetError" class="msg error aw-error">{{ widgetError }}</p>
       <div class="aw-body">
         <AgentChatCore
           :session-id="activeId"
@@ -129,171 +130,157 @@ function onSessionCreated(s) {
 <style scoped>
 .agent-widget {
   position: fixed;
-  right: 26px;
-  bottom: 26px;
-  z-index: 40;
+  right: var(--sp-6);
+  bottom: var(--sp-6);
+  z-index: var(--z-modal);
 }
 .aw-fab {
   width: 56px;
   height: 56px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   border: 0;
   cursor: pointer;
-  background: linear-gradient(135deg, #10b981, #059669);
-  box-shadow: 0 6px 20px rgb(16 185 129 / 40%);
+  background: var(--c-primary);
+  box-shadow: var(--shadow-pop);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.15s ease;
+  transition:
+    transform var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
 }
 .aw-fab:hover {
-  transform: translateY(-2px) scale(1.04);
+  background: var(--c-primary-dark);
+  transform: translateY(-2px);
 }
 .aw-mask {
   position: fixed;
   inset: 0;
   background: rgb(0 0 0 / 18%);
-  z-index: 41;
-  animation: aw-fade 0.18s ease both;
+  animation: aw-fade var(--dur) var(--ease) both;
 }
+/* 圆角/阴影/边框由全局 .popup 弹层壳提供，这里只留布局 */
 .aw-panel {
   position: fixed;
-  right: 26px;
-  bottom: 26px;
+  right: var(--sp-6);
+  bottom: var(--sp-6);
   width: 400px;
   max-width: calc(100vw - 40px);
   height: min(620px, calc(100vh - 80px));
-  background: #fff;
-  border-radius: 18px;
-  box-shadow: 0 18px 50px rgb(0 0 0 / 22%);
-  z-index: 42;
+  z-index: var(--z-pop);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: aw-pop 0.2s ease both;
+  animation: aw-pop var(--dur) var(--ease) both;
 }
 @keyframes aw-fade {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 @keyframes aw-pop {
-  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  from { opacity: 0; transform: translateY(var(--sp-3)) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .aw-head {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--c-border, #e5e7eb);
-  background: linear-gradient(135deg, rgb(16 185 129 / 8%), #fff);
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-bg-soft);
 }
+/* 在线呼吸点：唯一允许使用 --c-primary-bright 的活性指示 */
 .aw-dot {
   width: 9px;
   height: 9px;
-  border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 0 3px rgb(16 185 129 / 18%);
+  border-radius: var(--radius-full);
+  background: var(--c-primary-bright);
   flex-shrink: 0;
+  animation: pulse-dot 2s var(--ease) infinite;
 }
 .aw-title {
   flex: 1;
   min-width: 0;
 }
 .aw-name {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--fs-md);
+  font-weight: 600;
 }
 .aw-sub {
-  font-size: 10.5px;
-  color: var(--c-faint, #9ca3af);
+  font-size: var(--fs-xs);
+  color: var(--c-faint);
 }
 .aw-head-btn {
-  border: 1px solid rgb(16 185 129 / 30%);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  border: 1px solid var(--c-primary-border);
   background: #fff;
-  color: var(--c-primary-dark, #059669);
-  border-radius: 8px;
-  font-size: 11.5px;
+  color: var(--c-primary-dark);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
   font-family: inherit;
-  padding: 5px 8px;
+  padding: var(--sp-1) var(--sp-2);
   cursor: pointer;
   white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease);
 }
 .aw-head-btn:hover {
-  background: rgb(16 185 129 / 8%);
+  background: var(--wash-primary);
 }
-.aw-close {
-  border: 0;
-  background: transparent;
-  font-size: 14px;
-  color: var(--c-faint, #9ca3af);
-  cursor: pointer;
-  padding: 4px 6px;
-}
-.aw-close:hover {
-  color: var(--c-text, #1a1b1c);
+/* 关闭按钮样式收编到全局 .icon-btn */
+.aw-error {
+  margin: var(--sp-2) var(--sp-3) 0;
 }
 .aw-history {
   position: absolute;
-  top: calc(100% + 6px);
-  right: 46px;
+  top: calc(100% + var(--sp-2));
+  right: 48px;
   width: 240px;
   max-height: 280px;
   overflow-y: auto;
-  background: #fff;
-  border: 1px solid var(--c-border, #e5e7eb);
-  border-radius: 12px;
-  box-shadow: 0 10px 30px rgb(0 0 0 / 14%);
-  padding: 6px;
-  z-index: 5;
+  padding: var(--sp-2);
+  z-index: var(--z-pop);
 }
 .aw-h-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 9px;
-  border-radius: 8px;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
 }
 .aw-h-item:hover {
-  background: rgb(16 185 129 / 6%);
+  background: var(--c-hover);
 }
 .aw-h-item.active {
-  background: rgb(16 185 129 / 12%);
+  background: var(--wash-primary);
 }
 .aw-h-title {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.aw-h-del {
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  font-size: 11px;
+.aw-h-title .ui-icon {
+  margin-right: var(--sp-1);
+  color: var(--c-faint);
 }
+/* 历史删除按钮样式收编到全局 .icon-btn.danger */
 .aw-h-empty {
-  font-size: 12px;
-  color: var(--c-faint, #9ca3af);
+  font-size: var(--fs-xs);
+  color: var(--c-faint);
   text-align: center;
-  padding: 14px 0;
+  padding: var(--sp-3) 0;
 }
 .aw-body {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 12px;
+  padding: var(--sp-3);
 }
 </style>
-
-.aw-error {
-  margin: 0;
-  padding: 6px 14px;
-  font-size: 12px;
-  color: #b91c1c;
-  background: #fef2f2;
-  border-top: 1px solid #fecaca;
-}

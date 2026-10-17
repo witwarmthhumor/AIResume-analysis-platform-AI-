@@ -51,24 +51,25 @@ const registerReady = () =>
 </script>
 
 <template>
-  <section class="card" style="max-width:420px">
-    <h2 style="margin-bottom:8px">{{ mode === 'login' ? '登录' : '注册账号' }}</h2>
+  <section class="card login-card">
+    <h2>{{ mode === 'login' ? '登录' : '注册账号' }}</h2>
     <!-- 包一层 form：密码框回车即可提交 -->
     <form @submit.prevent="submit">
       <template v-if="mode === 'login'">
         <label class="label" for="login-id">用户名 / 手机号</label>
-        <input id="login-id" v-model="identifier" autocomplete="username" />
+        <input id="login-id" v-model="identifier" class="input" autocomplete="username" />
       </template>
       <template v-else>
         <label class="label" for="reg-username">用户名</label>
-        <input id="reg-username" v-model="regUsername" autocomplete="username" placeholder="3~64 位小写字母、数字或下划线" />
+        <input id="reg-username" v-model="regUsername" class="input" autocomplete="username" placeholder="3~64 位小写字母、数字或下划线" />
         <label class="label" for="reg-phone">手机号</label>
-        <input id="reg-phone" v-model="regPhone" type="tel" autocomplete="tel" placeholder="11 位手机号，可用于登录" />
+        <input id="reg-phone" v-model="regPhone" class="input" type="tel" autocomplete="tel" placeholder="11 位手机号，可用于登录" />
       </template>
       <label class="label" for="login-pass">密码{{ mode === 'register' ? '（至少 8 位）' : '' }}</label>
       <input
         id="login-pass"
         v-model="password"
+        class="input"
         type="password"
         :autocomplete="mode === 'login' ? 'current-password' : 'new-password'"
       />
@@ -77,22 +78,22 @@ const registerReady = () =>
         <input
           id="reg-confirm"
           v-model="regConfirm"
+          class="input"
           type="password"
           autocomplete="new-password"
           placeholder="请再次输入密码"
         />
-        <p v-if="regConfirm && password !== regConfirm" class="msg warn" style="margin:6px 0 0">两次输入的密码不一致</p>
+        <p v-if="regConfirm && password !== regConfirm" class="msg warn mt-2">两次输入的密码不一致</p>
       </template>
       <button
-        class="btn btn-primary"
+        class="btn btn-primary w-full submit-btn"
         type="submit"
         :disabled="loading || !(mode === 'login' ? loginReady() : registerReady())"
-        style="width:100%;margin-top:10px;padding:11px"
       >
         {{ loading ? '处理中…' : mode === 'login' ? '登 录' : '注册并登录' }}
       </button>
     </form>
-    <p v-if="error" class="msg error" style="margin:0">{{ error }}</p>
+    <p v-if="error" class="msg error">{{ error }}</p>
     <p class="switch">
       <span v-if="mode === 'login'">还没有账号？<b class="link" @click="mode='register'; error=''">注册</b></span>
       <span v-else>已有账号？<b class="link" @click="mode='login'; error=''">登录</b></span>
@@ -101,32 +102,24 @@ const registerReady = () =>
 </template>
 
 <style scoped>
+.login-card {
+  max-width: 420px;
+}
 .label {
   display: block;
-  font-size: 12.5px;
+  font-size: var(--fs-xs);
   color: var(--c-muted);
-  margin: 12px 0 5px;
+  margin: var(--sp-3) 0 var(--sp-1);
 }
-input {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1.5px solid var(--c-border);
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-size: 13.5px;
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-input:focus {
-  border-color: #6ee7b7;
-  box-shadow: 0 0 0 3px rgb(16 185 129 / 12%);
+.submit-btn {
+  margin-top: var(--sp-3);
+  padding: 10px;
 }
 .switch {
   text-align: center;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--c-faint);
-  margin: 10px 0 0;
+  margin: var(--sp-2) 0 0;
 }
 .link {
   color: var(--c-primary-dark);

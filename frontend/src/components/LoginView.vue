@@ -37,13 +37,8 @@ const emit = defineEmits(['logged-in'])
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
-  font-family: var(--font, system-ui, 'Microsoft YaHei', sans-serif);
-  color: var(--c-text);
-  background:
-    radial-gradient(1200px 420px at 80% -10%, rgb(16 185 129 / 12%), transparent 60%),
-    radial-gradient(900px 320px at 10% 0%, rgb(59 130 246 / 6%), transparent 55%),
-    #f6f9f7;
+  padding: var(--sp-6);
+  background: var(--c-bg);
 }
 .login-card-wrap {
   width: 100%;
@@ -51,33 +46,30 @@ const emit = defineEmits(['logged-in'])
 }
 .brand-block {
   text-align: center;
-  margin-bottom: 20px;
+  margin-bottom: var(--sp-5);
 }
 .logo-svg {
   width: 44px;
   height: 44px;
-  filter: drop-shadow(0 2px 8px rgb(16 185 129 / 30%));
 }
 .brand-title {
-  margin: 10px 0 4px;
-  font-size: 20px;
-  font-weight: 700;
+  margin: var(--sp-2) 0 var(--sp-1);
+  font-size: var(--fs-xl);
+  font-weight: 600;
 }
 .plus {
   color: var(--c-primary);
 }
 .brand-sub {
-  margin: 0 0 16px;
-  font-size: 13px;
+  margin: 0 0 var(--sp-4);
+  font-size: var(--fs-sm);
   color: var(--c-muted);
-  letter-spacing: 1px;
 }
 
 /* —— 响应式（v4.2.1）—— */
 @media (max-width: 480px) {
   .brand-title {
-    font-size: 17px;
+    font-size: var(--fs-lg);
   }
 }
-
 </style>

@@ -6,6 +6,7 @@
    流守卫沿用 v3.7 约定：runSeq 竞态丢弃 + activeAbort 中止句柄。 */
 import { computed, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue'
 import { get, parseSseBlock, post, streamChat, streamGet } from '../../api.js'
+import Icon from '../Icon.vue'
 
 const jdText = ref('')
 const positionType = ref('')
@@ -334,19 +335,19 @@ onDeactivated(() => {
   <div class="run-view">
     <!-- 发起表单（无进行中任务时显示） -->
     <div v-if="!hasRun" class="rv-form">
-      <div class="rv-hi">🚀 一键求职准备</div>
+      <div class="rv-hi"><Icon name="zap" :size="16" />一键求职准备</div>
       <div class="rv-sub">贴入目标岗位 JD，AI 会自动完成简历分析 → 岗位匹配 → 定制出题，创建面试场次前会先征求你的确认</div>
       <textarea
         v-model="jdText"
-        class="rv-jd"
+        class="input"
         rows="5"
         placeholder="粘贴岗位 JD（岗位职责、任职要求…）"
       ></textarea>
       <div class="rv-row">
-        <select v-model="positionType" class="rv-select">
+        <select v-model="positionType" class="input rv-select">
           <option v-for="o in POSITION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
         </select>
-        <button class="rv-go" :disabled="!canStart" @click="startRun">
+        <button class="btn btn-primary rv-go" :disabled="!canStart" @click="startRun">
           {{ running ? '任务进行中…' : '开始' }}
         </button>
       </div>
@@ -355,7 +356,7 @@ onDeactivated(() => {
     <!-- 断点恢复提示 -->
     <div v-if="resumableRun && !hasRun" class="rv-resume">
       <span>有一个任务正等待你的审批（#{{ resumableRun.id }}）</span>
-      <button class="rv-btn-main" @click="resumeRun">继续处理</button>
+      <button class="btn btn-primary" @click="resumeRun">继续处理</button>
     </div>
 
     <!-- 步骤条 -->
@@ -367,29 +368,37 @@ onDeactivated(() => {
         :class="s.state"
         :title="(s.reasons || []).join('；')"
       >
-        <span class="rv-dot">{{ { waiting: '○', running: '◌', retry: '↻', done: '●', failed: '✕' }[s.state] }}</span>
+        <span class="rv-dot">
+          <span v-if="s.state === 'waiting'" class="rv-wait-dot"></span>
+          <span v-else-if="s.state === 'running'" class="spinner rv-spin"></span>
+          <Icon v-else-if="s.state === 'retry'" name="refresh" :size="12" />
+          <Icon v-else-if="s.state === 'done'" name="check" :size="12" />
+          <Icon v-else name="x" :size="12" />
+        </span>
         <span class="rv-name">{{ NODE_LABELS[s.node] }}</span>
       </div>
-      <div v-if="runStatus === 'running'" class="rv-running-hint">执行中…</div>
+      <div v-if="runStatus === 'running'" class="rv-running-hint">
+        <span class="spinner rv-spin"></span>执行中…
+      </div>
     </div>
 
     <!-- 审批卡 -->
     <div v-if="approval" class="rv-approval">
-      <div class="rv-ap-title">⚠️ 需要你的确认</div>
+      <div class="rv-ap-title"><Icon name="alert" :size="16" />需要你的确认</div>
       <div class="rv-ap-summary">{{ approval.summary }}</div>
       <div class="rv-ap-timer" :class="{ urgent: countdown <= 60 }">
         {{ countdown > 0 ? `剩余 ${Math.floor(countdown / 60)} 分 ${countdown % 60} 秒` : '已超时，请重新发起任务' }}
       </div>
       <div class="rv-ap-actions">
-        <button class="rv-btn-main" @click="decide('approved')">批准并创建场次</button>
-        <button class="rv-btn-ghost" @click="decide('rejected')">不用了</button>
+        <button class="btn btn-primary" @click="decide('approved')">批准并创建场次</button>
+        <button class="btn btn-ghost" @click="decide('rejected')">不用了</button>
       </div>
     </div>
 
     <!-- 结果分区 -->
     <div v-if="output && runStatus === 'completed'" class="rv-result">
       <div v-if="output.analysis" class="rv-card">
-        <div class="rv-card-title">📋 简历分析</div>
+        <div class="rv-card-title"><Icon name="list" :size="14" />简历分析</div>
         <div class="rv-card-body">
           <div v-if="output.analysis.target_position">目标岗位：{{ output.analysis.target_position }}</div>
           <div v-if="output.analysis.position_match">{{ output.analysis.position_match }}</div>
@@ -402,7 +411,7 @@ onDeactivated(() => {
         </div>
       </div>
       <div v-if="output.match" class="rv-card">
-        <div class="rv-card-title">🎯 JD 匹配（{{ output.match.match_score ?? '-' }} 分）</div>
+        <div class="rv-card-title"><Icon name="trophy" :size="14" />JD 匹配（{{ output.match.match_score ?? '-' }} 分）</div>
         <div class="rv-card-body">
           <div v-if="output.match.matched_keywords?.length" class="rv-list">
             <span v-for="t in output.match.matched_keywords" :key="t" class="rv-tag plus">{{ t }}</span>
@@ -416,7 +425,7 @@ onDeactivated(() => {
         </div>
       </div>
       <div v-if="output.questions?.length" class="rv-card">
-        <div class="rv-card-title">🎤 定制面试题</div>
+        <div class="rv-card-title"><Icon name="mic" :size="14" />定制面试题</div>
         <div class="rv-card-body">
           <ol class="rv-questions">
             <li v-for="(q, i) in output.questions" :key="i">{{ q }}</li>
@@ -424,24 +433,27 @@ onDeactivated(() => {
           <div v-if="output.question_sources?.length" class="rv-cite">出题依据：{{ output.question_sources.join('、') }}</div>
         </div>
       </div>
-      <div v-if="output.session_id" class="rv-session">✅ 面试场次已创建（#{{ output.session_id }}），可在「模拟面试」页继续</div>
-      <button class="rv-btn-ghost rv-again" @click="backToForm">再准备一个岗位</button>
+      <div v-if="output.session_id" class="rv-session">
+        <Icon name="check" :size="14" />
+        面试场次已创建（#{{ output.session_id }}），可在「模拟面试」页继续
+      </div>
+      <button class="btn btn-ghost rv-again" @click="backToForm">再准备一个岗位</button>
     </div>
 
     <!-- 失败卡 -->
     <div v-if="runStatus === 'failed'" class="rv-fail">
-      <div class="rv-fail-title">⚠️ 任务失败</div>
+      <div class="rv-fail-title"><Icon name="alert" :size="16" />任务失败</div>
       <div class="rv-fail-body">{{ error || '任务执行失败' }}</div>
       <div v-if="failReasons.length" class="rv-fail-reasons">
         <div v-for="(r, i) in failReasons" :key="i">· {{ r }}</div>
       </div>
-      <button class="rv-btn-main" @click="retryFailed">从失败节点重试</button>
+      <button class="btn btn-primary" @click="retryFailed">从失败节点重试</button>
     </div>
 
     <!-- 进行中可放弃 -->
     <div v-if="hasRun && (runStatus === 'running' || runStatus === 'waiting_approval' || runStatus === 'aborted')" class="rv-toolbar">
-      <button v-if="runStatus !== 'aborted'" class="rv-btn-ghost" @click="abortRun">放弃任务</button>
-      <button class="rv-btn-ghost" @click="backToForm">返回发起页</button>
+      <button v-if="runStatus !== 'aborted'" class="btn btn-ghost" @click="abortRun">放弃任务</button>
+      <button class="btn btn-ghost" @click="backToForm">返回发起页</button>
     </div>
   </div>
 </template>
@@ -450,7 +462,7 @@ onDeactivated(() => {
 .run-view {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--sp-3);
   height: 100%;
   overflow-y: auto;
 }
@@ -459,177 +471,165 @@ onDeactivated(() => {
 .rv-result,
 .rv-fail,
 .rv-resume {
-  background: rgb(16 185 129 / 4%);
-  border: 1px solid var(--c-border, #e5e7eb);
-  border-radius: 12px;
-  padding: 16px;
+  background: var(--wash-primary);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-4);
 }
 .rv-hi {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--c-text, #1f2937);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--c-text);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
 .rv-sub {
-  font-size: 12.5px;
-  color: var(--c-text-2, #6b7280);
-  margin: 6px 0 12px;
-}
-.rv-jd {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1.5px solid var(--c-border, #e5e7eb);
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-size: 13px;
-  font-family: inherit;
-  resize: vertical;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  margin: 6px 0 var(--sp-3);
 }
 .rv-row {
   display: flex;
-  gap: 10px;
-  margin-top: 10px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
 }
+/* 边框/聚焦态走全局 .input，这里只放开行内布局宽度 */
 .rv-select {
-  border: 1.5px solid var(--c-border, #e5e7eb);
-  border-radius: 10px;
-  padding: 8px 10px;
-  font-size: 13px;
-  font-family: inherit;
-  background: #fff;
+  width: auto;
 }
+/* 开始按钮走全局 .btn/.btn-primary，这里只补占满剩余宽度 */
 .rv-go {
   flex: 1;
-  padding: 9px 0;
-  border: 0;
-  border-radius: 10px;
-  background: var(--c-primary, #10b981);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-}
-.rv-go:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 .rv-resume {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--c-text-2, #374151);
-}
-.rv-btn-main {
-  padding: 8px 16px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--c-primary, #10b981);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-}
-.rv-btn-ghost {
-  padding: 8px 16px;
-  border: 1.5px solid var(--c-border, #e5e7eb);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--c-text-2, #374151);
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
 }
 .rv-steps {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
   background: #fff;
-  border: 1px solid var(--c-border, #e5e7eb);
-  border-radius: 12px;
-  padding: 12px 14px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-3);
 }
 .rv-step {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  border-radius: 999px;
-  font-size: 12.5px;
-  background: rgb(156 163 175 / 10%);
-  color: var(--c-text-2, #6b7280);
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-full);
+  font-size: var(--fs-xs);
+  background: var(--c-hover);
+  color: var(--c-muted);
 }
 .rv-step.running {
-  background: rgb(59 130 246 / 12%);
-  color: #2563eb;
+  background: var(--wash-info);
+  color: var(--c-info);
   font-weight: 600;
 }
 .rv-step.done {
-  background: rgb(16 185 129 / 12%);
-  color: #059669;
+  background: var(--wash-primary);
+  color: var(--c-ok);
 }
 .rv-step.retry {
-  background: rgb(245 158 11 / 14%);
-  color: #b45309;
+  background: var(--wash-warn);
+  color: var(--c-warn);
 }
 .rv-step.failed {
-  background: rgb(239 68 68 / 12%);
-  color: #dc2626;
+  background: var(--wash-bad);
+  color: var(--c-bad);
+}
+/* 步骤状态符：等待=空心圆点，运行=小号 spinner（蓝以免在蓝底胶囊里撞色） */
+.rv-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+.rv-wait-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--c-border-strong);
+}
+.rv-spin {
+  width: 12px;
+  height: 12px;
+}
+.rv-step.running .spinner {
+  border-color: var(--c-info-bg);
+  border-top-color: var(--c-info);
 }
 .rv-running-hint {
-  font-size: 12px;
-  color: var(--c-faint, #9ca3af);
+  font-size: var(--fs-xs);
+  color: var(--c-faint);
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
 }
 .rv-approval {
-  border-color: rgb(245 158 11 / 40%);
-  background: rgb(245 158 11 / 6%);
+  border-color: var(--c-warn-bg);
+  background: var(--wash-warn);
 }
 .rv-ap-title {
-  font-weight: 700;
-  font-size: 14px;
-  color: #b45309;
+  font-weight: 600;
+  font-size: var(--fs-md);
+  color: var(--c-warn);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
 .rv-ap-summary {
-  font-size: 13px;
-  color: var(--c-text, #1f2937);
-  margin: 8px 0;
+  font-size: var(--fs-sm);
+  color: var(--c-text);
+  margin: var(--sp-2) 0;
 }
 .rv-ap-timer {
-  font-size: 12.5px;
-  color: #b45309;
-  margin-bottom: 10px;
+  font-size: var(--fs-xs);
+  color: var(--c-warn);
+  margin-bottom: var(--sp-2);
 }
 .rv-ap-timer.urgent {
-  color: #dc2626;
+  color: var(--c-bad);
   font-weight: 600;
 }
 .rv-ap-actions {
   display: flex;
-  gap: 10px;
+  gap: var(--sp-2);
 }
 .rv-card {
   background: #fff;
-  border: 1px solid var(--c-border, #e5e7eb);
-  border-radius: 12px;
-  padding: 14px;
-  margin-bottom: 10px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-2);
 }
 .rv-card-title {
-  font-weight: 700;
-  font-size: 13.5px;
-  color: var(--c-text, #1f2937);
-  margin-bottom: 8px;
+  font-weight: 600;
+  font-size: var(--fs-md);
+  color: var(--c-text);
+  margin-bottom: var(--sp-2);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
 .rv-card-body {
-  font-size: 13px;
-  color: var(--c-text-2, #374151);
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 .rv-list {
   display: flex;
@@ -637,61 +637,67 @@ onDeactivated(() => {
   flex-wrap: wrap;
 }
 .rv-tag {
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 12px;
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-full);
+  font-size: var(--fs-xs);
 }
 .rv-tag.plus {
-  background: rgb(16 185 129 / 12%);
-  color: #059669;
+  background: var(--wash-primary);
+  color: var(--c-primary);
 }
 .rv-tag.minus {
-  background: rgb(239 68 68 / 10%);
-  color: #dc2626;
+  background: var(--wash-bad);
+  color: var(--c-bad);
 }
 .rv-suggest {
-  color: var(--c-text-2, #6b7280);
+  color: var(--c-muted);
 }
 .rv-questions {
   margin: 0;
-  padding-left: 18px;
+  padding-left: var(--sp-4);
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 .rv-cite {
-  font-size: 12px;
-  color: var(--c-faint, #9ca3af);
+  font-size: var(--fs-xs);
+  color: var(--c-faint);
 }
 .rv-session {
-  font-size: 13px;
-  color: #059669;
+  font-size: var(--fs-sm);
+  color: var(--c-ok);
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
 }
 .rv-again {
   align-self: flex-start;
 }
 .rv-fail {
-  border-color: rgb(239 68 68 / 35%);
-  background: rgb(239 68 68 / 5%);
+  border-color: var(--c-bad-bg);
+  background: var(--wash-bad);
 }
 .rv-fail-title {
-  font-weight: 700;
-  color: #dc2626;
-  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-bad);
+  font-size: var(--fs-md);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
 .rv-fail-body {
-  font-size: 13px;
-  color: var(--c-text, #1f2937);
-  margin: 8px 0;
+  font-size: var(--fs-sm);
+  color: var(--c-text);
+  margin: var(--sp-2) 0;
 }
 .rv-fail-reasons {
-  font-size: 12.5px;
-  color: var(--c-text-2, #6b7280);
-  margin-bottom: 10px;
+  font-size: var(--fs-xs);
+  color: var(--c-text-2);
+  margin-bottom: var(--sp-2);
 }
 .rv-toolbar {
   display: flex;
-  gap: 10px;
+  gap: var(--sp-2);
 }
 </style>

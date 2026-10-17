@@ -4,6 +4,7 @@
    我的题库列表可进入模拟面试加载该题库，或删除。 */
 import { computed, onMounted, ref } from 'vue'
 import { del, get, post } from '../api.js'
+import { fmtDateTime } from '../utils.js'
 import Icon from './Icon.vue'
 
 const emit = defineEmits(['navigate'])
@@ -106,13 +107,16 @@ onMounted(() => {
       <p v-if="resumesState === 'error'" class="msg error">
         简历列表加载失败 <button class="link-btn" @click="loadResumes">重试</button>
       </p>
-      <p v-else-if="resumesState === 'loading'" class="msg muted">加载中…</p>
+      <div v-else-if="resumesState === 'loading'" class="loading-row">
+        <span class="spinner"></span>加载中…
+      </div>
       <div v-else-if="!resumes.length" class="empty-state">
+        <span class="es-icon"><Icon name="file" :size="24" /></span>
         <p class="es-text">还没有解析成功的简历——先去简历评估上传一份</p>
         <button class="btn btn-primary" @click="emit('navigate', 'resume')">去简历评估上传</button>
       </div>
       <div v-else class="gen-row">
-        <select v-model="selectedResumeId" class="resume-select">
+        <select v-model="selectedResumeId" class="input resume-select">
           <option :value="null" disabled>选择简历…</option>
           <option v-for="r in resumes" :key="r.id" :value="r.id">{{ r.filename }}</option>
         </select>
@@ -149,10 +153,12 @@ onMounted(() => {
     <!-- 我的题库 -->
     <section class="card">
       <div class="bank-head"><h3>我的题库</h3></div>
-      <p v-if="banksState === 'loading'" class="msg muted">加载中…</p>
-      <p v-else-if="banksState === 'error'" class="msg error">
+      <div v-if="banksState === 'loading'" class="loading-row">
+        <span class="spinner"></span>加载中…
+      </div>
+      <div v-else-if="banksState === 'error'" class="msg error">
         题库列表加载失败 <button class="link-btn" @click="loadBanks">重试</button>
-      </p>
+      </div>
       <div v-else-if="banksState === 'empty'" class="empty-state">
         <span class="es-icon"><Icon name="book" :size="24" /></span>
         <p class="es-text">还没有题库——选一份简历点「生成面试题」</p>
@@ -161,7 +167,7 @@ onMounted(() => {
         <li v-for="b in banks" :key="b.id">
           <div class="bank-info">
             <span class="bank-title">{{ b.title }}</span>
-            <span class="bank-meta">{{ b.question_count }} 题 · {{ new Date(b.created_at).toLocaleString() }}</span>
+            <span class="bank-meta">{{ b.question_count }} 题 · {{ fmtDateTime(b.created_at) }}</span>
           </div>
           <div class="bank-actions">
             <button class="btn btn-ghost btn-sm" @click="openBank(b.id)">查看</button>
@@ -178,58 +184,50 @@ onMounted(() => {
 .qg {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--sp-4);
 }
 .upload-card {
   text-align: center;
-  padding: 30px 24px;
-}
-.upload-icon {
-  font-size: 34px;
+  padding: var(--sp-6);
 }
 .upload-title {
-  font-size: 15px;
-  font-weight: 700;
-  margin: 10px 0 4px;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  margin: var(--sp-3) 0 var(--sp-1);
 }
 .upload-sub {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--c-muted);
-  margin: 0 0 14px;
+  margin: 0 0 var(--sp-3);
 }
 .gen-row {
   display: flex;
-  gap: 12px;
+  gap: var(--sp-3);
   justify-content: center;
   align-items: center;
   flex-wrap: wrap;
 }
 .resume-select {
+  width: auto;
   min-width: 260px;
-  border: 1.5px solid var(--c-border);
-  border-radius: 10px;
-  padding: 9px 12px;
-  font-size: 13px;
-  font-family: inherit;
-  background: #fff;
 }
 .bank-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
 }
 .bank-head h3 {
   margin: 0;
-  font-size: 14.5px;
+  font-size: var(--fs-md);
 }
 .cat-block {
-  margin-bottom: 14px;
+  margin-bottom: var(--sp-3);
 }
 .cat-title {
-  font-size: 12.5px;
-  font-weight: 700;
+  font-size: var(--fs-xs);
+  font-weight: 600;
   color: var(--c-primary-dark);
   margin-bottom: 6px;
 }
@@ -243,15 +241,14 @@ onMounted(() => {
 .q-list li {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
   line-height: 1.7;
 }
 .q-diff {
-  color: #f59e0b;
-  font-size: 11px;
+  color: var(--c-warn);
+  font-size: var(--fs-sm);
   flex-shrink: 0;
-  letter-spacing: 1px;
   align-self: center;
 }
 .bank-list {
@@ -263,8 +260,8 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 4px;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-1);
   border-bottom: 1px solid var(--c-border);
 }
 .bank-list li:last-child {
@@ -276,24 +273,20 @@ onMounted(() => {
   gap: 2px;
 }
 .bank-title {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
 }
 .bank-meta {
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: var(--c-muted);
 }
 .bank-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-2);
   flex-shrink: 0;
 }
-.btn-sm {
-  padding: 6px 12px;
-  font-size: 12px;
-}
 .danger:hover {
-  color: #dc2626;
+  color: var(--c-bad);
 }
 .link-btn {
   border: 0;
@@ -301,19 +294,12 @@ onMounted(() => {
   color: var(--c-primary-dark);
   cursor: pointer;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   text-decoration: underline;
   padding: 0;
 }
 .muted {
-  color: var(--c-muted);
-  font-size: 12.5px;
-}
-.empty-box {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
+  font-size: var(--fs-sm);
 }
 
 /* —— 响应式（v4.2.1）—— */

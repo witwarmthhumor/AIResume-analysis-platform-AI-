@@ -3,6 +3,8 @@
    归属校验与配额由后端负责，前端预检只是体验层（扩展名/大小）。 */
 import { onMounted, ref } from 'vue'
 import { del, get, post } from '../api.js'
+import Icon from './Icon.vue'
+import { fmtDateTime } from '../utils.js'
 
 const docs = ref([])
 const loading = ref(false)
@@ -75,170 +77,99 @@ onMounted(loadDocs)
 
 <template>
   <section class="card">
-    <div class="head">
+    <div class="page-head">
       <div>
-        <h2>📚 语料库管理</h2>
-        <p class="sub">管理全站语料：上传为系统预置（所有用户可见）、删除任意文档（含预置）</p>
+        <h2><Icon name="book" :size="18" /> 语料库管理</h2>
+        <p class="ph-sub">管理全站语料：上传为系统预置（所有用户可见）、删除任意文档（含预置）</p>
       </div>
-      <button class="btn btn-primary" @click="fileInput.click()">
-        上传预置文档（txt/md/pdf）
-      </button>
-      <input ref="fileInput" type="file" accept=".txt,.md,.markdown,.pdf" hidden @change="onFileSelected" />
+      <div class="ph-actions">
+        <button class="btn btn-primary" @click="fileInput.click()">
+          上传预置文档（txt/md/pdf）
+        </button>
+        <input ref="fileInput" type="file" accept=".txt,.md,.markdown,.pdf" hidden @change="onFileSelected" />
+      </div>
     </div>
 
     <p v-if="error" class="msg error">{{ error }}</p>
     <p v-if="uploadError" class="msg error">{{ uploadError }}</p>
 
-    <div v-if="loading" class="loading">加载中…</div>
+    <div v-if="loading" class="loading-row"><span class="spinner"></span>加载中…</div>
 
     <template v-else>
-      <div v-if="!docs.length" class="empty">
-        还没有任何文档。点击上方按钮上传第一篇预置语料。
+      <div v-if="!docs.length" class="empty-state">
+        <span class="es-icon"><Icon name="inbox" :size="24" /></span>
+        <p class="es-text">还没有任何文档。点击上方按钮上传第一篇预置语料。</p>
       </div>
 
-      <table v-else class="tbl">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>标题</th>
-            <th>来源</th>
-            <th>所有者</th>
-            <th>块数</th>
-            <th>状态</th>
-            <th>上传时间</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="doc in docs" :key="doc.id">
-            <td>{{ doc.id }}</td>
-            <td class="doc-title">{{ doc.title }}</td>
-            <td>
-              <span class="badge" :class="doc.source_type === 'preset' ? 'ok' : 'gray'">
-                {{ doc.source_type === 'preset' ? '预置' : '上传' }}
-              </span>
-            </td>
-            <td class="owner">{{ doc.owner_email }}</td>
-            <td>{{ doc.chunk_count != null ? doc.chunk_count : '-' }}</td>
-            <td>
-              <span class="badge" :class="STATUS[doc.status]?.cls">
-                {{ STATUS[doc.status]?.label ?? doc.status }}
-              </span>
-            </td>
-            <td class="time">{{ new Date(doc.created_at).toLocaleString() }}</td>
-            <td>
-              <button class="btn btn-ghost del-btn" @click="removeDoc(doc)">删除</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div v-else class="tbl-wrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>标题</th>
+              <th>来源</th>
+              <th>所有者</th>
+              <th>块数</th>
+              <th>状态</th>
+              <th>上传时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="doc in docs" :key="doc.id">
+              <td>{{ doc.id }}</td>
+              <td class="doc-title">{{ doc.title }}</td>
+              <td>
+                <span class="badge" :class="{ ok: doc.source_type === 'preset' }">
+                  {{ doc.source_type === 'preset' ? '预置' : '上传' }}
+                </span>
+              </td>
+              <td class="owner">{{ doc.owner_email }}</td>
+              <td>{{ doc.chunk_count != null ? doc.chunk_count : '-' }}</td>
+              <td>
+                <span class="badge" :class="STATUS[doc.status]?.cls">
+                  {{ STATUS[doc.status]?.label ?? doc.status }}
+                </span>
+              </td>
+              <td class="time">{{ fmtDateTime(doc.created_at) }}</td>
+              <td>
+                <button class="icon-btn danger" aria-label="删除" title="删除" @click="removeDoc(doc)"><Icon name="trash" :size="14" /></button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </template>
   </section>
 </template>
 
 <style scoped>
-.head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 12px;
+.page-head {
+  margin-bottom: var(--sp-3);
 }
-.head h2 {
-  font-size: 16px;
-  margin: 0 0 4px;
-}
-.sub {
-  font-size: 12.5px;
-  color: var(--c-faint, #9ca3af);
-  margin: 0;
-}
-.loading {
-  color: var(--c-faint, #9ca3af);
-  font-size: 13px;
-  padding: 20px 0;
-  text-align: center;
-}
-.empty {
-  color: var(--c-faint, #9ca3af);
-  font-size: 13px;
-  padding: 32px 0;
-  text-align: center;
-  background: var(--c-bg-soft, #f9fafb);
-  border-radius: 10px;
-}
-.tbl {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  margin: 8px 0;
-}
-.tbl th,
-.tbl td {
-  text-align: left;
-  padding: 9px 8px;
-  border-bottom: 1px solid var(--c-border, #e5e7eb);
-  vertical-align: middle;
-}
-.tbl th {
-  color: var(--c-muted, #6b7280);
-  font-weight: 600;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.tbl tbody tr:hover {
-  background: rgb(16 185 129 / 3%);
+/* 表格壳/表头/行 hover 由全局 .tbl-wrap + .tbl 提供，这里只留列宽补充 */
+.tbl-wrap {
+  margin-top: var(--sp-2);
 }
 .doc-title {
   font-weight: 600;
-  color: var(--c-text, #1a1b1c);
+  color: var(--c-text);
   max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .owner {
-  font-size: 12px;
-  color: var(--c-text-2, #374151);
+  font-size: var(--fs-xs);
+  color: var(--c-text-2);
   max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .time {
-  font-size: 12px;
-  color: var(--c-faint, #9ca3af);
+  font-size: var(--fs-xs);
+  color: var(--c-faint);
   white-space: nowrap;
-}
-.del-btn {
-  padding: 4px 10px;
-  font-size: 12px;
-  color: #ef4444;
-}
-.del-btn:hover {
-  background: rgb(239 68 68 / 8%);
-}
-.badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 600;
-}
-.badge.ok {
-  background: #dcfce7;
-  color: #15803d;
-}
-.badge.warn {
-  background: #fef3c7;
-  color: #b45309;
-}
-.badge.bad {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-.badge.gray {
-  background: #f3f4f6;
-  color: #6b7280;
 }
 </style>

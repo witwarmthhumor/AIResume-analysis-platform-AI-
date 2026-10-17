@@ -4,6 +4,7 @@
    → 面试审核（四维评分报告）。右上角「历史记录」抽屉切换历史录音。 */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { get, post, put } from '../api.js'
+import { fmtDateTime } from '../utils.js'
 import Icon from './Icon.vue'
 
 const activeTab = ref('transcribe') // transcribe / role / interview
@@ -173,14 +174,18 @@ onBeforeUnmount(stopPolling)
 
 <template>
   <section class="audio-view">
-    <div class="head-row">
-      <h2 class="page-title">录音分析</h2>
-      <button class="btn btn-ghost btn-sm" @click="showHistory = !showHistory">历史记录</button>
+    <div class="page-head">
+      <div><h2>录音分析</h2></div>
+      <div class="ph-actions">
+        <button class="btn btn-ghost btn-sm" @click="showHistory = !showHistory">历史记录</button>
+      </div>
     </div>
 
     <!-- 历史记录抽屉 -->
     <div v-if="showHistory" class="card history-card">
-      <p v-if="historyState === 'loading'" class="msg muted">加载中…</p>
+      <div v-if="historyState === 'loading'" class="loading-row">
+        <span class="spinner"></span>加载中…
+      </div>
       <p v-else-if="historyState === 'error'" class="msg error">历史加载失败 <button class="link-btn" @click="loadHistory">重试</button></p>
       <p v-else-if="historyState === 'empty'" class="msg muted">还没有录音记录——上传一段面试录音开始。</p>
       <ul v-else class="hist-list">
@@ -190,7 +195,7 @@ onBeforeUnmount(stopPolling)
             <span class="hist-meta">
               <span class="badge" :class="statusMap[h.status]?.cls">{{ statusMap[h.status]?.label || h.status }}</span>
               {{ h.duration_seconds != null ? `${Math.round(h.duration_seconds / 60)} 分钟` : '' }}
-              {{ new Date(h.created_at).toLocaleString() }}
+              {{ fmtDateTime(h.created_at) }}
             </span>
           </div>
           <button class="btn btn-ghost btn-sm" @click="openHistoryItem(h.id)">打开</button>
@@ -230,7 +235,7 @@ onBeforeUnmount(stopPolling)
         <p v-if="current.status === 'failed'" class="msg error">{{ current.error || '转写失败' }}</p>
         <template v-if="current.status !== 'transcribing' && current.status !== 'failed'">
           <div class="field-label">面试审核文本（可编辑）</div>
-          <textarea v-model="transcriptDraft" class="big-textarea" rows="10"></textarea>
+          <textarea v-model="transcriptDraft" class="input big-textarea" rows="10"></textarea>
           <button class="btn btn-primary" :disabled="savingTranscript" @click="saveTranscript">
             {{ savingTranscript ? '保存中…' : '保存文本' }}
           </button>
@@ -238,6 +243,7 @@ onBeforeUnmount(stopPolling)
         </template>
       </template>
       <div v-else class="empty-state">
+        <span class="es-icon"><Icon name="mic" :size="24" /></span>
         <p class="es-text">上传一段录音，或从右上角「历史记录」打开已有记录</p>
       </div>
     </section>
@@ -269,13 +275,14 @@ onBeforeUnmount(stopPolling)
     <section v-else class="card">
       <p class="muted">面试审核：基于角色标注的对话做四维评分（与模拟面试报告同口径）。</p>
       <div class="field-label">送审对话（预填角色标注结果，可编辑）</div>
-      <textarea v-model="roleText" class="big-textarea" rows="8" :placeholder="roleMarked || '先在「角色审核」页生成标注，或直接粘贴对话文本'"></textarea>
+      <textarea v-model="roleText" class="input big-textarea" rows="8" :placeholder="roleMarked || '先在「角色审核」页生成标注，或直接粘贴对话文本'"></textarea>
       <button
         class="btn btn-primary"
         :disabled="interviewReviewing || (!current?.role_review && !roleText.trim())"
+        title="开始面试审核"
         @click="runInterviewReview"
       >
-        {{ interviewReviewing ? '审核中…' : '📝 开始面试审核' }}
+        <Icon name="pen" :size="14" /> {{ interviewReviewing ? '审核中…' : '开始面试审核' }}
       </button>
       <p v-if="current?.role_review" class="muted save-msg">将使用上方编辑后的文本送审（{{ roleText ? '已修改' : '与角色标注一致' }}）</p>
 
@@ -304,16 +311,7 @@ onBeforeUnmount(stopPolling)
 .audio-view {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-}
-.head-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.page-title {
-  margin: 0;
-  font-size: 18px;
+  gap: var(--sp-4);
 }
 .history-card {
   border-left: 3px solid var(--c-primary);
@@ -327,8 +325,8 @@ onBeforeUnmount(stopPolling)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 9px 4px;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-1);
   border-bottom: 1px solid var(--c-border);
 }
 .hist-list li:last-child {
@@ -337,32 +335,39 @@ onBeforeUnmount(stopPolling)
 .hist-info {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--sp-1);
 }
 .hist-name {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
 }
 .hist-meta {
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: var(--c-muted);
   display: flex;
-  gap: 8px;
+  gap: var(--sp-2);
   align-items: center;
 }
 .tabs {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 .tab {
-  border: 1.5px solid var(--c-border);
+  border: 1px solid var(--c-border);
   background: #fff;
-  border-radius: 10px;
-  padding: 8px 16px;
-  font-size: 13px;
+  border-radius: var(--radius-md);
+  padding: var(--sp-2) var(--sp-4);
+  font-size: var(--fs-sm);
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.tab:hover:not(.active) {
+  border-color: var(--c-primary-border);
+  color: var(--c-primary-dark);
 }
 .tab.active {
   background: var(--c-primary);
@@ -375,11 +380,11 @@ onBeforeUnmount(stopPolling)
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  border: 2px dashed var(--c-border);
-  border-radius: 14px;
-  padding: 28px 16px;
+  border: 1px dashed var(--c-border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--sp-6) var(--sp-4);
   cursor: pointer;
-  transition: border-color 0.15s ease;
+  transition: border-color var(--dur-fast) var(--ease);
 }
 .dropzone:hover {
   border-color: var(--c-primary);
@@ -391,118 +396,102 @@ onBeforeUnmount(stopPolling)
 .dropzone input {
   display: none;
 }
-.dz-icon {
-  font-size: 30px;
-}
 .dz-title {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--fs-md);
+  font-weight: 600;
   margin: 0;
 }
 .fast-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 10px;
-  font-size: 12.5px;
-  color: var(--c-text-2, #4b5563);
+  margin-top: var(--sp-3);
+  font-size: var(--fs-xs);
+  color: var(--c-text-2);
   cursor: pointer;
 }
 .fast-toggle input {
-  accent-color: var(--c-primary, #059669);
+  accent-color: var(--c-primary);
 }
 .dz-sub {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--c-muted);
   margin: 0;
 }
 .status-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 12px;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
 }
 .field-label {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--c-muted);
-  margin: 14px 0 4px;
+  margin: var(--sp-3) 0 var(--sp-1);
 }
+/* 文本域统一走全局 .input；这里只保留长文本的行高习惯 */
 .big-textarea {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1.5px solid var(--c-border);
-  border-radius: 10px;
-  padding: 12px;
-  font-size: 13px;
-  font-family: inherit;
   line-height: 1.8;
-  resize: vertical;
-}
-.big-textarea:focus {
-  outline: none;
-  border-color: #6ee7b7;
 }
 .save-msg {
-  margin-left: 10px;
-  font-size: 12px;
+  margin-left: var(--sp-3);
 }
 .role-result {
-  margin-top: 12px;
+  margin-top: var(--sp-3);
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 .role-line {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.7;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: var(--c-bg-soft, #f6f7f9);
+  padding: 6px var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: var(--c-bg-soft);
 }
 .role-line.interviewer {
-  background: rgb(16 185 129 / 8%);
+  background: var(--wash-primary);
 }
 .role-tag {
-  font-weight: 700;
+  font-weight: 600;
   color: var(--c-primary-dark);
-  margin-right: 8px;
+  margin-right: var(--sp-2);
 }
 .role-reason {
   color: var(--c-faint);
-  font-size: 11px;
-  margin-left: 8px;
+  font-size: var(--fs-xs);
+  margin-left: var(--sp-2);
 }
 .review-result {
-  margin-top: 14px;
+  margin-top: var(--sp-3);
   border-top: 1px dashed var(--c-border);
-  padding-top: 12px;
+  padding-top: var(--sp-3);
 }
 .score-row {
   display: flex;
-  gap: 18px;
+  gap: var(--sp-4);
   flex-wrap: wrap;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .score-row b {
   color: var(--c-primary-dark);
-  font-size: 16px;
+  font-size: var(--fs-lg);
 }
 .review-summary {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.8;
-  margin: 10px 0;
+  margin: var(--sp-3) 0;
 }
 .review-block {
-  font-size: 12.5px;
-  margin-bottom: 8px;
+  font-size: var(--fs-sm);
+  margin-bottom: var(--sp-2);
 }
 .review-block ul {
-  margin: 4px 0 0;
+  margin: var(--sp-1) 0 0;
   padding-left: 20px;
 }
 .muted {
-  color: var(--c-muted);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 .link-btn {
   border: 0;
@@ -510,21 +499,13 @@ onBeforeUnmount(stopPolling)
   color: var(--c-primary-dark);
   cursor: pointer;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   text-decoration: underline;
   padding: 0;
-}
-.btn-sm {
-  padding: 6px 12px;
-  font-size: 12px;
 }
 
 /* —— 响应式（v4.2.1）—— */
 @media (max-width: 768px) {
-  .head-row {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
   .tabs {
     flex-wrap: wrap;
   }
@@ -533,13 +514,13 @@ onBeforeUnmount(stopPolling)
     text-align: center;
   }
   .dropzone {
-    padding: 20px 12px;
+    padding: var(--sp-5) var(--sp-3);
   }
   .hist-list li {
     flex-wrap: wrap;
   }
   .score-row {
-    gap: 10px;
+    gap: var(--sp-3);
   }
 }
 

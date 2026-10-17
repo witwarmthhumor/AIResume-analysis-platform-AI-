@@ -7,6 +7,7 @@ import Icon from './Icon.vue'
 import { computed, onMounted, ref } from 'vue'
 
 import { get, post } from '../api.js'
+import { fmtDateTime } from '../utils.js'
 
 const props = defineProps({
   resume: { type: Object, required: true },
@@ -26,13 +27,13 @@ function exportPdf() {
   window.print()
 }
 
-// 报告字段 → 展示元信息。kind 决定渲染成列表/标签/编号
+// 报告字段 → 展示元信息。kind 决定渲染成列表/标签/编号；icon 为 Icon 组件 name
 const SECTION_META = {
-  strengths: { title: '优势', kind: 'list', icon: '💪' },
-  weaknesses: { title: '短板', kind: 'list', icon: '⚠️' },
-  keyword_gaps: { title: '关键词缺口', kind: 'chips', icon: '🔑' },
-  suggestions: { title: '改进建议', kind: 'list', icon: '🛠️' },
-  predicted_questions: { title: '预测面试题', kind: 'numbered', icon: '🎯' },
+  strengths: { title: '优势', kind: 'list', icon: 'trophy' },
+  weaknesses: { title: '短板', kind: 'list', icon: 'alert' },
+  keyword_gaps: { title: '关键词缺口', kind: 'chips', icon: 'list' },
+  suggestions: { title: '改进建议', kind: 'list', icon: 'pen' },
+  predicted_questions: { title: '预测面试题', kind: 'numbered', icon: 'flag' },
 }
 
 function fmtDuration(ms) {
@@ -133,11 +134,11 @@ onMounted(async () => {
       <span v-if="cached" class="badge ok">已有报告 · 未重复调用</span>
       <button
         v-if="state === 'done'"
-        class="btn btn-ghost no-print export-btn"
+        class="btn btn-ghost btn-sm no-print export-btn"
         title="用浏览器打印对话框导出为 PDF"
         @click="exportPdf"
       >
-        🖨 导出 PDF
+        <Icon name="printer" :size="14" /> 导出 PDF
       </button>
     </div>
 
@@ -145,10 +146,10 @@ onMounted(async () => {
       <p class="hint">
         分析将把简历内容发送给第三方大模型服务，生成岗位匹配、优劣势、关键词缺口、改进建议与预测面试题。
       </p>
-      <button class="btn btn-primary" @click="analyze">✨ 生成 AI 分析</button>
+      <button class="btn btn-primary" @click="analyze"><Icon name="spark" :size="14" /> 生成 AI 分析</button>
     </template>
 
-    <div v-else-if="state === 'loading'" class="loading">
+    <div v-else-if="state === 'loading'" class="loading-row">
       <span class="spinner" aria-hidden="true"></span>
       <p class="loading-text">AI 分析中，通常需要 10~30 秒…</p>
     </div>
@@ -163,11 +164,11 @@ onMounted(async () => {
       <div v-if="otherVersions.length" class="compare-bar">
         <label class="compare-pick">
           <span>版本对比</span>
-          <select v-model="compareId">
+          <select v-model="compareId" class="input">
             <option value="">关闭</option>
             <option v-for="item in otherVersions" :key="item.id" :value="String(item.id)">
               v{{ item.prompt_version }} · {{ item.model_name }} ·
-              {{ new Date(item.created_at).toLocaleString() }}
+              {{ fmtDateTime(item.created_at) }}
             </option>
           </select>
         </label>
@@ -195,7 +196,7 @@ onMounted(async () => {
         </div>
 
         <template v-for="(meta, key) in SECTION_META" :key="key">
-          <h3 class="sec-title">{{ meta.icon }} {{ meta.title }}</h3>
+          <h3 class="sec-title"><Icon :name="meta.icon" :size="14" /> {{ meta.title }}</h3>
           <div class="diff-cols">
             <div class="diff-col">
               <ul class="list">
@@ -233,7 +234,7 @@ onMounted(async () => {
         <p class="para">{{ analysis.report.position_match || '暂无' }}</p>
 
         <template v-for="(meta, key) in SECTION_META" :key="key">
-          <h3 class="sec-title">{{ meta.icon }} {{ meta.title }}</h3>
+          <h3 class="sec-title"><Icon :name="meta.icon" :size="14" /> {{ meta.title }}</h3>
           <ul v-if="meta.kind === 'list'" class="list">
             <li v-for="(item, i) in analysis.report[key] || []" :key="i">{{ item }}</li>
           </ul>
@@ -255,7 +256,7 @@ onMounted(async () => {
         <span class="pill">输入 {{ analysis.tokens_prompt ?? '-' }} tok</span>
         <span class="pill">输出 {{ analysis.tokens_completion ?? '-' }} tok</span>
         <span class="pill">耗时 {{ fmtDuration(analysis.duration_ms) }}</span>
-        <span class="pill">{{ new Date(analysis.created_at).toLocaleString() }}</span>
+        <span class="pill">{{ fmtDateTime(analysis.created_at) }}</span>
       </div>
     </template>
   </section>
@@ -266,85 +267,67 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 4px;
+  margin-bottom: var(--sp-1);
 }
 /* 导出按钮靠右：head 是 space-between，徽标与按钮之间用 auto 外边距把它顶到最右 */
 .export-btn {
   margin-left: auto;
-  padding: 4px 10px;
-  font-size: 12px;
 }
 .hint {
-  margin: 0 0 14px;
+  margin: 0 0 var(--sp-3);
   color: var(--c-muted);
-  font-size: 13px;
-  line-height: 1.7;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
 }
-.loading {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 0;
-}
-.spinner {
-  width: 18px;
-  height: 18px;
-  border: 2px solid #d1d5db;
-  border-top-color: var(--c-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  flex-shrink: 0;
-}
+/* 加载态壳与转圈样式由全局 .loading-row + .spinner 提供 */
 .loading-text {
   margin: 0;
-  color: var(--c-muted);
-  font-size: 13px;
 }
 .err {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--sp-3);
   flex-wrap: wrap;
 }
 .target {
-  margin: 4px 0 10px;
-  font-size: 14.5px;
+  margin: var(--sp-1) 0 var(--sp-3);
+  font-size: var(--fs-md);
   color: var(--c-text);
 }
 .arrow {
-  margin: 0 6px;
+  margin: 0 var(--sp-2);
   color: var(--c-muted);
 }
 .para {
-  margin: 0 0 4px;
+  margin: 0 0 var(--sp-1);
   color: var(--c-text-2);
-  font-size: 13.5px;
-  line-height: 1.8;
+  font-size: var(--fs-md);
+  line-height: 1.6;
 }
 .list,
 .numbered {
   margin: 0;
-  padding-left: 20px;
+  padding-left: var(--sp-5);
   color: var(--c-text-2);
-  font-size: 13.5px;
-  line-height: 1.9;
+  font-size: var(--fs-md);
+  line-height: 1.6;
 }
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--sp-2);
 }
 .none {
   margin: 0;
   color: var(--c-faint);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 16px;
-  padding-top: 12px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
   border-top: 1px dashed var(--c-border);
 }
 
@@ -352,36 +335,31 @@ onMounted(async () => {
 .compare-bar {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--sp-3);
   flex-wrap: wrap;
-  margin: 2px 0 14px;
-  padding: 10px 12px;
+  margin: var(--sp-1) 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--c-border);
-  border-radius: 10px;
-  background: #f8fafc;
+  border-radius: var(--radius-md);
+  background: var(--c-bg-soft);
 }
 .compare-pick {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
   color: var(--c-muted);
 }
 .compare-pick select {
+  width: auto;
   max-width: 320px;
-  padding: 6px 8px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 12.5px;
-  color: var(--c-text-2);
-  background: #fff;
 }
 .legend {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-2);
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--c-muted);
 }
 .dot {
@@ -396,38 +374,37 @@ onMounted(async () => {
 .diff-cols {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-bottom: 6px;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-1);
 }
 .diff-col {
   min-width: 0;
-  padding: 10px 12px;
+  padding: var(--sp-3);
   border: 1px solid var(--c-border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: #fff;
 }
 .diff-head {
-  margin: 0 0 8px;
-  font-size: 12px;
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-xs);
   color: var(--c-muted);
-  letter-spacing: 0.2px;
 }
 .diff-col .list {
-  padding-left: 18px;
+  padding-left: var(--sp-4);
 }
 .diff-col .list > li.only {
-  margin-left: -8px;
-  padding-left: 8px;
+  margin-left: calc(var(--sp-2) * -1);
+  padding-left: var(--sp-2);
   border-left: 3px solid var(--c-primary);
-  background: rgba(16, 185, 129, 0.07);
-  border-radius: 3px;
+  background: var(--wash-primary);
+  border-radius: var(--radius-sm);
   list-style: none;
 }
 
 @media (max-width: 900px) {
   .diff-cols {
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: var(--sp-3);
   }
 }
 </style>

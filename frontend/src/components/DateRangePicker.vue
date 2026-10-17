@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import Icon from './Icon.vue'
 
 const props = defineProps({
   modelValue: {
@@ -145,18 +146,18 @@ const displayText = computed(() => {
 
 <template>
   <div ref="wrapperRef" class="drp-wrapper">
-    <div class="drp-input" :class="{ active: showPicker }" @click="toggle">
-      <span class="drp-calendar">📅</span>
+    <div class="drp-input input" :class="{ active: showPicker }" @click="toggle">
+      <span class="drp-calendar"><Icon name="calendar" :size="14" /></span>
       <span class="drp-text" :class="{ placeholder: !modelValue?.start }">{{ displayText }}</span>
-      <span class="drp-arrow">▾</span>
+      <span class="drp-arrow"><Icon name="chevron-down" :size="12" /></span>
     </div>
 
-    <div v-if="showPicker" class="drp-popup" @click.stop>
+    <div v-if="showPicker" class="drp-popup popup" @click.stop>
       <!-- 月份切换 -->
       <div class="drp-header">
-        <button type="button" class="month-btn" @click="prevMonth">‹</button>
+        <button type="button" class="month-btn" aria-label="上一月" title="上一月" @click="prevMonth"><Icon name="arrow-left" :size="14" /></button>
         <span class="drp-ym">{{ viewYear }}年{{ viewMonth + 1 }}月</span>
-        <button type="button" class="month-btn" @click="nextMonth">›</button>
+        <button type="button" class="month-btn" aria-label="下一月" title="下一月" @click="nextMonth"><Icon name="arrow-right" :size="14" /></button>
       </div>
 
       <!-- 星期表头 -->
@@ -178,18 +179,18 @@ const displayText = computed(() => {
       <div class="drp-times">
         <label class="time-field">
           <span>开始</span>
-          <input v-model="tempStartTime" type="time" />
+          <input v-model="tempStartTime" class="input" type="time" />
         </label>
         <label class="time-field">
           <span>结束</span>
-          <input v-model="tempEndTime" type="time" />
+          <input v-model="tempEndTime" class="input" type="time" />
         </label>
       </div>
 
       <!-- 操作按钮 -->
       <div class="drp-actions">
-        <button type="button" class="act-cancel" @click="cancel">取消</button>
-        <button type="button" class="act-confirm" @click="confirm">确定</button>
+        <button type="button" class="btn btn-ghost" @click="cancel">取消</button>
+        <button type="button" class="btn btn-primary" @click="confirm">确定</button>
       </div>
     </div>
   </div>
@@ -200,52 +201,48 @@ const displayText = computed(() => {
   position: relative;
   display: inline-block;
 }
+/* 边框/字号/聚焦环由全局 .input 提供，这里只留布局与激活态 */
 .drp-input {
+  width: auto;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-2);
   min-width: 240px;
-  padding: 6px 10px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  background: #fff;
-  font-size: 12.5px;
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .drp-input.active,
 .drp-input:hover {
-  border-color: #10b981;
-  box-shadow: 0 0 0 3px rgb(16 185 129 / 10%);
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 3px var(--wash-primary);
 }
 .drp-calendar {
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--c-muted);
 }
 .drp-text {
   flex: 1;
-  color: #1a1b1c;
+  color: var(--c-text);
   white-space: nowrap;
 }
 .drp-text.placeholder {
-  color: #9ca3af;
+  color: var(--c-faint);
 }
 .drp-arrow {
-  color: #9ca3af;
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--c-faint);
 }
 
-/* 浮层 */
+/* 浮层（圆角/阴影/边框由全局 .popup 提供） */
 .drp-popup {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + var(--sp-2));
   left: 0;
-  z-index: 100;
+  z-index: var(--z-pop);
   width: 280px;
-  background: #fff;
-  border-radius: 14px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.18);
-  padding: 14px;
-  animation: pop-in 0.16s ease both;
+  padding: var(--sp-3);
+  animation: pop-in var(--dur-fast) var(--ease) both;
 }
 @keyframes pop-in {
   from { opacity: 0; transform: translateY(-6px); }
@@ -256,129 +253,97 @@ const displayText = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: var(--sp-3);
 }
 .drp-ym {
-  font-size: 13.5px;
-  font-weight: 700;
-  color: #1a1b1c;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--c-text);
 }
 .month-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   height: 28px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
   background: #fff;
-  color: #6b7280;
-  font-size: 16px;
-  line-height: 1;
+  color: var(--c-muted);
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
 }
 .month-btn:hover {
-  background: #f9fafb;
-  border-color: #10b981;
-  color: #059669;
+  background: var(--c-bg-soft);
+  border-color: var(--c-primary-border);
+  color: var(--c-primary);
 }
 
 .drp-weekdays,
 .drp-days {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
+  gap: var(--sp-1);
 }
 .drp-weekdays span {
   text-align: center;
-  font-size: 11px;
-  color: #9ca3af;
-  padding: 4px 0;
+  font-size: var(--fs-xs);
+  color: var(--c-faint);
+  padding: var(--sp-1) 0;
 }
 .drp-days {
-  margin-bottom: 10px;
+  margin-bottom: var(--sp-3);
 }
 .day {
   text-align: center;
-  font-size: 12px;
-  padding: 6px 0;
+  font-size: var(--fs-xs);
+  padding: var(--sp-1) 0;
   cursor: pointer;
-  border-radius: 6px;
-  color: #374151;
-  transition: background 0.1s ease;
+  border-radius: var(--radius-sm);
+  color: var(--c-text-2);
+  transition: background var(--dur-fast) var(--ease);
 }
 .day:hover {
-  background: rgb(16 185 129 / 10%);
+  background: var(--wash-primary);
 }
 .day.other-month {
-  color: #d1d5db;
+  color: var(--c-border-strong);
 }
 .day.in-range {
-  background: rgb(16 185 129 / 12%);
+  background: var(--wash-primary);
   border-radius: 0;
 }
 .day.selected {
-  background: #10b981;
+  background: var(--c-primary);
   color: #fff;
-  font-weight: 700;
-  border-radius: 50%;
-  box-shadow: 0 2px 6px rgb(16 185 129 / 35%);
+  font-weight: 600;
+  border-radius: var(--radius-full);
 }
 
 .drp-times {
   display: flex;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
 }
 .time-field {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: #6b7280;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--c-muted);
 }
-.time-field input {
+.time-field .input {
   flex: 1;
   min-width: 0;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 4px 6px;
-  font-size: 12px;
-  font-family: inherit;
-  outline: none;
-}
-.time-field input:focus {
-  border-color: #10b981;
 }
 
 .drp-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-}
-.act-cancel,
-.act-confirm {
-  padding: 6px 16px;
-  border-radius: 8px;
-  font-size: 12.5px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.12s ease;
-}
-.act-cancel {
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #6b7280;
-}
-.act-cancel:hover {
-  background: #f9fafb;
-}
-.act-confirm {
-  border: 1px solid #10b981;
-  background: #10b981;
-  color: #fff;
-  font-weight: 600;
-}
-.act-confirm:hover {
-  background: #059669;
+  gap: var(--sp-2);
 }
 </style>

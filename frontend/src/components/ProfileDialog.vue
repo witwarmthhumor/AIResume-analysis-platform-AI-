@@ -76,8 +76,10 @@ async function changePassword() {
 
 <template>
   <div class="modal-overlay" @click.self="emit('close')">
-    <div class="profile-box">
-      <button class="modal-close" aria-label="关闭" @click="emit('close')">✕</button>
+    <div class="popup profile-box">
+      <button class="modal-close" aria-label="关闭" title="关闭" @click="emit('close')">
+        <Icon name="x" :size="14" />
+      </button>
       <h2 class="box-title">个人信息</h2>
 
       <!-- 头像 -->
@@ -104,20 +106,21 @@ async function changePassword() {
 
       <!-- 字段 -->
       <div class="field-label">用户名（不可修改）</div>
-      <input :value="props.user.username" readonly class="readonly" />
+      <input :value="props.user.username" readonly class="input readonly" />
       <div class="field-label">身份证号</div>
-      <input v-model="form.id_card" placeholder="15 或 18 位；留空不填" />
+      <input v-model="form.id_card" class="input" placeholder="15 或 18 位；留空不填" />
       <div class="field-label">手机号{{ canSetPhone ? '（仅可设置一次）' : '（不可修改）' }}</div>
       <input
         v-model="form.phone"
+        class="input"
         :readonly="!canSetPhone"
         :class="{ readonly: !canSetPhone }"
         placeholder="11 位手机号"
       />
       <div v-if="props.user.email" class="field-label">邮箱（不可修改）</div>
-      <input v-if="props.user.email" :value="props.user.email" readonly class="readonly" />
+      <input v-if="props.user.email" :value="props.user.email" readonly class="input readonly" />
       <div class="field-label">注册时间</div>
-      <input :value="fmtDateTime(props.user.created_at)" readonly class="readonly" />
+      <input :value="fmtDateTime(props.user.created_at)" readonly class="input readonly" />
 
       <button class="btn btn-primary save-btn" :disabled="saving" @click="save">
         {{ saving ? '保存中…' : '保存修改' }}
@@ -128,9 +131,9 @@ async function changePassword() {
       <div class="pwd-divider"></div>
       <h3 class="pwd-title">修改密码</h3>
       <form class="pwd-form" @submit.prevent="changePassword">
-        <input v-model="pwd.old" type="password" placeholder="原密码" autocomplete="current-password" />
-        <input v-model="pwd.neu" type="password" placeholder="新密码（至少 8 位，含字母数字）" autocomplete="new-password" />
-        <input v-model="pwd.confirm" type="password" placeholder="确认新密码" autocomplete="new-password" />
+        <input v-model="pwd.old" class="input" type="password" placeholder="原密码" autocomplete="current-password" />
+        <input v-model="pwd.neu" class="input" type="password" placeholder="新密码（至少 8 位，含字母数字）" autocomplete="new-password" />
+        <input v-model="pwd.confirm" class="input" type="password" placeholder="确认新密码" autocomplete="new-password" />
         <button
           class="btn btn-primary save-btn"
           type="submit"
@@ -152,43 +155,50 @@ async function changePassword() {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 60;
-  padding: 20px;
-  animation: modal-fade 0.2s ease both;
+  z-index: var(--z-modal);
+  padding: var(--sp-5);
+  animation: modal-fade var(--dur) var(--ease) both;
 }
+/* 弹层的圆角/阴影/边框走全局 .popup 壳 */
 .profile-box {
   position: relative;
   width: 100%;
   max-width: 440px;
   max-height: 88vh;
   overflow-y: auto;
-  background: #fff;
-  border-radius: 16px;
-  padding: 22px 24px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.2);
-  animation: modal-pop 0.22s ease both;
+  padding: var(--sp-6);
+  animation: modal-pop var(--dur) var(--ease) both;
 }
 .box-title {
-  margin: 0 0 6px;
-  font-size: 16px;
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-lg);
 }
 .modal-close {
   position: absolute;
-  top: 14px;
-  right: 14px;
+  top: var(--sp-3);
+  right: var(--sp-3);
   width: 30px;
   height: 30px;
   border-radius: 50%;
   border: 0;
-  background: var(--c-bg-soft, #f3f4f6);
-  color: var(--c-muted, #6b7280);
-  font-size: 13px;
+  background: var(--c-bg-soft);
+  color: var(--c-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.modal-close:hover {
+  background: var(--c-hover);
+  color: var(--c-text);
 }
 .field-label {
-  font-size: 12px;
-  color: var(--c-muted, #6b7280);
-  margin: 12px 0 4px;
+  font-size: var(--fs-xs);
+  color: var(--c-muted);
+  margin: var(--sp-3) 0 var(--sp-1);
 }
 .avatar-big {
   display: inline-flex;
@@ -198,66 +208,53 @@ async function changePassword() {
   height: 52px;
   border-radius: 50%;
   background: var(--c-primary);
-  font-size: 26px;
-  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.3);
+  font-size: 26px; /* emoji 头像的展示尺寸（用户自选表情，保留） */
 }
 .avatar-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 .avatar-pick {
   width: 42px;
   height: 42px;
   border-radius: 50%;
-  border: 2.5px solid transparent;
+  border: 2px solid transparent;
   font-size: 20px;
   cursor: pointer;
-  transition: transform 0.14s ease, border-color 0.14s ease;
+  transition:
+    transform var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
 }
 .avatar-pick:hover {
   transform: scale(1.1);
 }
 .avatar-pick.picked {
-  border-color: #0f172a;
-  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.12);
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 3px var(--wash-primary);
 }
-input {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1.5px solid var(--c-border, #e5e7eb);
-  border-radius: 10px;
-  padding: 9px 12px;
-  font-size: 13px;
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-input:focus {
-  border-color: #6ee7b7;
-  box-shadow: 0 0 0 3px rgb(16 185 129 / 12%);
-}
+/* 输入控件统一走全局 .input；这里只补只读态的底色区分 */
 input.readonly {
-  background: var(--c-bg-soft, #f3f4f6);
-  color: var(--c-muted, #6b7280);
+  background: var(--c-bg-soft);
+  color: var(--c-muted);
 }
 .save-btn {
-  margin-top: 14px;
+  margin-top: var(--sp-3);
   width: 100%;
   padding: 10px;
 }
 .pwd-divider {
-  border-top: 1px dashed var(--c-border, #e5e7eb);
-  margin: 18px 0 10px;
+  border-top: 1px dashed var(--c-border);
+  margin: var(--sp-4) 0 var(--sp-3);
 }
 .pwd-title {
-  margin: 0 0 8px;
-  font-size: 14px;
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-md);
 }
 .pwd-form {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--sp-3);
 }
 @keyframes modal-fade {
   from { opacity: 0; }
@@ -271,7 +268,7 @@ input.readonly {
 /* —— 响应式（v4.2.1）—— */
 @media (max-width: 480px) {
   .profile-box {
-    padding: 18px 14px;
+    padding: var(--sp-4) var(--sp-3);
   }
   .avatar-pick {
     width: 38px;

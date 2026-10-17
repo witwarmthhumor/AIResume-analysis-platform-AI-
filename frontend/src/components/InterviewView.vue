@@ -5,6 +5,7 @@
    已结束场次直接打开复盘报告。pendingResumeId 来自 ResumeView 的「去模拟面试」。 */
 import { onMounted, ref } from 'vue'
 import { get } from '../api.js'
+import { fmtDateTime } from '../utils.js'
 import InterviewChat from './InterviewChat.vue'
 import Icon from './Icon.vue'
 import InterviewReport from './InterviewReport.vue'
@@ -124,11 +125,15 @@ onMounted(async () => {
 </script>
 
 <template>
-  <h2 class="page-title">模拟面试</h2>
+  <div class="page-head">
+    <div><h2>模拟面试</h2></div>
+  </div>
 
   <!-- 复盘报告（全视图展示） -->
   <template v-if="reportView">
-    <button class="btn btn-ghost back-btn" @click="reportView = null">← 返回面试列表</button>
+    <button class="btn btn-ghost back-btn mt-2" title="返回面试列表" @click="reportView = null">
+      <Icon name="arrow-left" :size="14" /> 返回面试列表
+    </button>
     <InterviewReport :key="reportView.sessionId" :report="reportView.report" :session-id="reportView.sessionId" />
   </template>
 
@@ -149,16 +154,17 @@ onMounted(async () => {
         <div class="continue-text">
           <b>{{ lastSession.status === 'in_progress' ? '上次面试还没结束' : '最近一场面试' }}</b>
           <span class="continue-meta">
-            {{ lastSession.turn_count }} 轮 · {{ new Date(lastSession.messages.at(-1)?.created_at || Date.now()).toLocaleString() }}
+            {{ fmtDateTime(lastSession.messages.at(-1)?.created_at || Date.now()) }}
           </span>
         </div>
       </div>
       <button
         v-if="lastSession.status === 'in_progress'"
         class="btn btn-primary"
+        title="继续上次会话"
         @click="continueLast"
       >
-继续上次会话 →
+继续上次会话 <Icon name="arrow-right" :size="14" />
 </button>
       <button v-else class="btn btn-ghost" @click="openReport(lastSession.id)">查看复盘报告</button>
     </section>
@@ -171,7 +177,7 @@ onMounted(async () => {
       <div class="section-head"><h3>开一场新面试</h3><span class="muted">选择简历，可选加载题库</span></div>
       <div v-if="banksState === 'ready'" class="bank-select-row">
         <span class="muted">面试题库</span>
-        <select v-model="selectedBankId" class="bank-select">
+        <select v-model="selectedBankId" class="input bank-select">
           <option :value="null">不使用题库（AI 自由出题）</option>
           <option v-for="b in banks" :key="b.id" :value="b.id">{{ b.title }}（{{ b.question_count }} 题）</option>
         </select>
@@ -179,7 +185,9 @@ onMounted(async () => {
       <p v-if="resumesState === 'error'" class="msg error">
         简历列表加载失败 <button class="link-btn" @click="loadResumes">重试</button>
       </p>
-      <p v-else-if="resumesState === 'loading'" class="msg muted">加载中…</p>
+      <div v-else-if="resumesState === 'loading'" class="loading-row">
+        <span class="spinner"></span>加载中…
+      </div>
       <div v-else-if="!resumes.length" class="empty-state">
         <span class="es-icon"><Icon name="file" :size="24" /></span>
         <p class="es-text">还没有解析成功的简历——先上传一份，AI 才能出题与提问</p>
@@ -196,10 +204,12 @@ onMounted(async () => {
     <!-- ③ 面试历史（三态） -->
     <section class="card">
       <div class="section-head"><h3>面试历史</h3><span v-if="histState === 'ready'" class="muted">最近 {{ history.length }} 场</span></div>
-      <p v-if="histState === 'loading'" class="msg muted">加载中…</p>
-      <p v-else-if="histState === 'error'" class="msg error">
+      <div v-if="histState === 'loading'" class="loading-row">
+        <span class="spinner"></span>加载中…
+      </div>
+      <div v-else-if="histState === 'error'" class="msg error">
         历史记录加载失败 <button class="link-btn" @click="loadHistory">重试</button>
-      </p>
+      </div>
       <div v-else-if="histState === 'empty'" class="empty-state">
         <span class="es-icon"><Icon name="clock" :size="24" /></span>
         <p class="es-text">还没有已完成的面试——完成一场后会在这里看到四维评分复盘</p>
@@ -207,7 +217,7 @@ onMounted(async () => {
       <ul v-else class="history-list">
         <li v-for="h in history" :key="h.id">
           <div class="hist-info">
-            <span class="hist-time">{{ new Date(h.created_at).toLocaleString() }}</span>
+            <span class="hist-time">{{ fmtDateTime(h.created_at) }}</span>
             <span class="muted">{{ h.turn_count }} 轮 · 综合 {{ h.scores?.overall ?? '-' }} 分</span>
           </div>
           <button class="btn btn-ghost btn-sm" @click="openReport(h.id)">查看报告</button>
@@ -218,67 +228,53 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.page-title {
-  margin: 0;
-  font-size: 20px;
-  letter-spacing: 0.3px;
-}
 .back-btn {
   align-self: flex-start;
 }
 .continue-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  gap: 12px;
+  gap: var(--sp-3);
   border-left: 3px solid var(--c-primary);
 }
 .continue-main {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-3);
 }
 .live-dot {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #cbd5e1;
+  background: var(--c-border-strong);
   flex-shrink: 0;
 }
 .live-dot.on {
-  background: #10b981;
-  box-shadow: 0 0 0 4px rgb(16 185 129 / 18%);
+  background: var(--c-primary);
+  box-shadow: 0 0 0 4px var(--wash-primary);
 }
 .continue-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
 }
 .continue-meta {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--c-muted);
 }
 .section-head {
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
 }
 .section-head h3 {
   margin: 0;
-  font-size: 14.5px;
+  font-size: var(--fs-md);
 }
 .muted {
-  color: var(--c-muted);
-  font-size: 12px;
-}
-.empty-box {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
+  font-size: var(--fs-xs);
 }
 .resume-pick,
 .history-list {
@@ -292,9 +288,8 @@ onMounted(async () => {
 .history-list li {
   display: flex;
   align-items: center;
-  gap: 10px;
-  gap: 12px;
-  padding: 10px 4px;
+  gap: var(--sp-3);
+  padding: 12px 4px;
   border-bottom: 1px solid var(--c-border);
 }
 .resume-pick li:last-child,
@@ -302,24 +297,24 @@ onMounted(async () => {
   border-bottom: 0;
 }
 .pick-name {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 行内按钮不被长文件名挤压（原局部 .btn-sm 的 flex-shrink 收编为此规则） */
+.resume-pick .btn,
+.history-list .btn {
+  flex-shrink: 0;
 }
 .hist-info {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 12.5px;
+  font-size: var(--fs-xs);
 }
 .hist-time {
   font-weight: 600;
-}
-.btn-sm {
-  padding: 6px 12px;
-  font-size: 12px;
-  flex-shrink: 0;
 }
 .link-btn {
   border: 0;
@@ -327,24 +322,19 @@ onMounted(async () => {
   color: var(--c-primary-dark);
   cursor: pointer;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   text-decoration: underline;
   padding: 0;
 }
 .bank-select-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
 }
 .bank-select {
+  width: auto;
   min-width: 280px;
-  border: 1.5px solid var(--c-border);
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-size: 12.5px;
-  font-family: inherit;
-  background: #fff;
 }
 
 /* —— 响应式（v4.2.1）—— */

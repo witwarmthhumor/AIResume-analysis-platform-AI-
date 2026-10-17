@@ -10,18 +10,20 @@ const props = defineProps({
 })
 const emit = defineEmits(['select', 'deleted'])
 const deletingId = ref(null)
+const delError = ref('') // 删除失败提示（原 alert 的展示层替代，显示在卡片顶部）
 
-import { RESUME_STATUS as STATUS } from '../utils.js' // 与 HomeView 同一份映射
+import { RESUME_STATUS as STATUS, fmtDateTime } from '../utils.js' // 与 HomeView 同一份映射
 
 async function remove(id, e) {
   e.stopPropagation()
   if (!confirm('确定删除这份简历吗？删除后不可恢复（仅从列表移除，不删文件）。')) return
   deletingId.value = id
+  delError.value = ''
   try {
     await del(`/api/resumes/${id}`)
     emit('deleted', id)
   } catch {
-    alert('删除失败，请稍后重试')
+    delError.value = '删除失败，请稍后重试'
   } finally {
     deletingId.value = null
   }
@@ -31,8 +33,9 @@ async function remove(id, e) {
 <template>
   <section class="card">
     <h2>解析历史</h2>
+    <p v-if="delError" class="msg error">{{ delError }}</p>
     <div v-if="!resumes.length" class="empty-state">
-      <span class="es-icon"><Icon name="book" :size="24" /></span>
+      <span class="es-icon"><Icon name="file" :size="24" /></span>
       <p class="es-text">还没有上传记录——上传一份简历后，这里会显示解析历史</p>
     </div>
     <ul v-else class="rlist">
@@ -47,9 +50,15 @@ async function remove(id, e) {
         <span class="badge" :class="STATUS[r.parse_status]?.cls">
           {{ STATUS[r.parse_status]?.label ?? r.parse_status }}
         </span>
-        <span class="time">{{ new Date(r.created_at).toLocaleString() }}</span>
-        <button class="del-btn" :disabled="deletingId === r.id" title="删除" @click="remove(r.id, $event)">
-          {{ deletingId === r.id ? '…' : '🗑' }}
+        <span class="time">{{ fmtDateTime(r.created_at) }}</span>
+        <button
+          class="icon-btn danger"
+          :disabled="deletingId === r.id"
+          aria-label="删除"
+          title="删除"
+          @click="remove(r.id, $event)"
+        >
+          <Icon name="trash" :size="14" />
         </button>
       </li>
     </ul>
@@ -68,17 +77,18 @@ async function remove(id, e) {
 .ritem {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 11px 14px;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
   border-radius: var(--radius-md);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
 }
 .ritem:hover {
-  background: #f6fdf9;
-  border-color: #d1fae5;
-  transform: translateX(3px);
+  background: var(--c-hover);
+  border-color: var(--c-primary-border);
 }
 .ritem.active {
   background: var(--c-primary-light);
@@ -92,61 +102,38 @@ async function remove(id, e) {
 }
 .dot.ok {
   background: var(--c-primary);
-  box-shadow: 0 0 0 3px rgb(16 185 129 / 15%);
 }
 .dot.warn {
-  background: #f59e0b;
-  box-shadow: 0 0 0 3px rgb(245 158 11 / 15%);
+  background: var(--c-warn);
 }
 .dot.bad {
-  background: #ef4444;
-  box-shadow: 0 0 0 3px rgb(239 68 68 / 15%);
+  background: var(--c-bad);
 }
 .name {
   flex: 1;
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .time {
   color: var(--c-faint);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
-.del-btn {
-  border: 0;
-  background: transparent;
-  font-size: 14px;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-  padding: 4px 6px;
-  border-radius: 6px;
-}
-.ritem:hover .del-btn,
-.del-btn:disabled {
-  opacity: 1;
-}
-.del-btn:hover {
-  background: #fee2e2;
+/* 删除按钮统一走全局 .icon-btn.danger（常显，hover 变红）；这里只补删除进行中的禁用态 */
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-/* —— 响应式 + 触屏可用性（v4.2.1）—— */
-@media (hover: none) {
-  .del-btn {
-    opacity: 0.6;
-  }
-}
+/* —— 响应式（v4.2.1）—— */
 @media (max-width: 640px) {
   .ritem {
     flex-wrap: wrap;
   }
   .time {
     display: none;
-  }
-  .del-btn {
-    opacity: 0.6;
   }
 }
 

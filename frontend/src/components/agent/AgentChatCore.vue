@@ -6,6 +6,7 @@
 import { nextTick, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
 import { get, parseSseBlock, post, streamChat } from '../../api.js'
 import { loadToolLabels, toolLabel } from '../../toolLabels.js'
+import Icon from '../Icon.vue'
 
 const props = defineProps({
   sessionId: { type: [Number, null], default: null },
@@ -18,7 +19,7 @@ const input = ref('')
 const streaming = ref(false)
 const error = ref('')
 const chatBox = ref(null)
-let currentSessionId = props.sessionId
+let currentSessionId = null // 由下方 immediate watch 完成初始同步与首次加载
 let activeAbort = null // 当前流的 abort 句柄：切会话/组件卸载时中止后台空转的流
 let loadSeq = 0 // 历史消息加载序号守卫：快速连点会话时"先发慢回"的旧响应不得覆盖新状态
 
@@ -57,6 +58,9 @@ async function loadMessages(sid) {
 watch(
   () => props.sessionId,
   (sid) => {
+    // 回声守卫：ensureSession 刚创建的会话会经父组件把 sessionId 回传到这里，
+    // 此时本地已 push 用户消息、服务端尚未持久化——重拉历史会把用户气泡顶掉
+    if (sid === currentSessionId) return
     currentSessionId = sid
     loadMessages(sid)
   },
@@ -170,7 +174,7 @@ const suggestions = ['synchronized 和 ReentrantLock 区别？', '什么是 RAG�
   <div class="agent-core" :class="{ compact }">
     <div ref="chatBox" class="ac-box">
       <div v-if="!messages.length" class="ac-welcome">
-        <div class="ac-hi">🤖 你好，我是技术面试 AI 客服</div>
+        <div class="ac-hi"><Icon name="bot" :size="18" />你好，我是技术面试 AI 客服</div>
         <div class="ac-sub">我会自主检索平台知识库回答，也能看到我的检索过程</div>
         <div class="ac-suggest">
           <button v-for="s in suggestions" :key="s" class="ac-chip" @click="input = s; send()">{{ s }}</button>
@@ -178,14 +182,21 @@ const suggestions = ['synchronized 和 ReentrantLock 区别？', '什么是 RAG�
       </div>
 
       <div v-for="m in messages" :key="m.id" class="ac-line" :class="m.role">
-        <span class="ac-avatar" :class="m.role">{{ m.role === 'user' ? '我' : m.role === 'error' ? '⚠️' : '🤖' }}</span>
-        <div class="ac-bubble" :class="m.role">
+        <span class="ac-avatar" :class="m.role">
+          <template v-if="m.role === 'user'">我</template>
+          <Icon v-else-if="m.role === 'error'" name="alert" :size="16" />
+          <Icon v-else name="bot" :size="16" />
+        </span>
+        <div class="bubble ac-bubble" :class="{ 'bubble-ai': m.role === 'assistant', 'bubble-me': m.role === 'user', error: m.role === 'error' }">
           <!-- 工具调用过程（用户强调：过程可见） -->
           <div v-if="m.toolSteps && m.toolSteps.length" class="ac-tools">
             <div v-for="(step, i) in m.toolSteps" :key="i" class="ac-tool">
               <details open>
                 <summary>
-                  <span class="ac-tool-badge">{{ step.running ? '⏳' : '🔧' }}</span>
+                  <span class="ac-tool-badge">
+                    <span v-if="step.running" class="spinner ac-spin"></span>
+                    <Icon v-else name="check" :size="12" class="ac-tool-check" />
+                  </span>
                   调用 {{ toolLabel(step.tool) }}（{{ step.input }}）
                 </summary>
                 <div v-if="step.preview" class="ac-tool-prev">{{ step.preview }}</div>
@@ -199,25 +210,33 @@ const suggestions = ['synchronized 和 ReentrantLock 区别？', '什么是 RAG�
 
           <div v-if="m.citations && m.citations.length" class="ac-cites">
             <details v-for="(c, i) in m.citations" :key="i">
-              <summary>📎 {{ c.title }} · 相似度 {{ (c.similarity * 100).toFixed(0) }}%</summary>
+              <summary><Icon name="paperclip" :size="12" /> {{ c.title }} · 相似度 {{ (c.similarity * 100).toFixed(0) }}%</summary>
             </details>
           </div>
         </div>
       </div>
     </div>
 
-    <p v-if="error" class="ac-error">{{ error }}</p>
+    <p v-if="error" class="msg error ac-error">{{ error }}</p>
 
     <div class="ac-input-row">
       <textarea
         v-model="input"
+        class="input"
         :disabled="streaming"
         :rows="compact ? 1 : 2"
         placeholder="请输入你的问题…（Enter 发送，Shift+Enter 换行）"
         @keydown.enter.exact.prevent="send"
       ></textarea>
-      <button class="ac-send" :disabled="streaming || !input.trim()" @click="send">
-        {{ streaming ? '…' : '➤' }}
+      <button
+        class="ac-send"
+        title="发送"
+        aria-label="发送"
+        :disabled="streaming || !input.trim()"
+        @click="send"
+      >
+        <span v-if="streaming" class="spinner"></span>
+        <Icon v-else name="send" :size="16" />
       </button>
     </div>
   </div>
@@ -229,56 +248,59 @@ const suggestions = ['synchronized 和 ReentrantLock 区别？', '什么是 RAG�
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 .ac-box {
   flex: 1;
   overflow-y: auto;
-  background: var(--c-bg-soft, #f9fafb);
-  border-radius: 12px;
-  padding: 14px;
+  background: var(--c-bg-soft);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3);
   min-height: 0;
 }
 .ac-welcome {
   text-align: center;
-  padding: 24px 12px;
+  padding: var(--sp-5) var(--sp-3);
 }
 .ac-hi {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--c-text, #1a1b1c);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--c-text);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
 .ac-sub {
-  font-size: 12.5px;
-  color: var(--c-faint, #9ca3af);
+  font-size: var(--fs-sm);
+  color: var(--c-faint);
   margin-top: 6px;
 }
 .ac-suggest {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--sp-2);
   justify-content: center;
-  margin-top: 16px;
+  margin-top: var(--sp-4);
 }
 .ac-chip {
-  border: 1px solid rgb(16 185 129 / 35%);
+  border: 1px solid var(--c-primary-border);
   background: #fff;
-  color: var(--c-primary-dark, #059669);
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 12px;
+  color: var(--c-primary-dark);
+  border-radius: var(--radius-full);
+  padding: 6px var(--sp-3);
+  font-size: var(--fs-xs);
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background var(--dur-fast) var(--ease);
 }
 .ac-chip:hover {
-  background: rgb(16 185 129 / 8%);
+  background: var(--wash-primary);
 }
 
 .ac-line {
   display: flex;
-  gap: 9px;
-  margin-bottom: 13px;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
   align-items: flex-start;
 }
 .ac-line.user {
@@ -292,66 +314,51 @@ const suggestions = ['synchronized 和 ReentrantLock 区别？', '什么是 RAG�
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: #fff;
 }
 .ac-avatar.assistant {
-  background: linear-gradient(135deg, #10b981, #059669);
-  box-shadow: 0 2px 8px rgb(16 185 129 / 30%);
+  background: var(--c-primary);
 }
 .ac-avatar.user {
-  background: #e0f2fe;
-  border: 1px solid #bae6fd;
-  color: #0369a1;
+  background: var(--c-info-bg);
+  border: 1px solid var(--c-info-bg);
+  color: var(--c-info);
 }
 .ac-avatar.error {
-  background: #fee2e2;
+  background: var(--c-bad-bg);
+  color: var(--c-bad);
 }
+/* 气泡皮肤走全局 .bubble/.bubble-ai/.bubble-me，这里只补宽度、流式排版与错误态 */
 .ac-bubble {
   max-width: 80%;
-  padding: 9px 13px;
-  font-size: 13.5px;
-  line-height: 1.7;
   white-space: pre-wrap;
-  word-break: break-word;
-  border-radius: 14px;
-}
-.ac-bubble.assistant {
-  background: #fff;
-  border: 1px solid var(--c-border, #e5e7eb);
-  border-top-left-radius: 4px;
-  color: var(--c-text-2, #374151);
-}
-.ac-bubble.user {
-  background: linear-gradient(135deg, #10b981, #059669);
-  color: #fff;
-  border-top-right-radius: 4px;
 }
 .ac-bubble.error {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--c-bad-bg);
+  color: var(--c-bad);
 }
 .compact .ac-bubble {
-  font-size: 12.5px;
+  font-size: var(--fs-xs);
 }
 
 /* 工具调用过程 */
 .ac-tools {
-  margin-bottom: 8px;
+  margin-bottom: var(--sp-2);
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 .ac-tool details {
-  background: rgb(16 185 129 / 6%);
-  border: 1px solid rgb(16 185 129 / 18%);
-  border-radius: 8px;
-  padding: 6px 9px;
+  background: var(--wash-primary);
+  border: 1px solid var(--c-primary-border);
+  border-radius: var(--radius-sm);
+  padding: 6px var(--sp-2);
 }
 .ac-tool summary {
-  font-size: 11.5px;
-  color: var(--c-primary-dark, #059669);
+  font-size: var(--fs-xs);
+  color: var(--c-primary-dark);
   cursor: pointer;
   user-select: none;
   list-style: none;
@@ -360,28 +367,38 @@ const suggestions = ['synchronized 和 ReentrantLock 区别？', '什么是 RAG�
   display: none;
 }
 .ac-tool-badge {
-  margin-right: 4px;
+  margin-right: var(--sp-1);
+  display: inline-flex;
+  align-items: center;
+}
+/* 运行中=小号 spinner，结束=对勾 */
+.ac-spin {
+  width: 12px;
+  height: 12px;
+}
+.ac-tool-check {
+  color: var(--c-ok);
 }
 .ac-tool-prev {
   margin-top: 6px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 1.6;
-  color: var(--c-muted, #6b7280);
+  color: var(--c-muted);
   background: #fff;
-  border-radius: 6px;
-  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  padding: 6px var(--sp-2);
   max-height: 120px;
   overflow: auto;
   white-space: pre-wrap;
 }
 .ac-cites {
-  margin-top: 8px;
-  border-top: 1px dashed var(--c-border, #e5e7eb);
+  margin-top: var(--sp-2);
+  border-top: 1px dashed var(--c-border);
   padding-top: 6px;
 }
 .ac-cites summary {
-  font-size: 11.5px;
-  color: var(--c-primary-dark, #059669);
+  font-size: var(--fs-xs);
+  color: var(--c-primary-dark);
   cursor: pointer;
 }
 .ac-typing {
@@ -392,7 +409,7 @@ const suggestions = ['synchronized 和 ReentrantLock 区别？', '什么是 RAG�
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #10b981;
+  background: var(--c-primary);
   animation: ac-blink 1.2s infinite;
 }
 .ac-typing i:nth-child(2) {
@@ -402,7 +419,7 @@ const suggestions = ['synchronized 和 ReentrantLock 区别？', '什么是 RAG�
   animation-delay: 0.4s;
 }
 .ac-cursor {
-  color: #10b981;
+  color: var(--c-primary);
   animation: ac-blink 1s infinite;
 }
 @keyframes ac-blink {
@@ -411,49 +428,42 @@ const suggestions = ['synchronized 和 ReentrantLock 区别？', '什么是 RAG�
 }
 
 .ac-error {
-  color: #b91c1c;
-  font-size: 12px;
   margin: 0;
 }
 .ac-input-row {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-2);
   align-items: flex-end;
 }
+/* 边框/聚焦态走全局 .input；紧凑模式单行输入，禁止拖拽改高 */
 .ac-input-row textarea {
   flex: 1;
   resize: none;
-  border: 1.5px solid var(--c-border, #e5e7eb);
-  border-radius: 10px;
-  padding: 9px 11px;
-  font: inherit;
-  font-size: 13px;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  font-family: inherit;
-}
-.ac-input-row textarea:focus {
-  border-color: #6ee7b7;
-  box-shadow: 0 0 0 3px rgb(16 185 129 / 12%);
 }
 .ac-send {
   width: 40px;
   height: 40px;
-  border-radius: 50%;
   border: 0;
+  border-radius: var(--radius-full);
   flex-shrink: 0;
-  background: linear-gradient(135deg, #10b981, #059669);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-primary);
   color: #fff;
-  font-size: 16px;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgb(16 185 129 / 30%);
-  transition: transform 0.1s ease, opacity 0.12s ease;
+  transition: background var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
 }
 .ac-send:hover:not(:disabled) {
-  transform: scale(1.06);
+  background: var(--c-primary-dark);
 }
 .ac-send:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+/* 绿底上的 spinner 翻成白环，避免同色系不可见 */
+.ac-send .spinner {
+  border-color: rgb(255 255 255 / 35%);
+  border-top-color: #fff;
 }
 </style>

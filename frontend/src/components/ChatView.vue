@@ -1,6 +1,7 @@
 <script setup>
 import { nextTick, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue'
 import { del, get, parseSseBlock, post, streamChat } from '../api.js'
+import Icon from './Icon.vue'
 
 // —— 会话管理 ——
 const sessions = ref([])
@@ -152,13 +153,15 @@ onDeactivated(() => activeAbort?.())
   <section class="chat-view">
     <!-- —— 对话列表侧栏 —— -->
     <aside class="chat-sidebar" :class="{ collapsed: sidebarCollapsed }">
-      <button v-if="!sidebarCollapsed" class="new-chat-btn" @click="newSession">
-        <span class="plus">+</span> 新建对话
+      <button v-if="!sidebarCollapsed" class="btn btn-primary new-chat-btn" @click="newSession">
+        <Icon name="plus" :size="14" /><span class="ncb-label">新建对话</span>
       </button>
-      <button v-else class="new-chat-btn collapsed" title="新建对话" @click="newSession">+</button>
+      <button v-else class="btn btn-primary new-chat-btn collapsed" title="新建对话" aria-label="新建对话" @click="newSession">
+        <Icon name="plus" :size="16" />
+      </button>
 
       <div class="session-list">
-        <div v-if="sessionsLoading" class="session-empty">加载中…</div>
+        <div v-if="sessionsLoading" class="loading-row"><span class="spinner"></span>加载中…</div>
         <div v-else-if="sessionsError" class="session-empty error">{{ sessionsError }}</div>
         <template v-else>
           <div
@@ -169,22 +172,28 @@ onDeactivated(() => activeAbort?.())
             @click="selectSession(s)"
           >
             <span v-if="!sidebarCollapsed" class="session-title">{{ s.title }}</span>
-            <span v-else class="session-title" :title="s.title">💬</span>
+            <span v-else class="session-title" :title="s.title"><Icon name="chat" :size="14" /></span>
             <button
               v-if="!sidebarCollapsed"
-              class="session-del"
+              class="icon-btn danger"
+              aria-label="删除"
               title="删除对话"
               @click.stop="deleteSession(s)"
             >
-🗑
-</button>
+              <Icon name="trash" :size="14" />
+            </button>
           </div>
-          <div v-if="!sessions.length" class="session-empty">暂无对话</div>
+          <div v-if="!sessions.length" class="empty">暂无对话</div>
         </template>
       </div>
 
-      <button class="sidebar-toggle" :title="sidebarCollapsed ? '展开侧栏' : '折叠侧栏'" @click="sidebarCollapsed = !sidebarCollapsed">
-        {{ sidebarCollapsed ? '»' : '«' }}
+      <button
+        class="sidebar-toggle"
+        :title="sidebarCollapsed ? '展开侧栏' : '折叠侧栏'"
+        :aria-label="sidebarCollapsed ? '展开侧栏' : '折叠侧栏'"
+        @click="sidebarCollapsed = !sidebarCollapsed"
+      >
+        <Icon :name="sidebarCollapsed ? 'chevrons-right' : 'chevrons-left'" :size="14" />
       </button>
     </aside>
 
@@ -194,12 +203,17 @@ onDeactivated(() => activeAbort?.())
         <p v-if="error" class="msg error">{{ error }}</p>
 
         <div ref="chatBox" class="chat-box">
-          <div v-if="!messages.length" class="empty">
-            💡 试试问：HashMap 的底层原理是什么？TCP 三次握手为什么是三次？
+          <div v-if="!messages.length" class="empty-state">
+            <div class="es-icon"><Icon name="spark" :size="24" /></div>
+            <p class="es-text">试试问：HashMap 的底层原理是什么？TCP 三次握手为什么是三次？</p>
           </div>
           <div v-for="m in messages" :key="m.id" class="msg-line" :class="m.role">
-            <span class="avatar" :class="m.role">{{ m.role === 'user' ? '我' : m.role === 'error' ? '⚠️' : '🤖' }}</span>
-            <div class="bubble" :class="m.role">
+            <span class="avatar" :class="m.role">
+              <template v-if="m.role === 'user'">我</template>
+              <Icon v-else-if="m.role === 'error'" name="alert" :size="16" />
+              <Icon v-else name="bot" :size="16" />
+            </span>
+            <div class="bubble" :class="{ 'bubble-ai': m.role === 'assistant', 'bubble-me': m.role === 'user', error: m.role === 'error' }">
               <template v-if="m.role === 'assistant' && !m.content && streaming">
                 <span class="typing"><i></i><i></i><i></i></span>
               </template>
@@ -208,7 +222,7 @@ onDeactivated(() => activeAbort?.())
               </template>
               <div v-if="m.citations && m.citations.length" class="citations">
                 <details v-for="(c, i) in m.citations" :key="i">
-                  <summary>📎 {{ c.title }} · 相似度 {{ (c.similarity * 100).toFixed(0) }}%</summary>
+                  <summary><Icon name="paperclip" :size="12" /> {{ c.title }} · 相似度 {{ (c.similarity * 100).toFixed(0) }}%</summary>
                   <pre class="cite-body">{{ c.content }}</pre>
                 </details>
               </div>
@@ -218,16 +232,17 @@ onDeactivated(() => activeAbort?.())
 </template>
 
       <!-- 无对话空态 -->
-      <div v-else class="chat-empty">
-        <div class="chat-empty-icon">💬</div>
+      <div v-else class="chat-empty empty-state">
+        <div class="es-icon"><Icon name="chat" :size="24" /></div>
         <div class="chat-empty-title">开始新的对话吧</div>
-        <div class="chat-empty-desc">点击左侧「+ 新建对话」，或直接在下方输入问题自动创建</div>
+        <div class="chat-empty-desc">点击左侧「新建对话」，或直接在下方输入问题自动创建</div>
       </div>
 
       <!-- 输入区两态共用一份（仅 placeholder 不同）：有会话直接提问，无会话输入即自动创建 -->
       <div class="input-row" :class="{ 'empty-input': !activeSessionId }">
         <textarea
           v-model="input"
+          class="input"
           :disabled="streaming"
           rows="2"
           :placeholder="activeSessionId ? '向知识库提问，如：Redis 分布式锁怎么实现…' : '输入问题，自动创建对话…'"
@@ -244,7 +259,7 @@ onDeactivated(() => activeAbort?.())
 <style scoped>
 .chat-view {
   display: flex;
-  gap: 14px;
+  gap: var(--sp-3);
   height: calc(100vh - 130px);
   min-height: 520px;
 }
@@ -254,54 +269,31 @@ onDeactivated(() => activeAbort?.())
   width: 230px;
   flex-shrink: 0;
   background: #fff;
-  border: 1px solid var(--c-border, #e5e7eb);
-  border-radius: 14px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
-  padding: 12px 10px;
-  transition: width 0.2s ease;
+  padding: var(--sp-3) var(--sp-2);
+  transition: width var(--dur) var(--ease);
   overflow: hidden;
 }
 .chat-sidebar.collapsed {
   width: 56px;
-  padding: 12px 8px;
+  padding: var(--sp-3) var(--sp-2);
 }
+/* 主操作按钮走全局 .btn/.btn-primary（实色），这里只补满宽与折叠态 */
 .new-chat-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 9px 12px;
-  border: 1.5px solid var(--c-primary, #10b981);
-  border-radius: 10px;
-  background: linear-gradient(135deg, rgb(16 185 129 / 8%), rgb(16 185 129 / 4%));
-  color: var(--c-primary-dark, #059669);
-  font-size: 13px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.15s ease, transform 0.1s ease;
+  width: 100%;
   flex-shrink: 0;
 }
-.new-chat-btn:hover {
-  background: rgb(16 185 129 / 14%);
-}
-.new-chat-btn:active {
-  transform: scale(0.98);
-}
 .new-chat-btn.collapsed {
-  padding: 9px 0;
-  font-size: 18px;
-}
-.new-chat-btn .plus {
-  font-size: 16px;
-  font-weight: 700;
+  padding: var(--sp-2) 0;
 }
 
 .session-list {
   flex: 1;
   overflow-y: auto;
-  margin-top: 10px;
+  margin-top: var(--sp-2);
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -311,22 +303,22 @@ onDeactivated(() => activeAbort?.())
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: var(--sp-2);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background var(--dur-fast) var(--ease);
   min-width: 0;
 }
 .session-item:hover {
-  background: rgb(16 185 129 / 6%);
+  background: var(--c-hover);
 }
 .session-item.active {
-  background: linear-gradient(135deg, rgb(16 185 129 / 14%), rgb(16 185 129 / 6%));
-  box-shadow: inset 2px 0 0 var(--c-primary, #10b981);
+  background: var(--wash-primary);
+  box-shadow: inset 2px 0 0 var(--c-primary);
 }
 .session-title {
-  font-size: 12.5px;
-  color: var(--c-text-2, #374151);
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -334,52 +326,37 @@ onDeactivated(() => activeAbort?.())
   min-width: 0;
 }
 .session-item.active .session-title {
-  color: var(--c-primary-dark, #059669);
+  color: var(--c-primary-dark);
   font-weight: 600;
 }
-.session-del {
-  border: 0;
-  background: transparent;
-  padding: 2px 4px;
-  border-radius: 4px;
-  font-size: 12px;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s ease, background 0.12s ease;
-  flex-shrink: 0;
-}
-.session-item:hover .session-del {
-  opacity: 1;
-}
-.session-del:hover {
-  background: rgb(239 68 68 / 10%);
-}
+/* 删除按钮走全局 .icon-btn.danger（常显，hover 才变红） */
 .session-empty {
-  font-size: 12px;
-  color: var(--c-faint, #9ca3af);
+  font-size: var(--fs-xs);
+  color: var(--c-faint);
   text-align: center;
-  padding: 20px 8px;
+  padding: var(--sp-5) var(--sp-2);
 }
 .session-empty.error {
-  color: #ef4444;
+  color: var(--c-bad);
 }
 
 .sidebar-toggle {
-  margin-top: 8px;
+  margin-top: var(--sp-2);
   padding: 6px;
   border: 0;
   background: transparent;
-  border-radius: 6px;
-  color: var(--c-faint, #9ca3af);
-  font-size: 14px;
-  font-weight: 700;
+  border-radius: var(--radius-sm);
+  color: var(--c-faint);
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
   flex-shrink: 0;
 }
 .sidebar-toggle:hover {
-  background: rgb(0 0 0 / 4%);
-  color: var(--c-muted, #6b7280);
+  background: var(--c-hover);
+  color: var(--c-muted);
 }
 
 /* —— 聊天主区域 —— */
@@ -389,34 +366,24 @@ onDeactivated(() => activeAbort?.())
   display: flex;
   flex-direction: column;
   background: #fff;
-  border: 1px solid var(--c-border, #e5e7eb);
-  border-radius: 14px;
-  padding: 16px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-4);
 }
 
-/* 无对话空态 */
+/* 无对话空态（骨架复用全局 .empty-state，这里补满高居中） */
 .chat-empty {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
   justify-content: center;
-  gap: 8px;
-  text-align: center;
-}
-.chat-empty-icon {
-  font-size: 48px;
-  margin-bottom: 8px;
 }
 .chat-empty-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--c-text, #1a1b1c);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--c-text);
 }
 .chat-empty-desc {
-  font-size: 13px;
-  color: var(--c-faint, #9ca3af);
-  margin-bottom: 20px;
+  font-size: var(--fs-sm);
+  color: var(--c-faint);
 }
 .empty-input {
   width: 100%;
@@ -427,15 +394,15 @@ onDeactivated(() => activeAbort?.())
 .chat-box {
   flex: 1;
   overflow-y: auto;
-  background: var(--c-bg-soft, #f9fafb);
-  border-radius: 12px;
-  padding: 16px;
+  background: var(--c-bg-soft);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4);
   min-height: 0;
 }
 .msg-line {
   display: flex;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
   align-items: flex-start;
 }
 .msg-line.user {
@@ -449,47 +416,29 @@ onDeactivated(() => activeAbort?.())
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: #fff;
 }
 .avatar.assistant {
-  background: linear-gradient(135deg, var(--c-primary, #10b981), var(--c-primary-dark, #059669));
-  box-shadow: 0 2px 8px rgb(16 185 129 / 30%);
+  background: var(--c-primary);
 }
 .avatar.user {
-  background: #e0f2fe;
-  border: 1px solid #bae6fd;
-  color: #0369a1;
+  background: var(--c-info-bg);
+  border: 1px solid var(--c-info-bg);
+  color: var(--c-info);
 }
 .avatar.error {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--c-bad-bg);
+  color: var(--c-bad);
 }
+/* 气泡皮肤走全局 .bubble/.bubble-ai/.bubble-me，这里只补流式排版与错误态 */
 .bubble {
-  max-width: 78%;
-  padding: 10px 14px;
-  font-size: 13.5px;
-  line-height: 1.75;
   white-space: pre-wrap;
-  word-break: break-word;
-  border-radius: 14px;
-}
-.bubble.assistant {
-  background: #fff;
-  border: 1px solid var(--c-border, #e5e7eb);
-  border-top-left-radius: 4px;
-  color: var(--c-text-2, #374151);
-}
-.bubble.user {
-  background: linear-gradient(135deg, var(--c-primary, #10b981), var(--c-primary-dark, #059669));
-  color: #fff;
-  border-top-right-radius: 4px;
-  box-shadow: 0 2px 10px rgb(16 185 129 / 25%);
 }
 .bubble.error {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--c-bad-bg);
+  color: var(--c-bad);
 }
 .typing {
   display: inline-flex;
@@ -500,13 +449,13 @@ onDeactivated(() => activeAbort?.())
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--c-primary, #10b981);
+  background: var(--c-primary);
   animation: typing-blink 1.2s infinite;
 }
 .typing i:nth-child(2) { animation-delay: 0.2s; }
 .typing i:nth-child(3) { animation-delay: 0.4s; }
 .cursor {
-  color: var(--c-primary, #10b981);
+  color: var(--c-primary);
   animation: typing-blink 1s infinite;
 }
 @keyframes typing-blink {
@@ -516,26 +465,26 @@ onDeactivated(() => activeAbort?.())
 
 /* 引用来源 */
 .citations {
-  margin-top: 10px;
-  border-top: 1px dashed var(--c-border, #e5e7eb);
-  padding-top: 8px;
+  margin-top: var(--sp-2);
+  border-top: 1px dashed var(--c-border);
+  padding-top: var(--sp-2);
 }
 .citations details {
-  margin: 4px 0;
+  margin: var(--sp-1) 0;
 }
 .citations summary {
-  font-size: 12px;
-  color: var(--c-primary-dark, #059669);
+  font-size: var(--fs-xs);
+  color: var(--c-primary-dark);
   cursor: pointer;
   user-select: none;
 }
 .cite-body {
-  background: var(--c-bg-soft, #f9fafb);
-  border-radius: 6px;
-  padding: 8px 10px;
-  font-size: 12px;
+  background: var(--c-bg-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2);
+  font-size: var(--fs-xs);
   line-height: 1.7;
-  color: var(--c-muted, #6b7280);
+  color: var(--c-muted);
   white-space: pre-wrap;
   word-break: break-word;
   margin: 6px 0 0;
@@ -543,50 +492,38 @@ onDeactivated(() => activeAbort?.())
   overflow: auto;
 }
 
-/* 输入区 */
+/* 输入区（输入框走全局 .input，这里只留布局） */
 .input-row {
   display: flex;
-  gap: 10px;
-  margin-top: 12px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
 }
 .input-row textarea {
   flex: 1;
-  resize: vertical;
-  border: 1.5px solid var(--c-border, #e5e7eb);
-  border-radius: 10px;
-  padding: 10px 12px;
-  font: inherit;
-  font-size: 13.5px;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.input-row textarea:focus {
-  border-color: #6ee7b7;
-  box-shadow: 0 0 0 3px rgb(16 185 129 / 12%);
 }
 .send {
   align-self: flex-end;
-  padding: 10px 22px;
+  padding: var(--sp-2) var(--sp-5);
 }
 
-/* 窄屏：侧栏折叠为图标条 */
+/* 窄屏：侧栏折叠为图标条（同 specificity 下媒体块在后即生效，无需 !important） */
 @media (max-width: 768px) {
   .chat-view {
     height: calc(100vh - 110px);
   }
-  .chat-sidebar {
-    width: 56px !important;
-    padding: 12px 8px !important;
+  .chat-sidebar,
+  .chat-sidebar.collapsed {
+    width: 56px;
+    padding: var(--sp-3) var(--sp-2);
   }
   .chat-sidebar .session-title,
-  .chat-sidebar .session-del {
+  .chat-sidebar .icon-btn {
     display: none;
   }
   .chat-sidebar .new-chat-btn {
-    padding: 9px 0;
-    font-size: 18px;
+    padding: var(--sp-2) 0;
   }
-  .chat-sidebar .new-chat-btn .plus {
+  .chat-sidebar .ncb-label {
     display: none;
   }
 }

@@ -81,33 +81,36 @@ async function doUpload(file) {
 
 <style scoped>
 .drop {
-  border: 2px dashed var(--c-primary-border);
-  border-radius: 12px;
-  padding: 26px 20px;
+  border: 1px dashed var(--c-border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--sp-6) var(--sp-5);
   text-align: center;
-  background: linear-gradient(180deg, #f0fdf9, #fff);
+  background: var(--c-bg-soft);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
 }
-.drop:hover,
+.drop:hover {
+  border-color: var(--c-primary);
+}
 .drop.over {
   border-color: var(--c-primary);
-  background: linear-gradient(180deg, #ecfdf5, #fff);
-  transform: translateY(-1px);
+  background: var(--wash-primary);
 }
 .icon {
   width: 52px;
   height: 52px;
-  margin: 0 auto 10px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+  margin: 0 auto var(--sp-3);
+  border-radius: var(--radius-lg);
+  background: var(--c-primary-light);
+  color: var(--c-primary-dark);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
 }
 .t1 {
-  font-size: 14.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
   margin: 0;
 }
@@ -116,8 +119,8 @@ async function doUpload(file) {
   font-style: normal;
 }
 .t2 {
-  font-size: 12.5px;
+  font-size: var(--fs-xs);
   color: var(--c-faint);
-  margin: 6px 0 0;
+  margin: var(--sp-2) 0 0;
 }
 </style>
