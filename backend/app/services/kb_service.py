@@ -2,7 +2,9 @@
 
 ingest：切块 → 批量向量化（Ollama）→ 写 kb_chunks → 文档置 ready。
 search：v3.5 起为混合检索——向量路（HNSW 余弦，走数据库索引）+ 词法路（BM25），
-        RRF 融合排序；不传 query_text 时退回纯向量检索（兼容旧调用方）。
+        RRF 融合排序；v4.6 起可在融合结果之上叠加 cross-encoder 重排序（rerank），
+        默认关闭（`kb_rerank_enabled`），不可用时自动回退 RRF 顺序；
+        不传 query_text 时退回纯向量检索（兼容旧调用方）。
 owner 隔离：scope=public（预置语料）全站可见；scope=private（用户上传）仅本人可见。
 """
 
@@ -18,6 +20,7 @@ from app.models.kb import KBChunk, KBDocument
 from app.services.embedding_service import EmbeddingError, embed_texts
 from app.services.kb_chunker import chunk_text
 from app.services.lexical_service import Bm25Index
+from app.services.rerank_service import rerank
 
 logger = get_logger(__name__)
 
@@ -150,12 +153,14 @@ def search_chunks(
     top_k: int | None = None,
     query_text: str | None = None,
     document_ids: list[int] | None = None,
+    caller: str = "default",
 ) -> list[dict]:
     """检索可见语料，返回命中块（含来源标题）。
 
     传了 query_text 且 kb_hybrid_enabled=True → 混合检索（向量 + BM25，RRF 融合）；
     否则只走向量检索（低于 kb_min_similarity 的按无关丢弃）。
     document_ids 非空时把范围限定在这些文档内（kb_search 的"限定文档"用）。
+    caller 是调用方身份（v4.6 重排序按它决定是否生效，见 `_rerank_allowed`）。
     保持默认参数不传时行为与 v3.0 完全一致，老调用方与测试无需改动。
     """
     if query_text and settings.kb_hybrid_enabled:
@@ -167,6 +172,7 @@ def search_chunks(
             anonymous_id,
             top_k,
             document_ids=document_ids,
+            caller=caller,
         )
 
     rows = db.execute(
@@ -192,6 +198,55 @@ def search_chunks(
     return results
 
 
+def _rerank_allowed(caller: str) -> bool:
+    """按调用方判定本次是否启用重排序（v4.6）。
+
+    总开关关闭 → 一律不启用；打开时再看生效范围：
+
+    - `kb_rerank_scope="all"`：所有调用方都启用；
+    - 其他取值（默认 `"playground"`）：只有同名调用方启用，其余（典型是 Agent 的同步
+      工具链）保持 RRF 顺序 —— Agent 一轮可能多次调检索，每次 +1s 会明显拖慢对话体感。
+
+    调用方通过 `search_chunks(caller=...)` 声明身份；未声明时视为 `"default"`，
+    在 `scope != "all"` 下不会被覆盖（即默认不启用）。
+    """
+    if not settings.kb_rerank_enabled:
+        return False
+    scope = (settings.kb_rerank_scope or "").strip()
+    return scope == "all" or scope == caller
+
+
+def _apply_rerank(
+    query: str, fused: list[tuple], caller: str
+) -> tuple[list[tuple], dict[int, float], bool]:
+    """在 RRF 融合结果之上做 cross-encoder 重排序（v4.6）。
+
+    - 只对前 `kb_rerank_candidates` 条打分，控制延迟上界；
+    - rerank 不可用 / 超时 / 异常时**原样返回**，调用方继续用 RRF 顺序（绝不抛异常）；
+    - 重排只在既有候选池内换序，**不引入任何新文档**（归属隔离不受影响）；
+    - 同分时用 RRF 分作 tie-breaker，保证结果稳定可复现。
+
+    :return: `(排序后的 fused 列表, {chunk_id: rerank_score}, 本次是否允许 rerank)`
+    """
+    if not _rerank_allowed(caller) or len(fused) < 2:
+        return fused, {}, False
+
+    candidate_n = max(1, settings.kb_rerank_candidates)
+    candidates = fused[:candidate_n]
+    ranked = rerank(query, [item[4].content or "" for item in candidates])
+    if ranked is None:
+        return fused, {}, True
+
+    scores = {candidates[index][3]: score for index, score in ranked}
+    ordered = sorted(
+        candidates,
+        key=lambda item: (scores[item[3]], item[0]),
+        reverse=True,
+    )
+    ordered.extend(fused[candidate_n:])
+    return ordered, scores, True
+
+
 def search_chunks_hybrid(
     db: Session,
     query_text: str,
@@ -200,6 +255,7 @@ def search_chunks_hybrid(
     anonymous_id: str | None,
     top_k: int | None = None,
     document_ids: list[int] | None = None,
+    caller: str = "default",
 ) -> list[dict]:
     """混合检索：向量路（语义）+ BM25 词法路，RRF 融合后取 top_k。
 
@@ -213,7 +269,8 @@ def search_chunks_hybrid(
     而"仅词法命中、向量分低"恰恰是混合检索要救回的术语类查询（如「聚簇索引」）。
     BM25 自带 IDF（无区分度的常用词分本身就低），噪声由词法侧自行抑制。
 
-    :return: 命中块列表（含 similarity / rrf_score / lexical_score，后者仅供调试归因）
+    :return: 命中块列表（含 similarity / rrf_score / lexical_score，后者仅供调试归因）；
+             启用 rerank 时额外带 `reranked` 与 `rerank_score`（降级时 `reranked=false`）
     """
     limit = top_k or settings.kb_search_top_k
     candidate_n = max(settings.kb_hybrid_candidates, limit)
@@ -299,20 +356,29 @@ def search_chunks_hybrid(
 
     fused.sort(key=lambda item: item[0], reverse=True)
 
+    # —— 重排序（v4.6，可选）：默认关闭；降级/未启用/该调用方未授权时保持 RRF 顺序 ——
+    # 候选池此前已按归属过滤，rerank 只在池内换序，不引入任何新文档。
+    fused, rerank_scores, rerank_active = _apply_rerank(query_text, fused, caller)
+    reranked = bool(rerank_scores)
+
     results = []
     for score, similarity, lex_score, chunk_id, chunk, title in fused[:limit]:
-        results.append(
-            {
-                "document_id": chunk.document_id,
-                "title": title,
-                "seq": chunk.seq,
-                "content": chunk.content,
-                "similarity": round(similarity, 4),
-                # 调试/评测可见：融合分与词法分（前端不展示，仅用于归因）
-                "rrf_score": round(score, 6),
-                "lexical_score": round(lex_score, 4),
-            }
-        )
+        payload = {
+            "document_id": chunk.document_id,
+            "title": title,
+            "seq": chunk.seq,
+            "content": chunk.content,
+            "similarity": round(similarity, 4),
+            # 调试/评测可见：融合分与词法分（前端不展示，仅用于归因）
+            "rrf_score": round(score, 6),
+            "lexical_score": round(lex_score, 4),
+        }
+        # 新字段只在"本调用方允许 rerank"时出现 —— 否则返回结构与 v3.5 基线逐字段一致
+        if rerank_active:
+            payload["reranked"] = reranked
+            if reranked:
+                payload["rerank_score"] = round(rerank_scores.get(chunk_id, 0.0), 4)
+        results.append(payload)
     return results
 
 

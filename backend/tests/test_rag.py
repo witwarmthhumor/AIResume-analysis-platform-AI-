@@ -3,6 +3,7 @@
 import pytest
 from sqlalchemy import text
 
+from app.core.config import settings
 from app.db.session import SessionLocal, engine
 from app.models.kb import KBChunk
 from app.services.kb_service import (
@@ -267,3 +268,205 @@ def test_hybrid_keeps_owner_isolation(db_session) -> None:
     )
     # 语料在场时混合检索可能命中公共文档，但**别人的私有文档**绝不可见——这才是本测试保护的属性
     assert all(r["title"] != other_doc.title for r in hybrid)
+
+
+# —— v4.6 重排序接入（kb_service 层三层验证：关闭 / 生效 / 降级）——
+
+
+def _seed_rerank_docs(db):
+    """造两篇 ready 文档各一块：一篇高相似、一篇正交（用于观察重排是否换序）。"""
+    doc_a = create_document(
+        db,
+        title=f"{_KB_PREFIX}rrk_a",
+        doc_type="text",
+        raw_text="HashMap 底层实现。",
+        user_id=None,
+        anonymous_id=None,
+        source_type="preset",
+    )
+    doc_b = create_document(
+        db,
+        title=f"{_KB_PREFIX}rrk_b",
+        doc_type="text",
+        raw_text="完全无关的另一段内容。",
+        user_id=None,
+        anonymous_id=None,
+        source_type="preset",
+    )
+    for doc, vec in ((doc_a, _FAKE_VEC), (doc_b, _ORTHOGONAL_VEC)):
+        doc.status = "ready"
+        db.commit()
+        _insert_chunk(db, doc, doc.raw_text, vec)
+    return doc_a, doc_b
+
+
+def test_rerank_disabled_keeps_baseline_shape(db_session, monkeypatch) -> None:
+    """开关关闭：返回结构不含 rerank 字段（与 v3.5 基线逐字段一致）。"""
+    monkeypatch.setattr(settings, "kb_rerank_enabled", False)
+    db = db_session
+    doc_a, doc_b = _seed_rerank_docs(db)
+
+    hits = search_chunks(
+        db,
+        _QUERY_VEC,
+        None,
+        "anon-rrk-shape",
+        top_k=2,
+        query_text="HashMap 底层实现",
+        document_ids=[doc_a.id, doc_b.id],
+    )
+    assert hits
+    for hit in hits:
+        assert "reranked" not in hit
+        assert "rerank_score" not in hit
+
+
+def test_rerank_reorders_within_candidate_pool(db_session, monkeypatch) -> None:
+    """rerank 生效：在候选池内换序、字段出现，且**集合不变**（不引入新文档）。
+
+    用 document_ids 把候选池限定为本次造的两篇 —— 常驻的预置语料同样会被检索到，
+    不限定范围时"反转候选顺序"的语义不可控。
+    """
+    db = db_session
+    doc_a, doc_b = _seed_rerank_docs(db)
+    doc_ids = [doc_a.id, doc_b.id]
+    baseline = search_chunks(
+        db,
+        _QUERY_VEC,
+        None,
+        "anon-rrk",
+        top_k=2,
+        query_text="HashMap 底层实现",
+        document_ids=doc_ids,
+    )
+    assert len(baseline) == 2
+
+    def fake_rerank(_query, documents, top_n=None):
+        # 下标越大分越高 → 强制反转候选顺序，便于断言"确实换了序"
+        ranked = [(idx, float(idx)) for idx in range(len(documents))]
+        return ranked[:top_n] if top_n else ranked
+
+    monkeypatch.setattr(settings, "kb_rerank_enabled", True)
+    monkeypatch.setattr(settings, "kb_rerank_candidates", 10)
+    monkeypatch.setattr("app.services.kb_service.rerank", fake_rerank)
+
+    reranked = search_chunks(
+        db,
+        _QUERY_VEC,
+        None,
+        "anon-rrk",
+        top_k=2,
+        query_text="HashMap 底层实现",
+        document_ids=doc_ids,
+        caller="playground",  # 声明为问答页调用方（默认 scope=playground 才对它生效）
+    )
+    assert [h["document_id"] for h in reranked] == [
+        h["document_id"] for h in reversed(baseline)
+    ]
+    assert all(h["reranked"] is True for h in reranked)
+    assert all("rerank_score" in h for h in reranked)
+    # 关键属性：只在池内换序，集合不变
+    assert {h["document_id"] for h in reranked} == {h["document_id"] for h in baseline}
+
+
+def test_rerank_degraded_marks_false_and_keeps_order(db_session, monkeypatch) -> None:
+    """rerank 不可用：顺序保持 RRF，且 reranked=false（可观测，不静默）。"""
+    db = db_session
+    doc_a, doc_b = _seed_rerank_docs(db)
+    doc_ids = [doc_a.id, doc_b.id]
+    baseline = search_chunks(
+        db,
+        _QUERY_VEC,
+        None,
+        "anon-rrk-dg",
+        top_k=2,
+        query_text="HashMap 底层实现",
+        document_ids=doc_ids,
+    )
+    assert baseline
+
+    monkeypatch.setattr(settings, "kb_rerank_enabled", True)
+    monkeypatch.setattr("app.services.kb_service.rerank", lambda *a, **k: None)
+
+    degraded = search_chunks(
+        db,
+        _QUERY_VEC,
+        None,
+        "anon-rrk-dg",
+        top_k=2,
+        query_text="HashMap 底层实现",
+        document_ids=doc_ids,
+        caller="playground",
+    )
+    assert [h["document_id"] for h in degraded] == [h["document_id"] for h in baseline]
+    assert all(h["reranked"] is False for h in degraded)
+    assert all("rerank_score" not in h for h in degraded)
+
+
+def test_rerank_scope_playground_excludes_agent(db_session, monkeypatch) -> None:
+    """scope=playground（默认）时 Agent 调用方不走 rerank：顺序与字段保持基线，且不触发推理。"""
+    db = db_session
+    doc_a, doc_b = _seed_rerank_docs(db)
+    common = {
+        "top_k": 2,
+        "query_text": "HashMap 底层实现",
+        "document_ids": [doc_a.id, doc_b.id],
+    }
+    baseline = search_chunks(db, _QUERY_VEC, None, "anon-scope", **common)
+    assert len(baseline) == 2
+
+    calls = {"n": 0}
+
+    def fake_rerank(_query, documents, top_n=None):
+        calls["n"] += 1
+        return [(idx, float(idx)) for idx in range(len(documents))]
+
+    monkeypatch.setattr(settings, "kb_rerank_enabled", True)
+    monkeypatch.setattr(settings, "kb_rerank_scope", "playground")
+    monkeypatch.setattr("app.services.kb_service.rerank", fake_rerank)
+
+    # Agent 侧：不启用 → 顺序不变、无字段，且 rerank() 根本没被调用（省掉 1s 延迟）
+    agent_hits = search_chunks(
+        db, _QUERY_VEC, None, "anon-scope", caller="agent", **common
+    )
+    assert [h["document_id"] for h in agent_hits] == [
+        h["document_id"] for h in baseline
+    ]
+    assert all("reranked" not in h for h in agent_hits)
+    assert calls["n"] == 0
+
+    # 问答页：启用 → 换序 + 字段出现
+    page_hits = search_chunks(
+        db, _QUERY_VEC, None, "anon-scope", caller="playground", **common
+    )
+    assert calls["n"] == 1
+    assert all(h["reranked"] is True for h in page_hits)
+    assert [h["document_id"] for h in page_hits] == [
+        h["document_id"] for h in reversed(baseline)
+    ]
+
+
+def test_rerank_scope_all_covers_every_caller(db_session, monkeypatch) -> None:
+    """scope=all 时 Agent 调用方同样启用重排序。"""
+    db = db_session
+    doc_a, doc_b = _seed_rerank_docs(db)
+
+    monkeypatch.setattr(settings, "kb_rerank_enabled", True)
+    monkeypatch.setattr(settings, "kb_rerank_scope", "all")
+    monkeypatch.setattr(
+        "app.services.kb_service.rerank",
+        lambda _q, docs, top_n=None: [(i, float(i)) for i in range(len(docs))],
+    )
+
+    hits = search_chunks(
+        db,
+        _QUERY_VEC,
+        None,
+        "anon-scope-all",
+        top_k=2,
+        query_text="HashMap 底层实现",
+        document_ids=[doc_a.id, doc_b.id],
+        caller="agent",
+    )
+    assert hits
+    assert all(h["reranked"] is True for h in hits)

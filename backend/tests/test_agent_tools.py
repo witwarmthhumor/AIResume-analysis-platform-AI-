@@ -1224,9 +1224,11 @@ def _patch_kb_retrieval(monkeypatch, hits: list[dict] | None = None) -> dict:
         top_k=None,
         query_text=None,
         document_ids=None,
+        caller=None,
     ):
         seen["document_ids"] = document_ids
         seen["query_text"] = query_text
+        seen["caller"] = caller  # v4.6：检索层按调用方决定是否走重排序
         return hits if hits is not None else []
 
     monkeypatch.setattr("app.services.agent_capabilities.search_chunks", _fake)

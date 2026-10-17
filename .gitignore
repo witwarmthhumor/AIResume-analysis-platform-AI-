@@ -17,6 +17,9 @@ frontend/dist/
 # 上传的简历文件（阶段1 起，隐私数据不入库）
 uploads/
 
+# rerank ONNX 模型（v4.6）：体积约 300MB，用 scripts.fetch_rerank_model 本地下载，永不入库
+backend/models/
+
 # run-app 本地运行时 PID 与日志
 .run-app/
 
@@ -46,6 +49,9 @@ scripts/ralph/.last-branch
 .coverage
 *.coverage
 .quality-gate/
+
+# 本地运行/测试日志（生成物，不入库：推送时要能让别人跑起来的最简集合）
+*.log
 
 # 数据库备份（清理前留档，体积大且可能含用户数据，永不入库）
 .backups/

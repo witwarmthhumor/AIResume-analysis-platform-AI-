@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIResume · AI 工程化全景架构图（全链路 · 三套 Agent 图 + 混合 RAG）</title>
+<style>
+  body { margin:0; padding:24px 16px; background:#F4F3EE;
+    font-family:'PingFang SC','Segoe UI','Microsoft YaHei',Arial,sans-serif; color:#1A1B1C; }
+  .wrap { max-width:1080px; margin:0 auto; }
+  h1 { font-size:19px; margin:0 0 4px; }
+  .sub { font-size:12.5px; color:#6B7280; margin-bottom:14px; }
+  .layer { background:#fff; border:1px solid #E4E3DD; border-radius:14px; padding:12px 14px; margin:10px 0; }
+  .layer-tag { display:inline-block; font-size:11.5px; font-weight:600; color:#fff; background:#2F7FA3;
+    border-radius:6px; padding:2px 8px; margin-bottom:9px; letter-spacing:.5px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:stretch; }
+  .node { background:rgba(163,213,232,.18); border:1px solid rgba(47,127,163,.35); border-radius:9px;
+    padding:7px 10px; font-size:12.5px; line-height:1.45; flex:1 1 130px; min-width:0; }
+  .node b { display:block; font-size:13px; margin-bottom:2px; }
+  .node small { color:#4b5563; }
+  .node code { font-size:11px; color:#1f5f7d; background:rgba(47,127,163,.09); padding:0 3px; border-radius:3px; }
+  .arrow { text-align:center; color:#2F7FA3; font-size:15px; font-weight:700; line-height:1; margin:3px 0; }
+  .pill { border-radius:999px; padding:5px 11px; font-size:12px; border:1px solid; line-height:1.5; }
+  .hit { background:rgba(82,196,26,.13); border-color:rgba(82,196,26,.55); color:#2f7a12; flex:1 1 220px; }
+  .gray { background:rgba(250,173,20,.14); border-color:rgba(214,158,10,.6); color:#8a5a00; flex:1 1 220px; }
+  .refuse { background:rgba(107,114,128,.13); border-color:rgba(107,114,128,.5); color:#4b5563; flex:1 1 180px; }
+  .guard { background:rgba(201,167,232,.14); border-color:rgba(156,107,201,.45); }
+  .base { background:rgba(26,27,28,.04); border-color:#d8d7d1; }
+  .ag { background:rgba(72,187,120,.14); border-color:rgba(47,150,94,.5); }
+  .ag b { color:#1f6b41; }
+  .ag-core { background:linear-gradient(180deg,rgba(72,187,120,.16),#fff); border-color:rgba(47,150,94,.55); }
+  .ag-core .layer-tag { background:#2F965E; }
+  .v1-core { background:linear-gradient(180deg,rgba(163,213,232,.12),#fff); border-color:rgba(47,127,163,.5); }
+  .rk-core { background:linear-gradient(180deg,rgba(232,124,60,.12),#fff); border-color:rgba(200,90,30,.5); }
+  .rk-core .layer-tag { background:#C85A1E; }
+  .metrics { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+  .m { flex:1 1 148px; background:linear-gradient(135deg,rgba(163,213,232,.22),rgba(163,213,232,.38));
+    border-radius:10px; padding:9px 12px; }
+  .m .v { font-size:17px; font-weight:700; color:#1f5f7d; }
+  .m .k { font-size:11.5px; color:#4b5563; }
+  .m.green { background:linear-gradient(135deg,rgba(72,187,120,.18),rgba(72,187,120,.34)); }
+  .m.green .v { color:#1f6b41; }
+  .note { font-size:11.5px; color:#6B7280; margin-top:12px; line-height:1.6; }
+  .flow-label { font-size:11px; color:#6B7280; }
+  .flag { display:inline-block; font-size:11px; border-radius:4px; padding:1px 6px; margin-left:4px; }
+  .flag-on { background:rgba(47,150,94,.15); color:#1f6b41; }
+  .flag-off { background:rgba(107,114,128,.15); color:#4b5563; }
+  .fig { font-size:11.5px; color:#6B7280; margin-top:6px; }
+  .warnbar { background:rgba(232,124,60,.1); border:1px solid rgba(200,90,30,.45); border-radius:9px;
+    padding:8px 11px; font-size:12px; color:#8a3a12; line-height:1.55; margin-top:8px; }
+  .sub-row { margin-top:7px; }
+  .footnote { border-top:1px dashed #E4E3DD; margin-top:14px; padding-top:10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AIResume · AI 工程化全景（AI 客服 Agent + 一键求职准备 LangGraph + 面试官 Agent + 混合 RAG）</h1>
+  <div class="sub">依据项目代码与 AGENTS.md v4.5.0 口径绘制（2026-10-02 实测）｜主链路自上而下：v1 客服问答与 v2 求职流水线双轨并存，底部为贯穿全链路的工程护栏</div>
+
+  <!-- ① 前端 -->
+  <div class="layer">
+    <span class="layer-tag">① 用户与前端（Vue 3 + Vite，hash 路由 + 23 个组件）</span>
+    <div class="row">
+      <div class="node"><b>AI 客服（SSE 流式）</b><small>AgentChatCore.vue · 逐 Token 输出、工具过程与引用来源实时展示</small></div>
+      <div class="node ag"><b>一键求职准备</b><small>AgentRunView.vue · 步骤条 / 审批卡 / 结果分区 / 断点恢复 / 失败重试</small></div>
+      <div class="node"><b>模拟面试</b><small>InterviewChat.vue · 每轮作答 → 评分 → 追问 / 报告</small></div>
+      <div class="node base"><b>简历 / 分析 / 知识库 / 历史 / 用量</b><small>上传解析、分析报告、知识库管理、管理端</small></div>
+    </div>
+    <div class="fig">流式收发：<code>api.js · streamChat()</code> 用 <code>fetch + ReadableStream</code> 手工解析 SSE（非 EventSource，可 POST / 可 abort）；视图切换走 hash 路由 <code>router.js</code>，跨视图交接走 query</div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <!-- ② 接入治理 -->
+  <div class="layer">
+    <span class="layer-tag">② 接入治理（请求触达大模型之前）</span>
+    <div class="row">
+      <div class="node"><b>JWT + bcrypt 鉴权</b><small>登录标识 = username（兼容邮箱/手机号）；改密 = token_version+1 全端下线；登录失败 Redis 锁定</small></div>
+      <div class="node"><b>强制登录闸门</b><small>纯 ASGI 中间件 auth_gate：<code>/api/**</code> 默认 401，白名单仅登录/注册；不存在路径也 401，不泄露路由</small></div>
+      <div class="node"><b>每日限额 + 归属校验</b><small>enforce_daily_limit 抢事务咨询锁串行化，超限 429；owner_clause / matches_owner 防匿名横向越权</small></div>
+      <div class="node"><b>中间件链 + 全局异常</b><small>log_requests（最外层）→ gate → 路由；错误统一 {code,message,details}，DB 连接异常→503</small></div>
+    </div>
+    <div class="fig">RouterRegistry 自动发现 <code>app/api</code> 下全部 APIRouter——新增路由模块自动受闸门保护，无需手写 include</div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <!-- ③ v1 客服主链路 -->
+  <div class="layer v1-core">
+    <span class="layer-tag">③ AI 客服主链路 · v1（LangChain create_agent，ReAct 工具循环）</span>
+    <div class="row">
+      <div class="node"><b>同步栈 + 异步图桥</b><small>项目是同步 SQLAlchemy / 同步路由；daemon 线程内 <code>asyncio.run</code> 跑 <code>astream_events</code>，事件推入线程安全 <code>queue.Queue</code>，主生成器取队列转 SSE</small></div>
+      <div class="node"><b>循环上限</b><small>recursion_limit = 最大工具轮数 ×2 + 余量，语义对齐旧版 max_iterations</small></div>
+    </div>
+    <div class="arrow">▼ <span class="flow-label">SSE 事件协议：meta →（reset → action → observation）* → delta* → done；异常走 error</span></div>
+    <div class="row">
+      <div class="node"><b>action / observation</b><small>on_tool_start / on_tool_end：工具名、入参预览、结果预览；工具异常只回中性话术（不泄露 SQL/路径）</small></div>
+      <div class="node"><b>reset</b><small>DeepSeek 工具决策轮会同时吐文本 token，属中间过程——清空累计回答，通知前端同步清空</small></div>
+      <div class="node"><b>delta / final</b><small>on_chat_model_stream 逐字下发；最终回答 = 累计 delta，空则退最后一条纯文本 AI 消息</small></div>
+    </div>
+  </div>
+  <div class="arrow">▼ <span class="flow-label">v2 独立开关 agent_v2_enabled（默认开），异常不影响 v1</span></div>
+
+  <!-- ③′ v2 流水线 -->
+  <div class="layer ag-core">
+    <span class="layer-tag">③′ 一键求职准备流水线 · v2（LangGraph StateGraph + PostgresSaver）<span class="flag flag-on">默认开</span></span>
+    <div class="sub-row">
+      <div class="row">
+        <div class="node ag"><b>planner</b><small>规则式：固定单链路计划 + 入口意图识别；无 JD 且无主题 → fail</small></div>
+        <div class="node ag"><b>load_resume</b><small>定位本人最新简历；无可用简历 → fail（不调模型不耗额度）</small></div>
+        <div class="node ag"><b>need_analysis</b><small>查是否已有有效分析，条件边路由 analyzer / matcher</small></div>
+        <div class="node ag"><b>analyzer</b><small>无有效分析才调 AI；落 analyses 表 + 记账</small></div>
+        <div class="node ag"><b>matcher</b><small>JD 与本人简历做岗位匹配分析</small></div>
+        <div class="node ag"><b>questioner</b><small>围绕主题/JD 生成一组模拟面试题</small></div>
+      </div>
+    </div>
+    <div class="arrow">▼ <span class="flow-label">verifier 产物校验：缺字段/空产物 → 回环对应产出节点（每节点 ≤2 次），超限 → fail</span></div>
+    <div class="sub-row">
+      <div class="row">
+        <div class="node ag"><b>hitl_gate · interrupt</b><small>风险动作「创建面试场次」建 pending 审批单后图挂起；审批单创建幂等，TTL 30min</small></div>
+        <div class="node ag"><b>deliver</b><small>批准后才执行 create_session（零审批零副作用）；汇总分析/匹配/题目，发 done</small></div>
+        <div class="node ag"><b>断点续跑</b><small>PostgresSaver 持久化每步；approve / reject 用 Command(resume) 从 hitl_gate 继续</small></div>
+        <div class="node ag"><b>retry-node / abort</b><small>失败可新建 run 并注入已完成产物；审批中可放弃；approve/abort 一律条件更新乐观锁</small></div>
+      </div>
+    </div>
+    <div class="fig">启动时 lifespan 回收孤儿 run：planning/running → failed（服务重启），waiting_approval 刻意不动留审批；事件经 event_bus 发布，断线重连先发 DB 快照再订阅补发</div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <!-- ④ 面试官 Agent -->
+  <div class="layer">
+    <span class="layer-tag">④ 面试官 Agent · interview_graph（LangGraph，开关 interview_graph_enabled）</span>
+    <div class="row">
+      <div class="node"><b>图结构</b><small>START → intro → ask_question → wait_answer(interrupt) → score_answer →（追问 / 下一问 / 上限）→ generate_report → END</small></div>
+      <div class="node"><b>零副作用挂起</b><small>wait_answer 纯 interrupt；resume 从头重执行节点，ask_question 落库不会重复发生</small></div>
+      <div class="node"><b>能力扩展</b><small>题库驱动：加载题库后按序取题（不调 LLM），问完回落 AI 出题；v4.5 支持主问题追问（不占主轮次）</small></div>
+    </div>
+    <div class="fig">每轮 deps 的 trace 从 session.trace_json 续接；进程重启后从 checkpoint 续跑，不重放、不重复计费</div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <!-- ⑤ 工具与能力 -->
+  <div class="layer">
+    <span class="layer-tag">⑤ 工具与能力层 · 13 工具（清单唯一源 tools/registry.py）</span>
+    <div class="row">
+      <div class="node"><b>RAG 检索</b><small>kb_search（始终排第一，唯一回填 citations）/ kb_list（文档清单不含正文）</small></div>
+      <div class="node"><b>个人数据（按归属者过滤）</b><small>resume_lookup / interview_history / interview_transcript / score_trend / conversation_search / usage_stats / analysis_read</small></div>
+      <div class="node"><b>工具内再调 LLM</b><small>job_match / question_gen / answer_review：走 _run_tool_llm，受 daily_agent_tool_llm_limit 单独限额记账</small></div>
+      <div class="node base"><b>platform_help</b><small>平台功能问答，纯静态文案，不查库不调模型</small></div>
+    </div>
+    <div class="fig"><b>ai_client.py 是全项目唯一调模型的地方</b>：OpenAI 兼容协议（当前 DeepSeek deepseek-chat），负责 JSON 输出校验、失败自动重试（最多 2 次）、流式、超时与 token 统计；换模型只改 <code>backend/.env</code></div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <!-- ⑥ 混合 RAG -->
+  <div class="layer rk-core">
+    <span class="layer-tag">⑥ RAG 混合检索（kb_service · 开关 kb_hybrid_enabled，默认开）</span>
+    <div class="row">
+      <div class="node"><b>问题向量化</b><small>Ollama 本地 nomic-embed-text（768 维，OpenAI 兼容 API）</small></div>
+      <div class="node"><b>向量路（语义）</b><small>pgvector HNSW 余弦排序取候选 50</small></div>
+      <div class="node"><b>词法路（关键词）</b><small>jieba 分词 + 内存 BM25（只取 id+content 轻量列）取候选 50</small></div>
+      <div class="node"><b>RRF 融合 k=5</b><small>score=Σ 1/(k+rank)，只看名次不归一化分数量纲；仅一路命中也保留，救回术语类查询</small></div>
+    </div>
+    <div class="arrow">▼ <span class="flow-label">混合路径不套相似度阈值：「仅词法命中、向量分低」正是要救回的术语（如「聚簇索引」），噪声由 BM25 IDF 抑制</span></div>
+    <div class="row">
+      <div class="pill hit"><b>命中</b>：命中块拼「来源：标题（第 N 块）」回灌模型，并写 citations 供前端展示</div>
+      <div class="pill refuse"><b>未命中</b>：清空残留引用，明确告知模型知识库无相关内容——可通用知识简要回答，但须说明不来自平台知识库</div>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <!-- ⑦ 数据与模型底座 -->
+  <div class="layer">
+    <span class="layer-tag">⑦ 数据与模型底座（Docker Compose 三容器 + 本机服务）</span>
+    <div class="row">
+      <div class="node base">PostgreSQL 16 + pgvector<br><small>16 业务表 + 4 LangGraph 表，17 次迁移</small></div>
+      <div class="node base">Redis<br><small>限流锁 / 登录失败 / Celery broker</small></div>
+      <div class="node base">Ollama · nomic-embed-text<br><small>11434，卷内已预拉模型</small></div>
+      <div class="node base">DeepSeek（Provider 可插拔）<br><small>换通义只改 .env 三行</small></div>
+      <div class="node base">Celery Worker<br><small>简历解析 / 分析 / 知识库入库 / Whisper 转写</small></div>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <div class="node base"><b>会话与消息</b><small>chat_sessions / chat_messages：agent 与 chat 共用，靠 session_type 隔离</small></div>
+      <div class="node base"><b>v2 任务与审批</b><small>agent_runs + agent_spans + agent_approvals + audit_logs</small></div>
+      <div class="node base"><b>用量记账</b><small>usage_logs：各 action_type 次数与 token，预置语料 7 文档 111 块</small></div>
+    </div>
+  </div>
+
+  <!-- ⑧ 工程护栏 -->
+  <div class="layer" style="border-style:dashed;border-color:rgba(156,107,201,.6);">
+    <span class="layer-tag" style="background:#9C6BC9;">⑧ 贯穿全链路的工程护栏（AI 落地能力的关键）</span>
+    <div class="row">
+      <div class="node guard"><b>成本熔断与记账</b><small>调用前预检限额 → 真实 usage 记账 → 超限 429；客户端中途断开在 finally 补 0-token 账，防白嫖</small></div>
+      <div class="node guard"><b>归属与越权防护</b><small>一律走 owner_clause / matches_owner；个人数据工具按归属者过滤，无身份明确拒绝；身份证/手机号禁入日志</small></div>
+      <div class="node guard"><b>双轨与降级</b><small>v1/v2 双轨、图/混合检索独立开关；图会话走续跑、旧会话回退单轮；v2 异常不影响 v1</small></div>
+      <div class="node guard"><b>可观测</b><small>SSE 全事件 + trace_id 全链路日志 + agent_spans 节点轨迹 + 管理端 audit_logs 审计</small></div>
+      <div class="node guard"><b>评测闭环</b><small>eval_rag / eval_agent_routing / eval_agent_e2e / eval_interview_graph，改图/检索/工具后必须对比基线</small></div>
+    </div>
+    <div class="metrics">
+      <div class="m green"><div class="v">403 全绿</div><div class="k">pytest 用例（AI/embedding 全 mock）</div></div>
+      <div class="m green"><div class="v">90.21%</div><div class="k">覆盖率（门槛 85% 已入 CI）</div></div>
+      <div class="m"><div class="v">87.8% / 100%</div><div class="k">RAG hit@1 / hit@5（混合检索）</div></div>
+      <div class="m"><div class="v">40/40</div><div class="k">Agent 工具路由评测</div></div>
+      <div class="m"><div class="v">11/11</div><div class="k">Agent v2 端到端黄金任务</div></div>
+      <div class="m"><div class="v">8 场景</div><div class="k">面试官图评测（含追问 2 场景）</div></div>
+      <div class="m"><div class="v">13 工具 · 17 迁移</div><div class="k">155 文件 ruff 全绿</div></div>
+    </div>
+  </div>
+
+  <div class="note footnote">
+    <b>数据口径</b>：指标来自 AGENTS.md v4.5.0（2026-10-02 实测）与 backend/data 下评测产物：RAG 指标见 <code>data/kb_eval/report.md</code>（黄金问答集，线上口径 top-k）；工具路由见 <code>data/agent_eval/report.md</code>；v2 端到端见 <code>data/agent_eval/e2e_report.md</code>；面试图评测见 <code>scripts/eval_interview_graph</code>。<br>
+    <b>工程质量门</b>：CI 顺序为 ruff → alembic → pytest（覆盖率门槛 85%）→ npm build；pre-commit 跑 ruff check + format；收口打 tag 前必须跑 <code>scripts.release_check</code> 核对文档口径（用例数/工具数/迁移数/版本号/tag）与代码实况一致。<br>
+    <b>设计立场</b>：v1 用 LangChain 1.x create_agent、v2 与面试官用 LangGraph 1.2 StateGraph + PostgresSaver；节点只调 service 层、不碰 api；工具经闭包绑定归属者；风险动作（创建面试场次）必须经 HITL 审批，零审批零副作用。
+  </div>
+</div>
+</body>
+</html>

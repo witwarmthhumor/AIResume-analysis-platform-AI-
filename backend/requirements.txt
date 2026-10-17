@@ -20,6 +20,12 @@ pgvector>=0.3        # SQLAlchemy 的 vector 类型映射；embedding 由 Ollama
 # v3.5：混合检索（向量 + BM25 词法，RRF 融合）——中文分词用 jieba，纯 Python 无系统依赖
 jieba>=0.42
 
+# v4.6：重排序（rerank，可选功能，默认关闭 kb_rerank_enabled=False）
+# ONNX Runtime 复用 faster-whisper 已装依赖，只需 tokenizers 解析分词器；
+# **刻意不引入 torch** —— 本机 CPU-only，torch 的体积与加载耗时都不划算。
+# 模型文件用 scripts.fetch_rerank_model 下载到 backend/models/rerank/（已 gitignore）。
+tokenizers>=0.21
+
 # v3.4 起：AI 客服 Agent（LangChain 局部引入，仅 Agent 层使用，手写 RAG 链路不依赖它）
 # v4.4（2026-10-02）依赖链解冻：0.3/0.2 线已停更且 46 个漏洞中 12 个被上限锁死
 # （docs/依赖链解冻调研报告.md），整体切换 1.x——v1 AgentExecutor 重写为

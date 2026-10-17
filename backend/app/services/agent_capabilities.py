@@ -103,6 +103,9 @@ def kb_retrieve(
             # v3.5：工具入参原文一并交给检索层，走向量 + BM25 混合检索
             query_text=query,
             document_ids=document_ids,
+            # v4.6：Agent 侧声明为 "agent" —— 默认 scope=playground 时不走重排序
+            # （同步工具多调一次就多 ~1s 延迟，体感代价高于排序收益）
+            caller="agent",
         )
     except Exception:
         logger.exception("agent 知识库检索失败")

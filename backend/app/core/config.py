@@ -87,6 +87,26 @@ class Settings(BaseSettings):
     kb_bm25_k1: float = 1.5  # BM25 词频饱和参数
     kb_bm25_b: float = 0.75  # BM25 文档长度归一化参数
 
+    # v4.6 重排序（rerank）：在 RRF 融合之后对候选做 cross-encoder 精排。
+    # 接入位置固定在 kb_service.search_chunks_hybrid()——调用方（RAG 问答 / Agent kb_search）
+    # 不感知；关闭时链路行为与 v3.5 完全一致。
+    # ⚠️ 本机无 GPU（CPU-only 推理），本地 reranker 延迟是主要成本 → 默认关 + 超时熔断。
+    # 实测（bge-reranker-base int8 ONNX，20 条 × 平均 466 字候选）：max_length 512→3.07s、
+    # 256→2.28s、128→1.04s；故取"10 条 × 256 截断"，评测实测 ≈1.1s/次且 0 降级。
+    kb_rerank_enabled: bool = False  # 总开关（默认关，评测通过后再开）
+    kb_rerank_scope: str = "playground"  # 生效范围：playground（仅 RAG 问答页，用户能等）| all（含 Agent kb_search 同步工具）
+    kb_rerank_provider: str = "onnx"  # onnx（本地轻依赖）| api（云端 rerank 服务）
+    kb_rerank_model: str = (
+        "Xenova/bge-reranker-base"  # onnx 模型仓库 / api 服务端模型名
+    )
+    kb_rerank_model_dir: str = "models/rerank"  # 本地模型目录（相对 backend/）
+    kb_rerank_candidates: int = 10  # 送入 rerank 的候选数（延迟第一旋钮）
+    kb_rerank_timeout_ms: int = 3000  # 超时即回退 RRF 结果（延迟第二旋钮）
+    kb_rerank_batch_size: int = 8  # 单批打分条数
+    kb_rerank_max_length: int = 256  # query+chunk 截断长度（延迟敏感项）
+    kb_rerank_api_base: str = ""  # provider=api 时的服务地址
+    kb_rerank_api_key: str = ""  # provider=api 时的 Key（放 .env，勿入库）
+
     # v3.4：AI 客服 Agent（LangChain）。与在线对话独立限流；Agent 单次可能多轮调 LLM，故上限更低
     daily_agent_limit: int = 30  # 每人每日 AI 客服提问上限
     agent_max_iterations: int = 6  # Agent 单次最大工具循环步数，防无限循环

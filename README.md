@@ -204,8 +204,8 @@ npm run build
 - **SSE 流式面试**：面试官回复逐字推送，三点跳动打字动画 + 头像气泡 UI
 - **Celery + Redis 异步**：解析/AI 分析迁移到 Celery 任务，任务状态可查询；面试 SSE 保持同步流式
 - **智能出题**：`position_type`（intern/fresh/senior/通用）按方向调整提示词难度与提问方向，PROMPT_VERSION 递增
-- **RAG 检索（v3.5 混合检索）**：`kb_chunker.py` 段落合并切块（~600字/块 + 60字重叠，无内容丢失）；检索为**向量 + BM25 双路召回 + RRF 融合**——向量路走 pgvector HNSW（数据库排序），词法路用 jieba 分词 + 手写 BM25；`kb_service.py` 幂等入库；问答 SSE 流式回答带引用来源（来源可折叠展开）
-- **可量化的检索质量**：`scripts/eval_rag.py` 同一份 49 题黄金问答集并排跑「纯向量 vs 混合」——hit@1 **71.4% → 87.8%**，hit@5 **91.8% → 100%**，报告落 `data/kb_eval/report.md`
+- **RAG 检索（v3.5 混合检索 → v4.6 可加重排序）**：`kb_chunker.py` 段落合并切块（~600字/块 + 60字重叠，无内容丢失）；检索为**向量 + BM25 双路召回 + RRF 融合**——向量路走 pgvector HNSW（数据库排序），词法路用 jieba 分词 + 手写 BM25；融合结果可再叠加 **cross-encoder 重排序**（`bge-reranker-base` int8 ONNX，本地 CPU 推理 ≈1.0s/次；超时或异常一律静默回退 RRF 顺序；开关 `kb_rerank_enabled` 默认关，生效范围 `kb_rerank_scope` 默认只覆盖 RAG 问答页 —— Agent 的同步检索工具按需用 `all` 打开）；`kb_service.py` 幂等入库；问答 SSE 流式回答带引用来源（来源可折叠展开）
+- **可量化的检索质量**：`scripts/eval_rag.py` 同一份 49 题黄金问答集并排跑三路——纯向量 / 混合（RRF）/ 混合 + 重排序：hit@1 **71.4% → 87.8% → 98.0%**，hit@5 **91.8% → 100% → 100%**，MRR@5 0.9354 → **0.9898**，报告落 `data/kb_eval/report.md`（含逐题翻转明细）
 - **异步入库**（v3.0）：`ingest_kb` Celery 任务切块+向量化，用户上传文档提交任务后状态 pending→processing→ready
 - **LangChain ReAct Agent**（v3.4 / v3.5 扩工具）：`services/agent/` 四件套——`llm_factory`（ChatOpenAI streaming，未配 Key 抛 ValueError → API 503）、`tools`（**每请求闭包工厂**，绑定本次请求的 db 会话与归属者，杜绝多请求串数据）、`executor`（1.x `create_agent` 图 + 后台线程内 `astream_events` 泵，把 `on_tool_start` / `on_tool_end` / `on_chat_model_stream` 转成 action / observation / delta 事件队列，SSE 协议零变化）
 - **13 个 Agent 工具**（v3.10）：检索/查询类 9 个——`kb_search`（知识库，可按 `document` 限定单篇）、`resume_lookup`（本人简历 + 关键词定位）、`interview_history`（本人面试场次与四维评分）、`interview_transcript`（本人面试问答原文）、`score_trend`（评分趋势）、`conversation_search`（历史对话检索）、`usage_stats`（本人用量，可按 `action` 过滤）、`analysis_read`（读本人分析报告）、`kb_list`（语料清单）；静态类 1 个 `platform_help`；工具内 LLM 类 3 个 `job_match` / `question_gen` / `answer_review`（走 `_run_tool_llm` 独立限额）。全部按归属者过滤，无身份时明确拒绝而非返回空结果
@@ -235,7 +235,7 @@ npm run build
 - **报告版本对比**（v3.5）：简历分析报告可取历次 `prompt_version` 两版并排，逐条标出「仅本版有」——改提示词后能直观看出结论变化
 
 ### 测试
-- **403 个 pytest 全量覆盖**：上传校验（含 docx）、分析、面试（SSE/状态机/图编排/题库驱动）、认证（用户名/手机号注册登录/改密全端下线/锁定 fail-open/**登录闸门真身/跨用户越权 sweep**）、个人信息（头像/身份证/手机号一次绑定）、**面试题库（生成/归属隔离/题库驱动面试）**、**录音分析（转写 stub/角色审核/面试审核/记账）**、任务、隔离、软删除、知识库（切块器/检索/owner 隔离/Playground SSE）、**混合检索（BM25 分词/排序/阈值回退）**、在线对话（多会话 CRUD/隔离/标题自动生成）、管理端语料库、使用日志筛选分页、Agent（工具命中/未命中兜底/回调事件/SSE 编排/归属校验/限额/503）、**Agent 个人数据工具（归属隔离/无身份拒绝/聚合口径）**、**面试评分列表与分析版本列表**、**LangGraph v2 编排（图节点/审批超时与并发乐观锁/事件总线多订阅者/断点重连快照/孤儿 run 回收/SQL 分页聚合）**；全部 mock AI/embedding/whisper 不烧额度
+- **429 个 pytest 全量覆盖**：上传校验（含 docx）、分析、面试（SSE/状态机/图编排/题库驱动）、认证（用户名/手机号注册登录/改密全端下线/锁定 fail-open/**登录闸门真身/跨用户越权 sweep**）、个人信息（头像/身份证/手机号一次绑定）、**面试题库（生成/归属隔离/题库驱动面试）**、**录音分析（转写 stub/角色审核/面试审核/记账）**、任务、隔离、软删除、知识库（切块器/检索/owner 隔离/Playground SSE）、**混合检索（BM25 分词/排序/阈值回退）**、**重排序（开关关闭零字段变化 / 池内换序 / 超时·异常·API 降级）**、在线对话（多会话 CRUD/隔离/标题自动生成）、管理端语料库、使用日志筛选分页、Agent（工具命中/未命中兜底/回调事件/SSE 编排/归属校验/限额/503）、**Agent 个人数据工具（归属隔离/无身份拒绝/聚合口径）**、**面试评分列表与分析版本列表**、**LangGraph v2 编排（图节点/审批超时与并发乐观锁/事件总线多订阅者/断点重连快照/孤儿 run 回收/SQL 分页聚合）**；全部 mock AI/embedding/whisper 不烧额度
 - ruff check + ruff format --check 全绿（CI 两道都跑）、npm build 通过
 - **RAG 有量化基线**：`scripts/eval_rag.py` 跑 49 题黄金问答集并排对比「纯向量 / 混合」，改检索逻辑必须对比 `data/kb_eval/report.md`
 - **工具路由有量化基线**：`scripts/eval_agent_routing.py` 40 题 40/40 = 100%（`data/agent_eval/report.md`），改工具描述/增删工具必须对比

@@ -78,7 +78,7 @@ flowchart LR
 | 输出治理 | 固定 JSON 结构 + Pydantic 校验 + 失败自动重试（最多 2 次） |
 | 版本追溯 | 提示词带 `PROMPT_VERSION`，改提示词必须递增，旧报告不复用 |
 | 本地 Embedding | Ollama 跑 `nomic-embed-text`，768 维，OpenAI 兼容 API；切云端只改配置 |
-| RAG 链路 | 混合检索（向量 + 词法 BM25，RRF 融合）→ 取 top-k → 大模型生成 + 引用来源；相似度高阈值过滤，相关阈值 0.65 |
+| RAG 链路 | 混合检索（向量 + 词法 BM25，RRF 融合）→（可选）cross-encoder 重排序 → 取 top-k → 大模型生成 + 引用来源；纯向量路径相似度阈值 0.65 |
 | Agent 框架 | LangChain 0.3 ReAct（`create_openai_tools_agent` + `AgentExecutor`），单次最大 6 步工具循环（`agent_max_iterations`） |
 | Agent 流式 | 后台 daemon 线程跑 `AgentExecutor`，自定义 Callback 把 `on_tool_start / on_tool_end / on_llm_new_token` 转成 action / observation / delta 事件队列，API 层转 SSE |
 | Agent 工具工厂 | `make_tools(db, user_id, anonymous_id, ctx)` **每请求闭包工厂**：工具实例绑定本次请求的 db 会话与归属者，杜绝多请求共享导致串数据 |
@@ -168,6 +168,8 @@ flowchart LR
 
 - 段落切块器：约 600 字/块 + 60 字重叠，超长段落硬切，保证无内容丢失。
 - **混合检索（v3.5）**：pgvector HNSW 余弦相似度（向量路，数据库排序）+ jieba 分词 BM25（词法路，手写实现，无第三方 BM25 依赖）→ RRF 融合取 top-k。参数 `kb_hybrid_candidates=50`（每路候选）、`kb_rrf_k=5`（在 49 题评测集上扫描选定）；`kb_hybrid_enabled=False` 可一键退回纯向量路径做 A/B。详见模块 10。
+- **重排序 rerank（v4.6，默认关闭）**：在 RRF 融合结果之上叠加 cross-encoder 精排（`bge-reranker-base` int8 ONNX，**零 torch 依赖**，只用 onnxruntime + tokenizers）。接入点只有一处（`kb_service.search_chunks_hybrid()` → `_apply_rerank()`），调用方（RAG 问答 / Agent `kb_search`）完全不感知；**超时（默认 3000ms）或任何异常一律静默回退 RRF 顺序**，检索链路不因 rerank 失败而报错。参数：候选 10 条 × 截断 256 token（CPU 实测 ≈1.0s/次）。开关关闭时返回结构与 v3.5 逐字段一致。
+- **按调用方区分的生效范围（`kb_rerank_scope`）**：默认 `playground` —— 只有 RAG 问答页走重排序；Agent 的同步检索工具（一轮可能多次调用）保持 RRF 顺序，避免每次 +1s 拖慢对话体感。需要全链路开启时设 `all`。调用方通过 `search_chunks(caller=...)` 声明身份，判据集中在 `kb_service._rerank_allowed()`。
 - RAG 流式回答并附引用来源（前端可折叠展开）；未命中时明确提示「知识库无相关内容」。
 - 知识库文档 CRUD：支持上传 txt / md / pdf。
 - Celery 异步入库：文档状态 `pending → processing → ready`，任务幂等可重试。
@@ -224,13 +226,18 @@ flowchart LR
 
 ### 模块 10 · 检索质量与评测（v3.5）
 
-- **评测脚本**：`scripts/eval_rag.py` 对 49 题黄金问答集（`data/kb_eval/qa.json`）**并排跑两种模式**——`vector`（纯向量，v3.0 基线）/ `hybrid`（向量 + BM25 RRF，生产路径），输出汇总对比、**翻转明细**（哪些题被救回/变差）与逐题明细，写入 `data/kb_eval/report.md`。
-- **当前基线**（2026-09-14，语料 7 文件 111 块）：
+- **评测脚本**：`scripts/eval_rag.py` 对 49 题黄金问答集（`data/kb_eval/qa.json`）**并排跑三种模式**——`vector`（纯向量，v3.0 基线）/ `hybrid`（向量 + BM25 RRF，生产路径）/ `hybrid_rerank`（v4.6 在 hybrid 之上叠加 cross-encoder 重排序，直接调用生产实现不重写），输出汇总对比、**翻转明细**（哪些题被救回/变差）与逐题明细，写入 `data/kb_eval/report.md`。指标含 hit@1 / hit@5 / **MRR@5** / **nDCG@5**——后两者是 v4.6 新增，用于衡量"把正确块提前"的排序收益（hit@k 是集合型指标，会低估 rerank）。
+- **当前基线**（2026-10-13 实测，语料 7 文件 111 块）：
 
-  | 指标 | vector | hybrid | 变化 |
+  | 指标 | vector | hybrid | hybrid_rerank |
   |---|---|---|---|
-  | hit@1 | 35/49 (71.4%) | **43/49 (87.8%)** | +8 |
-  | hit@5 | 45/49 (91.8%) | **49/49 (100%)** | +4 |
+  | hit@1 | 35/49 (71.4%) | 43/49 (87.8%) | **48/49 (98.0%)** |
+  | hit@5 | 45/49 (91.8%) | 49/49 (100%) | 49/49 (100%) |
+  | MRR@5 | 0.8010 | 0.9354 | **0.9898** |
+  | nDCG@5 | 0.6045 | 0.7317 | **0.7686** |
+  | 单次检索耗时 | ~0.1s | ~0.1s | ≈1.0s（CPU，0 降级） |
+
+  > 重排序**默认关闭**（`kb_rerank_enabled=False`）：上面的增益是"打开后"的数字，对应代价是检索段延迟从 ~0.1s 升到 ~1.0s。
 
 - **典型救回场景**：术语类中文短查询（「垃圾回收算法」「类的加载过程」「线程池核心参数」）——纯向量把人名/岗位 JD 排在前面，BM25 靠字面命中把它们拉回正确来源，且**无任何一题变差**。
 - **参数扫描方法**：在评测集上扫 RRF `k ∈ {5,10,20,30,60}` × 候选池 `{20,50}`，实测 k=5 / 50 最优（k=60 时 41/49）——中文短查询的头部名次含金量高于英文长文场景。
