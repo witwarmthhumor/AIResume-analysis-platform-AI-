@@ -38,13 +38,14 @@ const avatarColor = computed(() => avatarPresetInfo.value?.color || null)
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
 
 // —— 侧边栏导航项：全角色统一（v4.2.1）——
-// 四业务模块 + 使用日志（本人口径）+ 数据看板（管理员全站 / 普通用户本人，AdminPanel 内按角色分叉）；
-// 在线对话 / 语料库管理 / AI 客服不在导航露出但路由可达（代码保留，方案 §2.2）
+// 五业务模块（含 AI 客服）+ 使用日志（本人口径）+ 数据看板（管理员全站 / 普通用户本人，
+// AdminPanel 内按角色分叉）；在线对话 / 语料库管理不在导航露出但路由可达（代码保留，方案 §2.2）
 const navItems = [
   { key: 'resume', label: '简历评估', icon: 'file' },
   { key: 'audio', label: '录音分析', icon: 'mic' },
   { key: 'question-gen', label: '面试题生成', icon: 'pen' },
   { key: 'interview', label: '模拟面试', icon: 'chat' },
+  { key: 'agent', label: 'AI 客服', icon: 'spark' },
   { key: 'history', label: '使用日志', icon: 'list' },
   { key: 'admin', label: '数据看板', icon: 'chart' },
 ]
