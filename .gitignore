@@ -69,3 +69,8 @@ docs/语音转写ASR-优化与选型方案.md
 docs/简历项目经历.md
 docs/架构全景.html
 docs/架构全景-v2.0.html
+
+# 第二轮精简（2026-10-18）：只保留本地开发运行所需，生产编排整套本地留档
+docker-compose.prod.yml
+.pre-commit-config.yaml
+docs/部署上线手册.md
