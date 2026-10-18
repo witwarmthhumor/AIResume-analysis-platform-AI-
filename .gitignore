@@ -55,3 +55,17 @@ scripts/ralph/.last-branch
 
 # 数据库备份（清理前留档，体积大且可能含用户数据，永不入库）
 .backups/
+
+# 远程仓库只保留可运行代码与说明（2026-10-18 清理）：以下为本地过程性产物，仅本地保留
+tasks/
+scripts/ralph/
+code-quality-report-v*.md
+ref_*.png
+.zcodeignore
+docs/PRD-*
+docs/依赖链解冻调研报告.md
+docs/改造总体方案.md
+docs/语音转写ASR-优化与选型方案.md
+docs/简历项目经历.md
+docs/架构全景.html
+docs/架构全景-v2.0.html
