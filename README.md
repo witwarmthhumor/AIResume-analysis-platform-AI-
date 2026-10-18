@@ -74,37 +74,11 @@ bash scripts/demo-up.sh --no-seed                                 # 只准备环
 - Agent v2（v4.0 试点）：**LangGraph 1.2** + PostgresSaver 断点持久化 + interrupt/Command 人机协同；与 v1 双轨并存（`agent_v2_enabled` 开关，v2 异常不影响 v1）
 - Embedding（v3.0）：Ollama 本地 nomic-embed-text（768 维，OpenAI 兼容 API），pgvector HNSW 向量检索；可切云端 embedding
 
-## 生产 Docker 一键启动
+## 生产部署说明
 
-前置：安装 Docker Desktop，并准备一个真实的部署环境文件：
+项目含完整的 Dockerfile（backend / frontend）与 Nginx 生产编排设计（健康探针、依赖编排、具名卷持久化），但**生产编排文件未随本仓库分发** —— 仓库以「本地开发运行」为准（见上方快速启动）。数据卷约定：`pgdata`（Postgres）、`redisdata`（Redis）、`uploadsdata`（简历文件）、`ollama_data`（embedding 模型，重建容器不重复下载 ~275MB）。
 
-```bash
-cp backend/.env.docker.example backend/.env.docker
-# 编辑 backend/.env.docker，至少填写 POSTGRES_PASSWORD、JWT_SECRET_KEY、AI_API_KEY
-
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
-访问 `http://localhost`（或设置 `APP_PORT=8080` 后访问 `http://localhost:8080`）。
-
-> **v4.1 起登录防爆破已迁 Redis 集中计数**（`login:fail:*` 键，INCR+EXPIRE 续窗），多 worker 部署语义正确；Redis 故障时 fail-open 放行登录并记告警日志，不把缓存变成登录单点。
->
-> **单 worker 限定（v4.4.1 注记）**：Agent v2 / 求职准备的 SSE 事件总线是进程内实现（`services/agent_v2/event_bus.py`），uvicorn 必须单 worker 启动（现状即如此）；未来多副本 / 多 worker 部署前需先把事件总线换成 Redis Pub/Sub（订阅/补发接口已抽象，替换面可控）。
-
-查看状态和日志：
-
-```bash
-docker compose -f docker-compose.prod.yml ps
-docker compose -f docker-compose.prod.yml logs -f backend worker frontend
-```
-
-停止服务但保留数据：
-
-```bash
-docker compose -f docker-compose.prod.yml stop
-```
-
-数据卷：`pgdata`（Postgres）、`redisdata`（Redis）、`uploadsdata`（简历文件）、`ollama_data`（embedding 模型，重建容器不重复下载 ~275MB）。生产环境应定期备份 Postgres，并限制卷和 `.env.docker` 的文件权限。
+> **单 worker 限定（v4.4.1 注记）**：Agent v2 / 求职准备的 SSE 事件总线是进程内实现（`services/agent_v2/event_bus.py`），多副本 / 多 worker 部署前需先把事件总线换成 Redis Pub/Sub（订阅/补发接口已抽象，替换面可控）。
 
 ## 架构
 
@@ -197,7 +171,7 @@ npm run build
 - **Router → Service → Model 三层**：API 路由不堆业务逻辑，限流/记账/分析落库全下沉到 `services/`（`usage_service.py`、`analysis_service.py`），`RouterRegistry` 自动注册路由，`main.py` 仅保留两行注册调用
 - **统一错误体系**：自定义异常类（`ValidationError` / `AuthenticationError` / `NotFoundError` / `RateLimitError`） + 全局 `exception_handler`，所有 4xx/5xx 输出 `{"code":"...","message":"...","details":null}`，成功响应保持原结构
 - **Alembic 版本化迁移**：**17 次**迁移全线可用（含 pgvector 向量表与 HNSW 索引、`langgraph` checkpoint schema 预建、v4.0 四张编排表、v4.1 用户名/`token_version` 回填、v4.2 题库与录音分析表、v4.2.1 注册放开邮箱非空），禁止手改表；`alembic check` 无漂移；`created_at` 全表索引，`user_id` / `session_id` / `anonymous_id` 等关键查询字段均索引
-- **Docker 六容器生产编排**：Nginx + FastAPI + Celery Worker + PostgreSQL（pgvector）+ Redis + Ollama，健康探针 + 依赖编排 + 具名卷持久化，`docker compose -f docker-compose.prod.yml up -d --build` 一键启动
+- **Docker 六容器生产编排**：Nginx + FastAPI + Celery Worker + PostgreSQL（pgvector）+ Redis + Ollama，健康探针 + 依赖编排 + 具名卷持久化（编排文件未随仓库分发，见「生产部署说明」）
 
 ### AI 与异步
 - **AIService 统一封装**（`ai_client.py`）：OpenAI 兼容协议，换模型 = 改 `.env` 三行；Pydantic 强校验 + 失败自动重试（最多 2 次），失败 ERROR 日志含模型/异常原文/重试次数

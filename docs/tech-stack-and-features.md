@@ -109,7 +109,7 @@ flowchart LR
 | Nginx | 静态文件托管、SPA history fallback、`/api` 反向代理、`proxy_buffering off` 保证 SSE 不缓冲 |
 | 具名卷持久化 | `pgdata`（数据库）、`redisdata`、`uploadsdata`（简历原文件）、`ollama_data`（模型） |
 | 健康/就绪探针 | Postgres `pg_isready`、Redis `ping`、Ollama `ollama list`，后端 `/health` |
-| 生产启动 | `docker compose -f docker-compose.prod.yml up -d --build` 一键起全套 |
+| 生产部署 | 编排设计见架构图与 README「生产部署说明」（编排文件未随仓库分发） |
 
 ### 6. 质量与工程化
 
